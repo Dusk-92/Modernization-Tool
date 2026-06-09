@@ -1,0 +1,41 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build EXE
+        run: >
+          pyinstaller
+          --noconsole
+          --onefile
+          --icon=PurpleWowLogo.ico
+          --add-data "Payload;Payload"
+          --add-data "vanilla-tweaks.exe;."
+          --name "WoW_Modernization_Tool"
+          setup_tool.py
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/WoW_Modernization_Tool.exe
+          name: "WoW Modernization Tool ${{ github.ref_name }}"
+          body: "Release automatique générée par GitHub Actions."
