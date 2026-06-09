@@ -1,0 +1,703 @@
+import os
+import sys
+import shutil
+import subprocess
+import math
+import tkinter as tk
+import webbrowser
+from tkinter import ttk, filedialog, messagebox
+
+def get_base_path():
+    """Gets the correct directory whether running as a script or a compiled .exe"""
+    if getattr(sys, 'frozen', False):
+        # Running as a compiled PyInstaller executable
+        return sys._MEIPASS
+    # Running as a normal Python script
+    return os.path.dirname(os.path.abspath(__file__))
+
+class ToolTip:
+    """Creates a hover-tooltip for a given tkinter widget."""
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tw = None
+        self.id = None
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        self.schedule()
+
+    def schedule(self):
+        self.unschedule()
+        self.id = self.widget.after(400, self.showtip) # 400ms delay before showing
+
+    def unschedule(self):
+        if self.id:
+            self.widget.after_cancel(self.id)
+            self.id = None
+
+    def showtip(self, event=None):
+        x, y, cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 20
+        self.tw = tk.Toplevel(self.widget)
+        self.tw.wm_overrideredirect(True)
+        self.tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(self.tw, text=self.text, justify='left',
+                         background="#ffffe0", relief='solid', borderwidth=1,
+                         font=("Segoe UI", "9", "normal"), wraplength=350)
+        label.pack(ipadx=6, ipady=4)
+
+    def leave(self, event=None):
+        self.unschedule()
+        if self.tw:
+            self.tw.destroy()
+            self.tw = None
+
+class WowSetupTool:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("WoW Vanilla 1.12 Modernization Tool")
+        
+        # Lock window size exactly as requested
+        self.root.geometry("680x610") 
+        self.root.resizable(False, False)
+
+        icon_path = os.path.join(get_base_path(), "PurpleWowLogo.ico")
+        if os.path.exists(icon_path):
+            self.root.iconbitmap(icon_path)
+
+        # Dictionary containing all tooltip explanations
+        self.descriptions = {
+            # Setup & General
+            "autologin": "Automates the authentication process. Bypasses the standard login screen by securely passing your credentials so you drop directly into the character selection screen.",
+            "dxvk_standard": "Includes DXVK v2.6.2. Translates legacy DirectX 9 calls into modern Vulkan API, dramatically improving frame pacing on modern NVIDIA and Intel GPUs.",
+            "dxvk_amd": "Uses DXVK v2.5.3, an older stable release that prevents crashing issues specific to AMD graphics cards.",
+
+            # Core DLLs
+            "nampower.dll": "Nampower 4.2.0: Implements ping compensation. Bypasses a 1.12 client flaw to enable queueing spell casts, enabling tighter spell batching for players with network latency.",
+            "no1600x1200.dll": "Removes the hardcoded 1600x1200 resolution limit. Natively unlocks widescreen and ultrawidescreen resolutions in the game settings.",
+            "perf_boost.dll": "Provides dynamic render distance controls (culling). Stabilizes framerates in crowded environments by lowering the rendering priority of non-essential entities.",
+            "UnitXP_SP3.dll": "Engine-level optimizations replacing legacy assembly. Introduces improved network handling, better Tab-targeting, true line-of-sight checks via Lua, and modern nameplate support.",
+            "VanillaHelpers.dll": "Expands engine limits. Raises the client memory allocator from 2GB to 4GB to prevent Out-of-Memory crashes and introduces modern high-resolution texture support.",
+            "SuperWoWhook.dll": "Injects a massively expanded Lua API. Increases macro limit, enables castbars on nameplates, and provides hooks for modern UI addons.",
+            "transmogfix.dll": "Eliminates FPS drops caused by rapid equipment visual updates when transmogged items lose durability.",
+            "weirdperformance.dll": "Engine-level optimizations: SIMD math replacements, faster data decompression (modern zlib), MPQ file caching, timer calibration, and Lua runtime GC improvements.",
+
+            # WeirdUtils
+            "bigcursor.dll": "Upscales the hardware cursor for improved visibility on modern resolutions without losing sharpness (up to 4.0x scale via CVar).",
+            "customassets.dll": "Enables loading loose game asset files from the Data/ directory mirroring internal paths without needing to repack MPQ archives.",
+            "logsessions.dll": "Organizes combat and chat logs into clean, per-character, per-day files automatically upon login.",
+            "minimapicons.dll": "Adds TBC/WotLK-style minimap tracking icons for NPCs and objects, combined into a new native tracking dropdown.",
+            "pngscreenshots.dll": "Saves screenshots as compressed PNG files on a background thread to completely eliminate frame drops when taking pictures.",
+            "worldmarkers.dll": "Place up to 5 animated colored markers (Cataclysm style) in the world for raid positioning. Syncs automatically with other users.",
+
+            # Tweaks Tab
+            "fov": "Calculates horizontal Field of View mathematically scaled to maintain vertical aspect space based on your screen ratio.",
+            "farclip": "Increases the maximum terrain render distance. Vanilla default is 777. Tweaks default is 1500.",
+            "frill": "Changes the ground clutter (grass) render distance. Vanilla default is 70. Tweaks default is 300.",
+            "nameplate": "Increases the distance at which enemy nameplates become visible. Vanilla default is 20. Tweaks default is 41.",
+            "cam": "Increases the maximum camera zoom-out distance. Vanilla default is 50. Max safe limit is 100.",
+            "sound": "Increases the maximum number of simultaneous audio channels. Values above 64 may cause crashes.",
+            "loot": "Reverses the auto-loot behavior so you always auto-loot, and hold Shift for manual looting.",
+            "bg_sound": "Allows game sounds to continue playing while the game is minimized or in the background.",
+            "laa": "Patches the executable to be Large Address Aware, allowing the 32-bit client to utilize up to 4GB of RAM (Essential for HD Mods).",
+            "cam_fix": "Fixes a bug where right-clicking and dragging to rotate the camera occasionally snaps your view in a random direction.",
+            "dep_fix": "Disables Data Execution Prevention (DEP) and EmulateAtlThunks for WoW_Tweaked.exe. Prevents Windows from force-closing the game due to memory hooks. (Prompts for Admin Privileges)."
+        }
+
+        # Basic Setup Variables
+        self.wow_dir = tk.StringVar()
+        self.gpu_type = tk.StringVar(value=self.detect_gpu())
+        self.install_autologin = tk.BooleanVar(value=True)
+
+        self.screen_w = self.root.winfo_screenwidth()
+        self.screen_h = self.root.winfo_screenheight()
+        self.detected_ratio = self.screen_w / self.screen_h
+
+        self.ratio_options = {
+            f"Auto-detected ({self.screen_w}x{self.screen_h})": self.detected_ratio,
+            "4:3 (Standard)": 4.0/3.0,
+            "16:9 (Widescreen)": 16.0/9.0,
+            "16:10 (Widescreen)": 16.0/10.0,
+            "21:9 (Ultrawide)": 21.0/9.0,
+            "32:9 (Super Ultrawide)": 32.0/9.0
+        }
+
+        # Core Plugins (These files must be in the base Payload/ folder)
+        self.core_plugins = {
+            "nampower.dll": tk.BooleanVar(value=True),
+            "no1600x1200.dll": tk.BooleanVar(value=True),
+            "perf_boost.dll": tk.BooleanVar(value=True),
+            "SuperWoWhook.dll": tk.BooleanVar(value=True), 
+            "transmogfix.dll": tk.BooleanVar(value=True),
+            "UnitXP_SP3.dll": tk.BooleanVar(value=True),
+            "VanillaHelpers.dll": tk.BooleanVar(value=True),
+            "weirdperformance.dll": tk.BooleanVar(value=True)
+        }
+
+        # Optional WeirdUtils (These files must be in the Payload/WeirdUtils/ folder)
+        self.optional_plugins = {
+            "bigcursor.dll": tk.BooleanVar(value=False),
+            "customassets.dll": tk.BooleanVar(value=False),
+            "logsessions.dll": tk.BooleanVar(value=False),
+            "minimapicons.dll": tk.BooleanVar(value=False),
+            "pngscreenshots.dll": tk.BooleanVar(value=False),
+            "worldmarkers.dll": tk.BooleanVar(value=False)
+        }
+
+        self.addon_dependencies = {
+            "nampower.dll": "nampowersettings",
+            "perf_boost.dll": "perfboostsettings",
+            "UnitXP_SP3.dll": "UnitXP_SP3_Addon",
+            "SuperWoWhook.dll": "SuperAPI"
+        }
+
+        # Vanilla Tweaks Variables 
+        self.vt_fov = tk.DoubleVar()
+        self.ratio_var = tk.StringVar(value=list(self.ratio_options.keys())[0]) 
+        self.vt_farclip = tk.IntVar(value=1500)
+        self.vt_frill = tk.IntVar(value=300)
+        self.vt_nameplate = tk.IntVar(value=41)
+        self.vt_soundchan = tk.IntVar(value=64)
+        self.vt_maxcam = tk.IntVar(value=100)
+        
+        # Tweak Toggles 
+        self.vt_quickloot = tk.BooleanVar(value=True)
+        self.vt_bg_sound = tk.BooleanVar(value=True)
+        self.vt_laa = tk.BooleanVar(value=True)
+        self.vt_cam_fix = tk.BooleanVar(value=True)
+        self.vt_dep_fix = tk.BooleanVar(value=True)
+        
+        # Safety Limit Toggle
+        self.safety_override = tk.BooleanVar(value=False)
+        self.slider_widgets =[] 
+
+        self.on_ratio_change() 
+        self.build_ui()
+
+    def detect_gpu(self):
+        try:
+            output = subprocess.check_output("wmic path win32_VideoController get name", shell=True).decode()
+            if "AMD" in output.upper() or "RADEON" in output.upper():
+                return "AMD"
+            return "Standard"
+        except Exception:
+            return "Standard" 
+
+    def on_ratio_change(self, event=None):
+        selection = self.ratio_var.get()
+        ratio = self.ratio_options.get(selection, 4.0/3.0)
+        default_ar, default_fov = 4.0 / 3.0, 1.570796
+        fov = 2 * math.atan((ratio / default_ar) * math.tan(default_fov / 2))
+        self.vt_fov.set(round(fov, 4))
+
+    def toggle_safety_limits(self):
+        override = self.safety_override.get()
+        for scale, safe_max, extreme_max, var in self.slider_widgets:
+            if override:
+                scale.configure(to=extreme_max)
+            else:
+                scale.configure(to=safe_max)
+                try:
+                    if var.get() > safe_max:
+                        var.set(safe_max)
+                except tk.TclError:
+                    pass
+
+    def create_slider_row(self, parent, row, label_text, var, min_val, safe_max, extreme_max, desc_key):
+        lbl = ttk.Label(parent, text=label_text)
+        lbl.grid(row=row, column=0, sticky='w', pady=5)
+        ToolTip(lbl, self.descriptions[desc_key])
+        
+        current_max = extreme_max if self.safety_override.get() else safe_max
+
+        scale = ttk.Scale(parent, from_=min_val, to=current_max, orient='horizontal', variable=var,
+                          command=lambda s, v=var: v.set(int(float(s))))
+        scale.grid(row=row, column=1, sticky='ew', padx=15, pady=5)
+        
+        ttk.Entry(parent, textvariable=var, width=8).grid(row=row, column=2, sticky='e', pady=5)
+
+        self.slider_widgets.append((scale, safe_max, extreme_max, var))
+
+    def build_ui(self):
+        ttk.Label(self.root, text="💡 Hover your mouse over any setting or plugin for a detailed explanation.", foreground="#005A9E", font=("Segoe UI", 9, "bold")).pack(pady=(8, 0))
+
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill='both', expand=True, padx=10, pady=(5, 10))
+
+        tab_main = ttk.Frame(notebook)
+        tab_plugins = ttk.Frame(notebook)
+        tab_tweaks = ttk.Frame(notebook)
+        tab_credits = ttk.Frame(notebook)
+
+        notebook.add(tab_main, text="Setup & DXVK")
+        notebook.add(tab_plugins, text="Plugins")
+        notebook.add(tab_tweaks, text="Vanilla Tweaks")
+        notebook.add(tab_credits, text="Credits & Sources")
+
+        self.build_main_tab(tab_main)
+        self.build_plugins_tab(tab_plugins)
+        self.build_tweaks_tab(tab_tweaks)
+        self.build_credits_tab(tab_credits)
+
+        ttk.Button(self.root, text="Apply Setup & Tweaks", command=self.run_installation, style="Accent.TButton").pack(pady=10, fill='x', padx=20)
+
+    def build_main_tab(self, parent):
+        ttk.Label(parent, text="Vanilla 1.12 Installation Directory:").pack(anchor='w', pady=(10, 0), padx=10)
+        dir_frame = ttk.Frame(parent)
+        dir_frame.pack(fill='x', padx=10, pady=5)
+        ttk.Entry(dir_frame, textvariable=self.wow_dir).pack(side='left', fill='x', expand=True)
+        ttk.Button(dir_frame, text="Browse...", command=lambda: self.wow_dir.set(filedialog.askdirectory())).pack(side='left', padx=(5,0))
+
+        ttk.Label(parent, text="DXVK Version (GPU Detected):").pack(anchor='w', pady=(20, 0), padx=10)
+        
+        rb_std = ttk.Radiobutton(parent, text="Standard (NVIDIA / Intel)", variable=self.gpu_type, value="Standard")
+        rb_std.pack(anchor='w', padx=20, pady=2)
+        ToolTip(rb_std, self.descriptions["dxvk_standard"])
+
+        rb_amd = ttk.Radiobutton(parent, text="AMD Specific (Fixes AMD crashes)", variable=self.gpu_type, value="AMD")
+        rb_amd.pack(anchor='w', padx=20, pady=2)
+        ToolTip(rb_amd, self.descriptions["dxvk_amd"])
+
+        ttk.Label(parent, text="Optional Mods:").pack(anchor='w', pady=(20, 0), padx=10)
+        
+        cb_login = ttk.Checkbutton(parent, text="Install Auto Login Mod (Data/Interface/GlueXML)", variable=self.install_autologin)
+        cb_login.pack(anchor='w', padx=20, pady=2)
+        ToolTip(cb_login, self.descriptions["autologin"])
+
+    def build_plugins_tab(self, parent):
+        container = ttk.Frame(parent)
+        container.pack(fill='both', expand=True, padx=10, pady=10)
+
+        left_frame = ttk.LabelFrame(container, text="Recommended Core")
+        left_frame.pack(side='left', fill='both', expand=True, padx=(0, 5))
+        
+        ttk.Label(left_frame, text="These are highly recommended for performance\nand client stability.", font=("", 8, "italic")).pack(anchor='w', padx=10, pady=10)
+        
+        for dll, var in self.core_plugins.items():
+            cb = ttk.Checkbutton(left_frame, text=dll, variable=var)
+            cb.pack(anchor='w', padx=10, pady=4)
+            ToolTip(cb, self.descriptions.get(dll, "")) 
+
+        right_frame = ttk.LabelFrame(container, text="Optional WeirdUtils")
+        right_frame.pack(side='right', fill='both', expand=True, padx=(5, 0))
+
+        ttk.Label(right_frame, text="Additional quality-of-life adjustments.", font=("", 8, "italic")).pack(anchor='w', padx=10, pady=10)
+        
+        for dll, var in self.optional_plugins.items():
+            cb = ttk.Checkbutton(right_frame, text=dll, variable=var)
+            cb.pack(anchor='w', padx=10, pady=4)
+            ToolTip(cb, self.descriptions.get(dll, "")) 
+
+    def build_tweaks_tab(self, parent):
+        fov_frame = ttk.LabelFrame(parent, text="Field of View (FoV) Calculator")
+        fov_frame.pack(fill='x', padx=10, pady=5)
+
+        ttk.Label(fov_frame, text="Screen Aspect Ratio:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        ratio_combo = ttk.Combobox(fov_frame, textvariable=self.ratio_var, values=list(self.ratio_options.keys()), state="readonly", width=28)
+        ratio_combo.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+        ratio_combo.bind("<<ComboboxSelected>>", self.on_ratio_change)
+
+        fov_lbl = ttk.Label(fov_frame, text="Calculated FoV (Radians) [Safe Max: 2.268]:")
+        fov_lbl.grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        ToolTip(fov_lbl, self.descriptions["fov"])
+        
+        ttk.Entry(fov_frame, textvariable=self.vt_fov, width=15).grid(row=1, column=1, padx=5, pady=5, sticky='w')
+
+        warn_text = "* Note: If SuperWoW is active, it natively overrides FoV scaling. This setting is a backup for Vanilla Tweaks."
+        ttk.Label(fov_frame, text=warn_text, font=("", 8, "italic"), wraplength=520).grid(row=2, column=0, columnspan=2, padx=5, pady=(0, 5), sticky='w')
+
+        style = ttk.Style()
+        style.configure("Warning.TCheckbutton", foreground="red")
+        ttk.Checkbutton(parent, text="Disable Safety Limits (Warning: Exceeding max limits may cause game instability)", 
+                        variable=self.safety_override, style="Warning.TCheckbutton",
+                        command=self.toggle_safety_limits).pack(anchor='w', padx=15, pady=(0, 5))
+
+        frame_nums = ttk.Frame(parent)
+        frame_nums.pack(fill='x', padx=15, pady=0)
+        frame_nums.columnconfigure(1, weight=1) 
+        
+        self.create_slider_row(frame_nums, 0, "Render distance (Farclip) [Safe Max: 1500]:", self.vt_farclip, 777, 1500, 10000, "farclip")
+        self.create_slider_row(frame_nums, 1, "Ground clutter (Frilldistance) [Safe Max: 300]:", self.vt_frill, 70, 300, 1000, "frill")
+        self.create_slider_row(frame_nums, 2, "Nameplate range [Safe Max: 41]:", self.vt_nameplate, 20, 41, 150, "nameplate")
+        self.create_slider_row(frame_nums, 3, "Camera distance [Safe Max: 100]:", self.vt_maxcam, 50, 100, 250, "cam")
+        self.create_slider_row(frame_nums, 4, "Sound Channels [Safe Max: 64]:", self.vt_soundchan, 12, 64, 128, "sound")
+
+        ttk.Label(parent, text="Patch Toggles:").pack(anchor='w', pady=(5,0), padx=10)
+        
+        toggles_frame = ttk.Frame(parent)
+        toggles_frame.pack(fill='x', padx=10)
+        
+        cb_loot = ttk.Checkbutton(toggles_frame, text="Always auto-loot", variable=self.vt_quickloot)
+        cb_loot.grid(row=0, column=0, sticky='w', padx=10, pady=2)
+        ToolTip(cb_loot, self.descriptions["loot"])
+
+        cb_bg = ttk.Checkbutton(toggles_frame, text="Background sounds", variable=self.vt_bg_sound)
+        cb_bg.grid(row=0, column=1, sticky='w', padx=10, pady=2)
+        ToolTip(cb_bg, self.descriptions["bg_sound"])
+        
+        cb_laa = ttk.Checkbutton(toggles_frame, text="Large Address Aware (LAA)", variable=self.vt_laa)
+        cb_laa.grid(row=1, column=0, sticky='w', padx=10, pady=2)
+        ToolTip(cb_laa, self.descriptions["laa"])
+        
+        cb_cam = ttk.Checkbutton(toggles_frame, text="Fix Camera Skip Glitch", variable=self.vt_cam_fix)
+        cb_cam.grid(row=1, column=1, sticky='w', padx=10, pady=2)
+        ToolTip(cb_cam, self.descriptions["cam_fix"])
+
+        cb_dep = ttk.Checkbutton(toggles_frame, text="Disable DEP (Requires Admin)", variable=self.vt_dep_fix)
+        cb_dep.grid(row=2, column=0, sticky='w', padx=10, pady=2)
+        ToolTip(cb_dep, self.descriptions["dep_fix"])
+
+
+    def build_credits_tab(self, parent):
+        # Create a frame with a scrollbar
+        frame = ttk.Frame(parent)
+        frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side='right', fill='y')
+        
+        bg_color = self.root.cget('bg')
+        text_area = tk.Text(frame, wrap='word', yscrollcommand=scrollbar.set, bg=bg_color, relief='flat', font=("Segoe UI", 9))
+        text_area.pack(side='left', fill='both', expand=True)
+        scrollbar.config(command=text_area.yview)
+
+        # Configure Text Tags for formatting
+        text_area.tag_configure("header", font=("Segoe UI", 10, "bold"), spacing1=10, spacing3=5, foreground="#333333")
+        text_area.tag_configure("bold", font=("Segoe UI", 9, "bold"))
+        
+        # Helper function to create clickable links
+        def insert_link(text, url):
+            tag_name = f"link_{url}"
+            text_area.tag_configure(tag_name, foreground="#005A9E", underline=True)
+            text_area.tag_bind(tag_name, "<Button-1>", lambda e, u=url: webbrowser.open_new(u))
+            text_area.tag_bind(tag_name, "<Enter>", lambda e: text_area.config(cursor="hand2"))
+            text_area.tag_bind(tag_name, "<Leave>", lambda e: text_area.config(cursor="arrow"))
+            text_area.insert("end", text, tag_name)
+
+        # Content Insertion
+        text_area.insert("end", "This modernization tool packages the incredible work of several open-source developers. If you wish to manually compile these tools or learn more about how they work, please visit their respective repositories below.\n", "")
+        
+        # Core Engine & Performance Modifications
+        text_area.insert("end", "\nCore Engine & Performance Modifications\n", "header")
+        text_area.insert("end", "• VanillaFixes: ", "bold")
+        insert_link("Source Repository", "https://github.com/hannesmann/vanillafixes")
+        text_area.insert("end", "\n• VanillaHelpers: ", "bold")
+        insert_link("Source Repository", "https://github.com/isfir/VanillaHelpers")
+        text_area.insert("end", "\n• PerfBoost: ", "bold")
+        insert_link("Mod Source", "https://gitea.com/avitasia/perf_boost")
+        text_area.insert("end", " | ")
+        insert_link("Addon Source", "https://gitea.com/avitasia/PerfBoostSettings")
+        text_area.insert("end", "\n• UnitXP_SP3: ", "bold")
+        insert_link("Mod Source", "https://codeberg.org/konaka/UnitXP_SP3")
+        text_area.insert("end", " | ")
+        insert_link("Addon Source", "https://codeberg.org/konaka/UnitXP_SP3_Addon")
+        text_area.insert("end", "\n• no1600x1200: ", "bold")
+        text_area.insert("end", "Legacy File\n")
+
+        # Gameplay & Interface Enhancements
+        text_area.insert("end", "\nGameplay & Interface Enhancements\n", "header")
+        text_area.insert("end", "• Nampower v4.2.0: ", "bold")
+        insert_link("Mod Source", "https://gitea.com/avitasia/nampower")
+        text_area.insert("end", " | ")
+        insert_link("Addon Source", "https://gitea.com/avitasia/NampowerSettings")
+        text_area.insert("end", "\n• SuperWoW: ", "bold")
+        insert_link("Mod Source", "https://github.com/balakethelock/SuperWoW")
+        text_area.insert("end", " | ")
+        insert_link("Addon Source", "https://github.com/balakethelock/SuperAPI")
+        text_area.insert("end", "\n• Vanilla-Autologin: ", "bold")
+        insert_link("Source Repository", "https://github.com/MarcelineVQ/turtle-autologin")
+
+        # WeirdUtils Module Breakdown
+        text_area.insert("end", "\n\nWeirdUtils Suite\n", "header")
+        text_area.insert("end", "A modular suite of advanced quality-of-life scripts handling World Markers, Minimap Icons, PNG Screenshots, Transmog Fixing, and deep-engine optimizations. Due to the deeply rooted memory hooks used in these files, they are distributed as pre-compiled, closed-source binaries to prevent trivial exploitation by bad actors.\n\n")
+        text_area.insert("end", "• WeirdUtils Documentation & Releases: ", "bold")
+        insert_link("Source Repository", "https://codeberg.org/MarcelineVQ/WeirdUtils")
+        text_area.insert("end", "\n")
+
+        # Lock text area to prevent the user from typing in it
+        text_area.config(state='disabled')
+    
+
+    def validate_installation_dir(self, target_dir):
+        """Checks if the directory exists and contains necessary WoW components."""
+        if not target_dir:
+            messagebox.showerror("Directory Error", "Please select a Vanilla 1.12 installation directory.")
+            return False
+
+        if not os.path.exists(os.path.join(target_dir, "WoW.exe")) or \
+           not os.path.isdir(os.path.join(target_dir, "Data")) or \
+           not os.path.isdir(os.path.join(target_dir, "Interface")):
+            
+            msg = ("This does not look like a valid Vanilla 1.12 installation directory.\n\n"
+                   "Please make sure you are selecting the directory that has the WoW.exe in it.")
+            messagebox.showerror("Invalid Directory", msg)
+            return False
+            
+        return True
+
+    def validate_limits(self):
+        if self.safety_override.get():
+            return True 
+            
+        try:
+            if self.vt_farclip.get() > 1500:
+                messagebox.showerror("Limit Exceeded", "Render distance (Farclip) exceeds the safe limit of 1500.\n\nPlease lower it, or check 'Disable Safety Limits' to bypass.")
+                return False
+            if self.vt_frill.get() > 300:
+                messagebox.showerror("Limit Exceeded", "Ground clutter (Frilldistance) exceeds the safe limit of 300.\n\nPlease lower it, or check 'Disable Safety Limits' to bypass.")
+                return False
+            if self.vt_nameplate.get() > 41:
+                messagebox.showerror("Limit Exceeded", "Nameplate range exceeds the safe limit of 41.\n\nPlease lower it, or check 'Disable Safety Limits' to bypass.")
+                return False
+            if self.vt_maxcam.get() > 100:
+                messagebox.showerror("Limit Exceeded", "Camera distance exceeds the safe limit of 100.\n\nPlease lower it, or check 'Disable Safety Limits' to bypass.")
+                return False
+            if self.vt_soundchan.get() > 64:
+                messagebox.showerror("Limit Exceeded", "Sound Channels exceed the safe limit of 64.\n\nPlease lower it, or check 'Disable Safety Limits' to bypass.")
+                return False
+            if self.vt_fov.get() > 2.2689: 
+                messagebox.showerror("Limit Exceeded", "Field of View exceeds the safe limit of 130 degrees (2.2689 radians).\n\nPlease lower it, or check 'Disable Safety Limits' to bypass.")
+                return False
+        except tk.TclError:
+            messagebox.showerror("Input Error", "Please ensure all Tweak fields contain valid numbers.")
+            return False
+            
+        return True
+
+    def clean_unselected_files(self, target):
+        """Removes managed files/folders if they were explicitly unselected by the user."""
+        
+        # 1. Clean AutoLogin files if unselected
+        if not self.install_autologin.get():
+            glue_dir = os.path.join(target, "Data", "Interface", "GlueXML")
+            for file_name in ["AutoLogin.lua", "AutoLogin.xml", "GlueXML.toc"]:
+                file_path = os.path.join(glue_dir, file_name)
+                if os.path.exists(file_path):
+                    try: os.remove(file_path)
+                    except: pass
+            if os.path.exists(glue_dir) and not os.listdir(glue_dir):
+                try: os.rmdir(glue_dir)
+                except: pass
+
+        # 2. Clean unselected Core Plugins and their dependent AddOns
+        for dll_name, var in self.core_plugins.items():
+            if not var.get():
+                dll_path = os.path.join(target, dll_name)
+                if os.path.exists(dll_path):
+                    try: os.remove(dll_path)
+                    except: pass
+                
+                addon_folder = self.addon_dependencies.get(dll_name)
+                if addon_folder:
+                    addon_path = os.path.join(target, "Interface", "AddOns", addon_folder)
+                    if os.path.exists(addon_path):
+                        shutil.rmtree(addon_path, ignore_errors=True)
+
+        # 3. Clean unselected Optional WeirdUtils Plugins (Now checks the root directory)
+        for dll_name, var in self.optional_plugins.items():
+            if not var.get():
+                dll_path = os.path.join(target, dll_name)
+                if os.path.exists(dll_path):
+                    try: os.remove(dll_path)
+                    except: pass
+
+    def apply_process_mitigations(self):
+        """Runs the Set-ProcessMitigation PowerShell command with a UAC prompt if needed."""
+        if not self.vt_dep_fix.get():
+            return
+            
+        ps_cmd = "Set-ProcessMitigation -Name WoW_Tweaked.exe -Disable DEP, EmulateAtlThunks"
+        
+        # Start-Process with '-Verb RunAs' triggers the Windows Administrator UAC prompt automatically
+        full_cmd = f"Start-Process powershell -WindowStyle Hidden -Verb RunAs -ArgumentList \"-Command {ps_cmd}\""
+        
+        try:
+            # Execute the elevation request
+            subprocess.run(["powershell", "-Command", full_cmd], creationflags=0x08000000)
+        except Exception:
+            pass # Fail silently if the user clicks "No" on the Administrator prompt
+
+    def run_installation(self):
+        target_dir = self.wow_dir.get()
+        
+        # 1. Validate Directory
+        if not self.validate_installation_dir(target_dir):
+            return
+
+        # 2. Validate Bounds
+        if not self.validate_limits():
+            return
+
+        try:
+            self.clean_unselected_files(target_dir)
+            self.copy_base_files(target_dir)
+            self.configure_dxvk(target_dir)
+            self.configure_plugins(target_dir)
+            self.run_vanilla_tweaks(target_dir)
+            self.apply_process_mitigations()
+            
+            # Generate the seamless launcher shortcut
+            self.create_launcher_shortcut(target_dir)
+            
+            messagebox.showinfo("Success", "Installation and patching complete!\n\nUse the new 'Play Modernized WoW' shortcut in your directory to launch the game.")
+        except Exception as e:
+            messagebox.showerror("Installation Error", str(e))
+
+    def create_launcher_shortcut(self, target_dir):
+        """Automates creating the VanillaFixes shortcut targeting WoW_Tweaked.exe"""
+        shortcut_path = os.path.join(target_dir, "Play Modernized WoW.lnk")
+        vanilla_fixes_exe = os.path.join(target_dir, "VanillaFixes.exe")
+        
+        # Check for the icon in the setup tool's root directory
+        source_icon = os.path.join(get_base_path(), "PurpleWowLogo.ico")
+        target_icon = os.path.join(target_dir, "PurpleWowLogo.ico")
+        icon_vbs_line = ""
+        
+        # If the icon exists, copy it to the WoW folder and add it to the shortcut
+        if os.path.exists(source_icon):
+            try:
+                shutil.copy2(source_icon, target_icon)
+                icon_vbs_line = f'oLink.IconLocation = "{target_icon}, 0"'
+            except Exception:
+                pass # Fail silently on icon copy if there's a permission issue
+
+        vbs_script = f"""
+Set oWS = WScript.CreateObject("WScript.Shell")
+sLinkFile = "{shortcut_path}"
+Set oLink = oWS.CreateShortcut(sLinkFile)
+oLink.TargetPath = "{vanilla_fixes_exe}"
+oLink.Arguments = "WoW_Tweaked.exe"
+oLink.WorkingDirectory = "{target_dir}"
+oLink.Description = "Launch Vanilla WoW with VanillaFixes and Tweaks"
+{icon_vbs_line}
+oLink.Save
+"""
+        vbs_path = os.path.join(target_dir, "create_shortcut.vbs")
+        with open(vbs_path, "w") as f:
+            f.write(vbs_script)
+            
+        try:
+            subprocess.run(["cscript", "//nologo", vbs_path], creationflags=0x08000000)
+        finally:
+            if os.path.exists(vbs_path):
+                os.remove(vbs_path)
+
+    def copy_base_files(self, target):
+        payload_dir = os.path.join(get_base_path(), "Payload")
+        if not os.path.exists(payload_dir): return 
+        
+        if self.install_autologin.get() and os.path.exists(os.path.join(payload_dir, "Data")):
+            shutil.copytree(os.path.join(payload_dir, "Data"), os.path.join(target, "Data"), dirs_exist_ok=True)
+        
+        if os.path.exists(os.path.join(payload_dir, "Interface")):
+            shutil.copytree(os.path.join(payload_dir, "Interface"), os.path.join(target, "Interface"), dirs_exist_ok=True)
+            
+        # Removed SuperWoWhook.dll from this list!
+        for file in ["VanillaFixes.exe", "VfPatcher.dll", "dxvk.conf"]:
+            source_file = os.path.join(payload_dir, file)
+            if os.path.exists(source_file): shutil.copy2(source_file, target)
+
+    def configure_dxvk(self, target):
+        payload_dir = os.path.join(get_base_path(), "Payload")
+        dxvk_folder = "DXVK_AMD" if self.gpu_type.get() == "AMD" else "DXVK_Standard"
+        d3d9_src = os.path.join(payload_dir, dxvk_folder, "d3d9.dll")
+        if os.path.exists(d3d9_src): shutil.copy2(d3d9_src, target)
+
+    def configure_plugins(self, target):
+        payload_base = os.path.join(get_base_path(), "Payload")
+        payload_weirdu = os.path.join(payload_base, "WeirdUtils")
+        
+        # Start the list with dxvk to ensure DXVK is always loaded first
+        dlls_text_lines = ["dxvk"]
+
+        # Process Core Plugins
+        for dll_name, var in self.core_plugins.items():
+            if var.get():
+                source_dll = os.path.join(payload_base, dll_name)
+                if os.path.exists(source_dll): 
+                    shutil.copy2(source_dll, target)
+                dlls_text_lines.append(dll_name) 
+
+        # Clean up corresponding addons if their core DLL was UNCHECKED
+        for dll_name, addon_folder in self.addon_dependencies.items():
+            if not self.core_plugins.get(dll_name, tk.BooleanVar(value=True)).get():
+                addon_path = os.path.join(target, "Interface", "AddOns", addon_folder)
+                if os.path.exists(addon_path):
+                    shutil.rmtree(addon_path, ignore_errors=True)
+
+        # Process Optional Plugins (WeirdUtils) - Now installed to ROOT folder
+        for dll_name, var in self.optional_plugins.items():
+            if var.get():
+                source_dll = os.path.join(payload_weirdu, dll_name)
+                if os.path.exists(source_dll): 
+                    shutil.copy2(source_dll, target)
+                dlls_text_lines.append(dll_name)
+
+        # Write active dlls to dlls.txt
+        with open(os.path.join(target, "dlls.txt"), "w") as f:
+            f.write("\n".join(dlls_text_lines))
+
+    def run_vanilla_tweaks(self, target):
+        wow_exe = os.path.join(target, "WoW.exe")
+        tweaks_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
+
+        if not os.path.exists(tweaks_exe):
+            raise FileNotFoundError("vanilla-tweaks.exe not found alongside this setup tool.")
+
+        args = [tweaks_exe]
+
+        # --- SMART BYPASS LOGIC ---
+        # If a slider is set to the base Vanilla value, explicitly pass the --no flag.
+        # This prevents Vanilla Tweaks from injecting unnecessary code caves that corrupt WMO rendering.
+
+        # Field of View (Vanilla: ~1.5708)
+        if abs(self.vt_fov.get() - 1.5708) < 0.0001:
+            args.append("--no-fov")
+        else:
+            args.extend(["--fov", str(self.vt_fov.get())])
+
+        # Farclip (Vanilla: 777)
+        if self.vt_farclip.get() == 777:
+            args.append("--no-farclip")
+        else:
+            args.extend(["--farclip", str(self.vt_farclip.get())])
+
+        # Frilldistance (Vanilla: 70)
+        if self.vt_frill.get() == 70:
+            args.append("--no-frilldistance")
+        else:
+            args.extend(["--frilldistance", str(self.vt_frill.get())])
+
+        # Nameplate Distance (Vanilla: 20)
+        if self.vt_nameplate.get() == 20:
+            args.append("--no-nameplatedistance")
+        else:
+            args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
+
+        # Sound Channels (Vanilla: 12)
+        if self.vt_soundchan.get() == 12:
+            args.append("--no-soundchannels")
+        else:
+            args.extend(["--soundchannels", str(self.vt_soundchan.get())])
+
+        # Max Camera Distance (Vanilla: 50 - Unchanged by default in Tweaks)
+        if self.vt_maxcam.get() != 50:
+            args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
+
+        # --- BOOLEAN TOGGLES ---
+        if not self.vt_quickloot.get(): args.append("--no-quickloot")
+        if not self.vt_bg_sound.get(): args.append("--no-sound-in-background")
+        if not self.vt_laa.get(): args.append("--no-largeaddressaware")
+        if not self.vt_cam_fix.get(): args.append("--no-cameraskipfix")
+
+        args.extend(["-o", os.path.join(target, "WoW_Tweaked.exe")])
+        args.append(wow_exe)
+        subprocess.run(args, check=True)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = WowSetupTool(root)
+    root.mainloop()

@@ -1,0 +1,14 @@
+## Interface: 11200
+## Title: UnitXP SP3 Lua Addon
+## Notes: Menu to control UnitXP SP3 mod
+## Author: allfox and thankful community
+## DefaultState: enabled
+## OptionalDeps: none
+## SavedVariables: UnitXP_SP3_Addon, UnitXP_SP3_Icon
+libs\LibStub.lua
+libs\AceCore-3.0.lua
+libs\AceHook-3.0.lua
+libs\CallbackHandler-1.0.lua
+libs\LibDataBroker-1.1.lua
+libs\LibDBIcon-1.0.lua
+UnitXP_SP3_Addon.xml

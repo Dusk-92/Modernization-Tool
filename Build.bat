@@ -1,0 +1,1 @@
+pyinstaller --noconsole --onefile --add-data "Payload;Payload" --add-data "vanilla-tweaks.exe;." setup_tool.py
