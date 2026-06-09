@@ -373,7 +373,7 @@ local function UnitXP_SP3_setShowInCombatNameplatesNearPlayer(enable)
     return result;
 end
 
-local function UnitXP_SP3_setWeatherAlwaysClear(enable)
+local function UnitXP_SP3_setWeatherAlwaysClear(disable)
     local test, result;
     if enable then
         test, result = pcall(UnitXP, "weatherAlwaysClear", "disableRain");
