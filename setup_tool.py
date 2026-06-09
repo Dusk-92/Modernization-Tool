@@ -602,9 +602,15 @@ oLink.Save
 
     def configure_dxvk(self, target):
         payload_dir = os.path.join(get_base_path(), "Payload")
-        dxvk_folder = "DXVK_AMD" if self.gpu_type.get() == "AMD" else "DXVK_Standard"
-        d3d9_src = os.path.join(payload_dir, dxvk_folder, "d3d9.dll")
-        if os.path.exists(d3d9_src): shutil.copy2(d3d9_src, target)
+        if self.gpu_type.get() == "AMD":
+            # AMD n'a pas besoin de d3d9.dll — on supprime l'eventuel fichier Standard
+            d3d9_target = os.path.join(target, "d3d9.dll")
+            if os.path.exists(d3d9_target):
+                os.remove(d3d9_target)
+        else:
+            d3d9_src = os.path.join(payload_dir, "DXVK_Standard", "d3d9.dll")
+            if os.path.exists(d3d9_src):
+                shutil.copy2(d3d9_src, target)
 
     def configure_plugins(self, target):
         payload_base = os.path.join(get_base_path(), "Payload")
