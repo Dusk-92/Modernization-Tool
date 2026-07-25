@@ -1,5 +1,5 @@
 ### Nampower settings
-See https://gitea.com/avitasia/nampower or in game tooltip for description of each setting.
+See ~~https://gitea.com/avitasia/nampower~~ https://github.com/Emyrk/nampower for in game tooltip for description of each setting.
 Access settings in game by right clicking the minimap icon.
 
 ### Per Character settings
