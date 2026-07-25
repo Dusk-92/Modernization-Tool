@@ -76,7 +76,7 @@ class WowSetupTool:
             "dxvk_amd": "Uses DXVK v2.5.3, an older stable release that prevents crashing issues specific to AMD graphics cards.",
 
             # Core DLLs
-            "nampower.dll": "Nampower 4.2.0: Implements ping compensation. Bypasses a 1.12 client flaw to enable queueing spell casts, enabling tighter spell batching for players with network latency.",
+            "nampower.dll": "Nampower 4.6.2: Implements ping compensation. Bypasses a 1.12 client flaw to enable queueing spell casts, enabling tighter spell batching for players with network latency.",
             "no1600x1200.dll": "Removes the hardcoded 1600x1200 resolution limit. Natively unlocks widescreen and ultrawidescreen resolutions in the game settings.",
             "perf_boost.dll": "Provides dynamic render distance controls (culling). Stabilizes framerates in crowded environments by lowering the rendering priority of non-essential entities.",
             "UnitXP_SP3.dll": "Engine-level optimizations replacing legacy assembly. Introduces improved network handling, better Tab-targeting, true line-of-sight checks via Lua, and modern nameplate support.",
@@ -387,7 +387,7 @@ class WowSetupTool:
         text_area.insert("end", "\n• VanillaHelpers: ", "bold")
         insert_link("Source Repository", "https://github.com/isfir/VanillaHelpers")
         text_area.insert("end", "\n• PerfBoost: ", "bold")
-        insert_link("Mod Source", "https://gitea.com/avitasia/perf_boost")
+        insert_link("Mod Source", "https://github.com/Dusk-92/perf_boost")
         text_area.insert("end", " | ")
         insert_link("Addon Source", "https://gitea.com/avitasia/PerfBoostSettings")
         text_area.insert("end", "\n• UnitXP_SP3: ", "bold")
@@ -399,10 +399,10 @@ class WowSetupTool:
 
         # Gameplay & Interface Enhancements
         text_area.insert("end", "\nGameplay & Interface Enhancements\n", "header")
-        text_area.insert("end", "• Nampower v4.2.0: ", "bold")
-        insert_link("Mod Source", "https://gitea.com/avitasia/nampower")
+        text_area.insert("end", "• Nampower v4.6.2: ", "bold")
+        insert_link("Mod Source", "https://github.com/Emyrk/nampower")
         text_area.insert("end", " | ")
-        insert_link("Addon Source", "https://gitea.com/avitasia/NampowerSettings")
+        insert_link("Addon Source", "https://github.com/Emyrk/NampowerSettings")
         text_area.insert("end", "\n• SuperWoW: ", "bold")
         insert_link("Mod Source", "https://github.com/balakethelock/SuperWoW")
         text_area.insert("end", " | ")
