@@ -596,9 +596,20 @@ oLink.Save
             shutil.copytree(os.path.join(payload_dir, "Interface"), os.path.join(target, "Interface"), dirs_exist_ok=True)
             
         # Removed SuperWoWhook.dll from this list!
-        for file in ["VanillaFixes.exe", "VfPatcher.dll", "dxvk.conf"]:
+        for file in ["VanillaFixes.exe", "VfPatcher.dll"]:
             source_file = os.path.join(payload_dir, file)
             if os.path.exists(source_file): shutil.copy2(source_file, target)
+
+        # dxvk.conf uniquement pour NVIDIA / Standard
+        if self.gpu_type.get() != "AMD":
+            source_file = os.path.join(payload_dir, "dxvk.conf")
+            if os.path.exists(source_file):
+                shutil.copy2(source_file, target)
+        else:
+            # On nettoie aussi l'éventuel ancien dxvk.conf en mode AMD
+            conf_target = os.path.join(target, "dxvk.conf")
+            if os.path.exists(conf_target):
+                os.remove(conf_target)
 
     def configure_dxvk(self, target):
         payload_dir = os.path.join(get_base_path(), "Payload")
@@ -616,8 +627,10 @@ oLink.Save
         payload_base = os.path.join(get_base_path(), "Payload")
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
         
-        # Start the list with dxvk to ensure DXVK is always loaded first
-        dlls_text_lines = ["dxvk"]
+        # On met "dxvk" seulement si on est en version Standard (NVIDIA/Intel)
+        dlls_text_lines = []
+        if self.gpu_type.get() != "AMD":
+            dlls_text_lines.append("dxvk")
 
         # Process Core Plugins
         for dll_name, var in self.core_plugins.items():
