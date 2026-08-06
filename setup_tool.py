@@ -95,7 +95,7 @@ class WowSetupTool:
 
             # Tweaks Tab
             "fov": "Calculates horizontal Field of View mathematically scaled to maintain vertical aspect space based on your screen ratio.",
-            "farclip": "Increases the maximum terrain render distance. Vanilla default is 777. Tweaks default is 1500.",
+            "farclip": "Increases the maximum terrain render distance. Vanilla default is 777. Tweaks default is .",
             "frill": "Changes the ground clutter (grass) render distance. Vanilla default is 70. Tweaks default is 300.",
             "nameplate": "Increases the distance at which enemy nameplates become visible. Vanilla default is 20. Tweaks default is 41.",
             "cam": "Increases the maximum camera zoom-out distance. Vanilla default is 50. Max safe limit is 100.",
@@ -157,8 +157,8 @@ class WowSetupTool:
         # Vanilla Tweaks Variables 
         self.vt_fov = tk.DoubleVar()
         self.ratio_var = tk.StringVar(value=list(self.ratio_options.keys())[0]) 
-        self.vt_farclip = tk.IntVar(value=1500)
-        self.vt_frill = tk.IntVar(value=300)
+        self.vt_farclip = tk.IntVar(value=777)
+        self.vt_frill = tk.IntVar(value=70)
         self.vt_nameplate = tk.IntVar(value=41)
         self.vt_soundchan = tk.IntVar(value=64)
         self.vt_maxcam = tk.IntVar(value=100)
