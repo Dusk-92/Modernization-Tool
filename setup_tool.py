@@ -95,7 +95,7 @@ class WowSetupTool:
 
             # Tweaks Tab
             "fov": "Calculates horizontal Field of View mathematically scaled to maintain vertical aspect space based on your screen ratio.",
-            "farclip": "Increases the maximum terrain render distance. Vanilla default is 777. Tweaks default is .",
+            "farclip": "Increases the maximum terrain render distance. Vanilla default is 777. Tweaks default is 1500.",
             "frill": "Changes the ground clutter (grass) render distance. Vanilla default is 70. Tweaks default is 300.",
             "nameplate": "Increases the distance at which enemy nameplates become visible. Vanilla default is 20. Tweaks default is 41.",
             "cam": "Increases the maximum camera zoom-out distance. Vanilla default is 50. Max safe limit is 100.",
