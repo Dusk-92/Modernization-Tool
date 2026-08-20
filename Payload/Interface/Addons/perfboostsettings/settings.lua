@@ -602,6 +602,7 @@ PerfBoostOptions.hasIcon = "Interface\\Icons\\Spell_Nature_Strength"
 PerfBoostOptions.defaultMinimapPosition = 180
 PerfBoostOptions.independentProfile = true
 PerfBoostOptions.hideWithoutStandby = false
+PerfBoostOptions.db = PerfBoost.db
 
 PerfBoostOptions.OnMenuRequest = PerfBoost.cmdtable
 local args = AceLibrary("FuBarPlugin-2.0"):GetAceOptionsDataTable(PerfBoostOptions)
