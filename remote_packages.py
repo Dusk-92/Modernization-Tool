@@ -41,7 +41,7 @@ def _latest_release(repo):
 def _find_asset(release, exact_name=None, predicate=None):
     for asset in release.get("assets", []):
         name = asset.get("name", "")
-        if exact_name is not None and name == exact_name:
+        if exact_name is not None and name.lower() == exact_name.lower():
             return asset
         if predicate is not None and predicate(name):
             return asset
@@ -183,7 +183,7 @@ def install_unitxp(target_dir):
     release = _latest_release("brues-code/UnitXP_SP3")
     asset = _find_asset(
         release,
-        predicate=lambda name: name.lower().startswith("unitxp_sp3-") and name.lower().endswith(".zip"),
+        predicate=lambda name: name.lower().startswith("unitxp_sp3") and name.lower().endswith(".zip"),
     )
     zip_path = _download_asset(asset)
     extract_root = tempfile.mkdtemp(prefix="modernization_unitxp_")
