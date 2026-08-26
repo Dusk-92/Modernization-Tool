@@ -31,7 +31,7 @@ jobs:
           --add-data "Payload;Payload"
           --add-data "vanilla-tweaks.exe;."
           --name "WoW_Modernization_Tool"
-          setup_tool.py
+          setup_tool_dynamic.py
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
