@@ -6,6 +6,9 @@ on:
       - 'feature/client-tweaks'
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - 'feature/client-tweaks'
   workflow_dispatch:
 
 jobs:
