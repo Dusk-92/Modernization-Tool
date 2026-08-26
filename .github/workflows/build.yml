@@ -2,6 +2,8 @@ name: Build Windows EXE
 
 on:
   push:
+    branches:
+      - 'feature/client-tweaks'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -22,6 +24,9 @@ jobs:
       - name: Install PyInstaller
         run: pip install pyinstaller
 
+      - name: Syntax check
+        run: python -m py_compile setup_tool.py setup_tool_dynamic.py remote_packages.py
+
       - name: Build EXE
         run: >
           pyinstaller
@@ -33,7 +38,22 @@ jobs:
           --name "WoW_Modernization_Tool"
           setup_tool_dynamic.py
 
+      - name: Verify EXE exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/WoW_Modernization_Tool.exe")) { throw "Build output missing" }
+          Get-Item "dist/WoW_Modernization_Tool.exe" | Format-List Name,Length,LastWriteTime
+
+      - name: Upload test artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: WoW_Modernization_Tool-test
+          path: dist/WoW_Modernization_Tool.exe
+          if-no-files-found: error
+
       - name: Create GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:
           files: dist/WoW_Modernization_Tool.exe
