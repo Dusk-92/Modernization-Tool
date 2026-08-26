@@ -104,14 +104,18 @@ class ModernWowSetupTool(WowSetupTool):
         }
 
         # Always remove the non-selected alternative. Selecting None removes both.
+        # A failed removal is fatal: silently leaving both DLLs behind would defeat
+        # the mutual-exclusion guarantee.
         for key, filename in managed.items():
             if choice != key:
                 path = os.path.join(target, filename)
                 if os.path.exists(path):
                     try:
                         os.remove(path)
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        raise RuntimeError(
+                            f"Could not remove {filename}. Close WoW and any tool using the file, then try again."
+                        ) from exc
 
     def _fallback_core_dll(self, payload_base, target, dll_name, error):
         source_dll = os.path.join(payload_base, dll_name)
@@ -120,7 +124,24 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Could not download the latest {dll_name}, and no bundled fallback exists.\n\n{error}"
             ) from error
 
+        addon_folder = self.addon_dependencies.get(dll_name)
+        source_addon = None
+        if addon_folder:
+            source_addon = os.path.join(payload_base, "Interface", "Addons", addon_folder)
+            if not os.path.isdir(source_addon):
+                raise RuntimeError(
+                    f"Could not download the latest {dll_name}, and its bundled fallback addon "
+                    f"{addon_folder} is missing.\n\n{error}"
+                ) from error
+
         shutil.copy2(source_dll, target)
+
+        if addon_folder and source_addon:
+            remote_packages._replace_directory(
+                source_addon,
+                os.path.join(target, "Interface", "AddOns", addon_folder),
+            )
+
         messagebox.showwarning(
             "Online update unavailable",
             f"Could not download the latest {dll_name}.\n\n"
