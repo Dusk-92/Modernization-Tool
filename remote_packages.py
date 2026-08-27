@@ -2,9 +2,11 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
 import zipfile
 
 USER_AGENT = "Modernization-Tool/1.0 (+https://github.com/Dusk-92/Modernization-Tool)"
@@ -14,6 +16,16 @@ NETWORK_TIMEOUT = 30
 
 class RemotePackageError(RuntimeError):
     pass
+
+
+def _emit_progress(callback, message, current=None, total=None):
+    if callback is None:
+        return
+    try:
+        callback(message, current, total)
+    except Exception:
+        # UI/progress reporting must never break an installation.
+        pass
 
 
 def _request(url, accept=None):
@@ -49,18 +61,33 @@ def _find_asset(release, exact_name=None, predicate=None):
     raise RemotePackageError(f"Could not find {wanted} in release {release.get('tag_name', '?')}.")
 
 
-def _download(url, suffix="", expected_digest=None):
+def _download(url, suffix="", expected_digest=None, progress=None, label="Downloading"):
     fd, temp_path = tempfile.mkstemp(prefix="modernization_", suffix=suffix)
     os.close(fd)
     try:
         digest = hashlib.sha256()
         with urllib.request.urlopen(_request(url), timeout=NETWORK_TIMEOUT) as response, open(temp_path, "wb") as out:
+            total = None
+            length = response.headers.get("Content-Length")
+            if length:
+                try:
+                    total = int(length)
+                except (TypeError, ValueError):
+                    total = None
+
+            downloaded = 0
+            _emit_progress(progress, label, downloaded, total)
+
             while True:
-                chunk = response.read(1024 * 1024)
+                chunk = response.read(256 * 1024)
                 if not chunk:
                     break
                 out.write(chunk)
                 digest.update(chunk)
+                downloaded += len(chunk)
+                _emit_progress(progress, label, downloaded, total)
+
+            _emit_progress(progress, label, downloaded, total or downloaded)
 
         if expected_digest and expected_digest.startswith("sha256:"):
             expected = expected_digest.split(":", 1)[1].lower()
@@ -78,13 +105,20 @@ def _download(url, suffix="", expected_digest=None):
         raise
 
 
-def _download_asset(asset):
+def _download_asset(asset, progress=None, label=None):
     url = asset.get("browser_download_url")
     if not url:
         raise RemotePackageError(f"Release asset {asset.get('name', '?')} has no download URL.")
     suffix = os.path.splitext(asset.get("name", ""))[1]
+    display = label or f"Downloading {asset.get('name', 'release asset')}"
     try:
-        return _download(url, suffix=suffix, expected_digest=asset.get("digest"))
+        return _download(
+            url,
+            suffix=suffix,
+            expected_digest=asset.get("digest"),
+            progress=progress,
+            label=display,
+        )
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         raise RemotePackageError(f"Download failed for {asset.get('name', '?')}: {exc}") from exc
 
@@ -103,30 +137,78 @@ def _atomic_replace_file(source, target):
                 pass
 
 
+def _remove_tree(path):
+    if not os.path.exists(path):
+        return
+
+    def onerror(func, failing_path, _exc_info):
+        try:
+            os.chmod(failing_path, stat.S_IWRITE)
+            func(failing_path)
+        except Exception:
+            raise
+
+    shutil.rmtree(path, onerror=onerror)
+
+
 def _replace_directory(source_dir, target_dir):
+    """Replace an addon directory without reusing stale fixed backup names."""
     os.makedirs(os.path.dirname(os.path.abspath(target_dir)), exist_ok=True)
-    staged = target_dir + ".modernization-new"
-    backup = target_dir + ".modernization-backup"
 
-    shutil.rmtree(staged, ignore_errors=True)
-    shutil.rmtree(backup, ignore_errors=True)
+    token = uuid.uuid4().hex[:10]
+    staged = f"{target_dir}.modernization-new-{token}"
+    backup = f"{target_dir}.modernization-backup-{token}"
+
     shutil.copytree(source_dir, staged)
-
     had_existing = os.path.exists(target_dir)
+    backup_created = False
+
     try:
         if had_existing:
-            os.replace(target_dir, backup)
+            try:
+                os.replace(target_dir, backup)
+                backup_created = True
+            except PermissionError:
+                # Windows can refuse directory renames in some addon folders.
+                # Fall back to a direct remove-and-replace after the new copy has
+                # already been fully staged.
+                try:
+                    _remove_tree(target_dir)
+                except Exception as exc:
+                    raise RemotePackageError(
+                        f"Could not replace {target_dir}. Close WoW and any program "
+                        f"using this addon folder, then try again. ({exc})"
+                    ) from exc
+
         os.replace(staged, target_dir)
-        shutil.rmtree(backup, ignore_errors=True)
+
+        if backup_created and os.path.exists(backup):
+            _remove_tree(backup)
+
     except Exception:
-        if os.path.exists(target_dir):
-            shutil.rmtree(target_dir, ignore_errors=True)
-        if had_existing and os.path.exists(backup):
-            os.replace(backup, target_dir)
+        if backup_created and os.path.exists(backup):
+            if os.path.exists(target_dir):
+                try:
+                    _remove_tree(target_dir)
+                except Exception:
+                    pass
+            if not os.path.exists(target_dir):
+                try:
+                    os.replace(backup, target_dir)
+                except Exception:
+                    pass
         raise
     finally:
-        shutil.rmtree(staged, ignore_errors=True)
-        shutil.rmtree(backup, ignore_errors=True)
+        if os.path.exists(staged):
+            try:
+                _remove_tree(staged)
+            except Exception:
+                pass
+        if os.path.exists(backup):
+            try:
+                _remove_tree(backup)
+            except Exception:
+                pass
 
 
 def _safe_extract(zip_path, destination):
@@ -157,42 +239,54 @@ def _find_directory(root, dirname):
     raise RemotePackageError(f"{dirname} was not found in downloaded archive.")
 
 
-def install_classicapi(target_dir):
+def install_classicapi(target_dir, progress=None):
+    _emit_progress(progress, "Checking ClassicAPI release...", None, None)
     release = _latest_release("brues-code/ClassicAPI")
     asset = _find_asset(release, exact_name="ClassicAPI.dll")
-    temp_path = _download_asset(asset)
+    temp_path = _download_asset(asset, progress=progress, label="Downloading ClassicAPI.dll")
     try:
+        _emit_progress(progress, "Installing ClassicAPI.dll...", None, None)
         _atomic_replace_file(temp_path, os.path.join(target_dir, "ClassicAPI.dll"))
     finally:
         os.remove(temp_path)
     return release.get("tag_name", "latest")
 
 
-def install_auction_query_throttle(target_dir):
+def install_auction_query_throttle(target_dir, progress=None):
+    _emit_progress(progress, "Checking AuctionQueryThrottle release...", None, None)
     release = _latest_release("brues-code/AuctionQueryThrottle")
     asset = _find_asset(release, exact_name="AuctionQueryThrottle.dll")
-    temp_path = _download_asset(asset)
+    temp_path = _download_asset(
+        asset,
+        progress=progress,
+        label="Downloading AuctionQueryThrottle.dll",
+    )
     try:
+        _emit_progress(progress, "Installing AuctionQueryThrottle.dll...", None, None)
         _atomic_replace_file(temp_path, os.path.join(target_dir, "AuctionQueryThrottle.dll"))
     finally:
         os.remove(temp_path)
     return release.get("tag_name", "latest")
 
 
-def install_unitxp(target_dir):
+def install_unitxp(target_dir, progress=None):
+    _emit_progress(progress, "Checking UnitXP_SP3 release...", None, None)
     release = _latest_release("brues-code/UnitXP_SP3")
     asset = _find_asset(
         release,
         predicate=lambda name: name.lower().startswith("unitxp_sp3") and name.lower().endswith(".zip"),
     )
-    zip_path = _download_asset(asset)
+    zip_path = _download_asset(asset, progress=progress, label="Downloading UnitXP_SP3 package")
     extract_root = tempfile.mkdtemp(prefix="modernization_unitxp_")
     try:
+        _emit_progress(progress, "Extracting UnitXP_SP3...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "UnitXP_SP3.dll")
         addon_dir = _find_directory(extract_root, "UnitXP_SP3_Addon")
 
+        _emit_progress(progress, "Installing UnitXP_SP3.dll...", None, None)
         _atomic_replace_file(dll_path, os.path.join(target_dir, "UnitXP_SP3.dll"))
+        _emit_progress(progress, "Installing UnitXP_SP3_Addon...", None, None)
         _replace_directory(
             addon_dir,
             os.path.join(target_dir, "Interface", "AddOns", "UnitXP_SP3_Addon"),
@@ -206,17 +300,20 @@ def install_unitxp(target_dir):
     return release.get("tag_name", "latest")
 
 
-def install_superwow(target_dir):
+def install_superwow(target_dir, progress=None):
+    _emit_progress(progress, "Checking SuperWoW release...", None, None)
     release = _latest_release("balakethelock/SuperWoW")
     asset = _find_asset(
         release,
         predicate=lambda name: name.lower().startswith("superwow") and name.lower().endswith(".zip"),
     )
-    zip_path = _download_asset(asset)
+    zip_path = _download_asset(asset, progress=progress, label="Downloading SuperWoW package")
     extract_root = tempfile.mkdtemp(prefix="modernization_superwow_")
     try:
+        _emit_progress(progress, "Extracting SuperWoW...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "SuperWoWhook.dll")
+        _emit_progress(progress, "Installing SuperWoWhook.dll...", None, None)
         _atomic_replace_file(dll_path, os.path.join(target_dir, "SuperWoWhook.dll"))
     finally:
         try:
@@ -227,12 +324,16 @@ def install_superwow(target_dir):
 
     # SuperAPI has no GitHub Releases. Install the current master branch exactly
     # as its author documents, stripping GitHub's "-master" archive suffix.
+    _emit_progress(progress, "Preparing SuperAPI update...", None, None)
     superapi_zip = _download(
         "https://codeload.github.com/balakethelock/SuperAPI/zip/refs/heads/master",
         suffix=".zip",
+        progress=progress,
+        label="Downloading SuperAPI addon",
     )
     superapi_root = tempfile.mkdtemp(prefix="modernization_superapi_")
     try:
+        _emit_progress(progress, "Extracting SuperAPI...", None, None)
         _safe_extract(superapi_zip, superapi_root)
         addon_root = None
         for current_root, _, files in os.walk(superapi_root):
@@ -241,6 +342,8 @@ def install_superwow(target_dir):
                 break
         if addon_root is None:
             raise RemotePackageError("SuperAPI.toc was not found in the SuperAPI archive.")
+
+        _emit_progress(progress, "Installing SuperAPI addon...", None, None)
         _replace_directory(
             addon_root,
             os.path.join(target_dir, "Interface", "AddOns", "SuperAPI"),
