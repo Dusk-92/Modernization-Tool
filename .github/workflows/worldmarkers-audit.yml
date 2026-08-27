@@ -1,0 +1,52 @@
+name: One-time WorldMarkers audit
+
+on:
+  push:
+    branches:
+      - feature/client-tweaks
+    paths:
+      - .github/workflows/worldmarkers-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect WeirdUtils v0.7.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone -q https://codeberg.org/MarcelineVQ/WeirdUtils.git /tmp/WeirdUtils
+          cd /tmp/WeirdUtils
+          git fetch -q --tags
+
+          echo "=== RELEASE COMMITS ==="
+          git log --oneline --decorate v0.7.0..v0.7.1
+
+          echo
+          echo "=== CHANGED FILES ==="
+          git diff --name-status v0.7.0..v0.7.1
+
+          echo
+          echo "=== WORLDMARKERS-RELATED DIFF ==="
+          files="$(git diff --name-only v0.7.0..v0.7.1 | grep -i worldmarkers || true)"
+          if [ -n "$files" ]; then
+            for f in $files; do
+              echo "--- $f ---"
+              git diff --unified=80 v0.7.0..v0.7.1 -- "$f" || true
+            done
+          else
+            echo "No worldmarkers-named source file changed."
+          fi
+
+          echo
+          echo "=== TAG MESSAGES ==="
+          git tag -n99 v0.7.0 v0.7.1 || true
+
+          echo
+          echo "=== V0.7.1 RELEASE API ==="
+          curl -fsSL --retry 3             https://codeberg.org/api/v1/repos/MarcelineVQ/WeirdUtils/releases/tags/v0.7.1             | jq '{tag_name,name,body,created_at,published_at,assets:[.assets[]|{name,size,browser_download_url}]}'
