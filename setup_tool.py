@@ -1334,11 +1334,36 @@ class WowSetupTool:
         warnings = []
 
         visual_defs = [
-            ("darker_nights", "visual_darker_nights", "Darker Nights", remote_packages.install_darker_nights),
-            ("pretty_night_sky", "visual_pretty_night_sky", "Pretty Night Sky", remote_packages.install_pretty_night_sky),
-            ("epoch_water", "visual_epoch_water", "Epoch Water", remote_packages.install_epoch_water),
-            ("fog_pushback", "visual_fog_pushback", "Fog Pushback", remote_packages.install_fog_pushback),
-            ("pink_herbs", "visual_pink_herbs", "Pink Herbs", remote_packages.install_pink_herbs),
+            (
+                "darker_nights",
+                "visual_darker_nights",
+                "Darker Nights",
+                remote_packages.install_darker_nights,
+            ),
+            (
+                "pretty_night_sky",
+                "visual_pretty_night_sky",
+                "Pretty Night Sky",
+                remote_packages.install_pretty_night_sky,
+            ),
+            (
+                "epoch_water",
+                "visual_epoch_water",
+                "Epoch Water",
+                remote_packages.install_epoch_water,
+            ),
+            (
+                "fog_pushback",
+                "visual_fog_pushback",
+                "Fog Pushback",
+                remote_packages.install_fog_pushback,
+            ),
+            (
+                "pink_herbs",
+                "visual_pink_herbs",
+                "Pink Herbs",
+                remote_packages.install_pink_herbs,
+            ),
         ]
         audio_defs = [
             (
@@ -1368,16 +1393,25 @@ class WowSetupTool:
         ]
 
         try:
-            # Large visual MPQs deliberately stay online-only. If a source goes
-            # down, keep the copy previously installed by this tool.
+            # Large visual MPQs deliberately stay online-only, but they are not
+            # downloaded again on every Apply. A revision bump in remote_packages
+            # is enough to trigger one fresh download when a source/version changes.
             for key, managed_id, display_name, installer in visual_defs:
                 if self.visual_mods[key].get():
+                    revision = remote_packages.VISUAL_MOD_REVISIONS[managed_id]
+                    if remote_packages.managed_mpq_is_current(
+                        target,
+                        managed_id,
+                        revision,
+                    ):
+                        continue
+
                     try:
                         installer(target, progress=progress)
                     except Exception as exc:
                         if remote_packages.managed_mod_is_installed(target, managed_id):
                             warnings.append(
-                                f"{display_name}: online source unavailable; existing installed copy kept."
+                                f"{display_name}: update source unavailable; existing installed copy kept."
                             )
                         else:
                             raise RuntimeError(
