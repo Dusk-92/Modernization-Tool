@@ -427,8 +427,7 @@ class WowSetupTool:
         insert_link("Source Repository", "https://github.com/isfir/VanillaHelpers")
 
         text_area.insert("end", "\n• PerfBoost: ", "bold")
-        insert_link("Mod Source", "https://gitea.com/avitasia/PerfBoost")
-        text_area.insert("end", " | ")
+        text_area.insert("end", "by avitasia | ")
         insert_link("Addon Source", "https://gitea.com/avitasia/PerfBoostSettings")
 
         text_area.insert("end", "\n• UnitXP_SP3: ", "bold")
