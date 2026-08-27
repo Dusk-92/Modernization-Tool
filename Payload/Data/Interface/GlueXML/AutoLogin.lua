@@ -382,6 +382,13 @@ function LoginManager:LoadAccounts()
   self.State.accounts = {}
   self.State.last = nil
 
+  -- Secure-by-default: when Nampower encryption is available, enable it for
+  -- fresh/legacy AutoLogin state. A saved explicit false value is restored
+  -- below, so users who deliberately turned Encrypt off keep their choice.
+  if has_encryption and self.State.encrypt_passwords == nil then
+    self.State.encrypt_passwords = true
+  end
+
   local login_data = ImportFile("logins")
   local file = self:FromFile("logins")
   if file then
