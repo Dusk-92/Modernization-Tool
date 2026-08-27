@@ -430,6 +430,15 @@ def _restore_or_remove_managed_file(target_dir, mod_id, relative_path):
     _prune_empty_parents(os.path.dirname(target), target_dir)
 
 
+
+def managed_mod_is_installed(target_dir, mod_id):
+    """True only when a tool-managed manifest exists and all owned files remain present."""
+    files = _load_managed_manifest(target_dir, mod_id)
+    if not files:
+        return False
+    return all(os.path.isfile(os.path.join(target_dir, rel)) for rel in files)
+
+
 def remove_managed_mod(target_dir, mod_id):
     """Remove only files previously installed by this tool, restoring backups."""
     root, manifest_path, backup_root = _managed_locations(target_dir, mod_id)
@@ -602,6 +611,15 @@ def _download_github_branch_archive(repo, branch, progress=None, label="Download
         label=label,
         timeout=120,
     )
+
+
+
+def install_bundled_tree(target_dir, mod_id, source_dir, destination_prefix):
+    """Install an already bundled directory tree through the managed-file layer."""
+    if not os.path.isdir(source_dir):
+        raise RemotePackageError(f"Bundled backup folder is missing: {source_dir}")
+    mappings = _collect_tree_files(source_dir, destination_prefix)
+    _install_managed_files(target_dir, mod_id, mappings)
 
 
 def _collect_tree_files(source_dir, destination_prefix):
