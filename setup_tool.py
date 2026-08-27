@@ -1236,41 +1236,68 @@ class WowSetupTool:
         return True
 
     def clean_unselected_files(self, target):
-        """Removes managed files/folders if they were explicitly unselected by the user."""
-        
-        # 1. Clean AutoLogin files if unselected
+        """Remove explicitly unselected tool-managed files without hiding failures."""
+
+        def remove_managed_file(path, label):
+            if not os.path.lexists(path):
+                return
+            try:
+                os.remove(path)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Could not remove {label}. Close WoW and any program using the file, then try again."
+                ) from exc
+
+        def remove_managed_tree(path, label):
+            if not os.path.lexists(path):
+                return
+            try:
+                shutil.rmtree(path)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Could not remove {label}. Close WoW and any program using the folder, then try again."
+                ) from exc
+
+        # 1. Clean AutoLogin files if unselected.
         if not self.install_autologin.get():
             glue_dir = os.path.join(target, "Data", "Interface", "GlueXML")
             for file_name in ["AutoLogin.lua", "AutoLogin.xml", "GlueXML.toc"]:
-                file_path = os.path.join(glue_dir, file_name)
-                if os.path.exists(file_path):
-                    try: os.remove(file_path)
-                    except: pass
-            if os.path.exists(glue_dir) and not os.listdir(glue_dir):
-                try: os.rmdir(glue_dir)
-                except: pass
+                remove_managed_file(
+                    os.path.join(glue_dir, file_name),
+                    f"managed AutoLogin file {file_name}",
+                )
+            if os.path.isdir(glue_dir):
+                try:
+                    if not os.listdir(glue_dir):
+                        os.rmdir(glue_dir)
+                except OSError:
+                    # Leaving an empty directory behind is harmless; unlike a
+                    # stale DLL/AddOn it cannot change the running client.
+                    pass
 
-        # 2. Clean unselected Core Plugins and their dependent AddOns
+        # 2. Clean unselected Core Plugins and their dependent AddOns.
         for dll_name, var in self.core_plugins.items():
             if not var.get():
-                dll_path = os.path.join(target, dll_name)
-                if os.path.exists(dll_path):
-                    try: os.remove(dll_path)
-                    except: pass
-                
+                remove_managed_file(
+                    os.path.join(target, dll_name),
+                    f"managed plugin {dll_name}",
+                )
+
                 addon_folder = self.addon_dependencies.get(dll_name)
                 if addon_folder:
-                    addon_path = os.path.join(target, "Interface", "AddOns", addon_folder)
-                    if os.path.exists(addon_path):
-                        shutil.rmtree(addon_path, ignore_errors=True)
+                    remove_managed_tree(
+                        os.path.join(target, "Interface", "AddOns", addon_folder),
+                        f"managed addon {addon_folder}",
+                    )
 
-        # 3. Clean unselected Optional plugins
+        # 3. Clean unselected Optional plugins.
         for dll_name, var in self.optional_plugins.items():
             if not var.get():
-                dll_path = os.path.join(target, dll_name)
-                if os.path.exists(dll_path):
-                    try: os.remove(dll_path)
-                    except: pass
+                remove_managed_file(
+                    os.path.join(target, dll_name),
+                    f"managed plugin {dll_name}",
+                )
+
 
     def configure_script_memory(self, target):
         """Optionally set AddOn Script Memory to 0 (unlimited) in WTF/Config.wtf."""
@@ -1996,23 +2023,87 @@ oLink.Save
             if os.path.exists(source_file): shutil.copy2(source_file, target)
 
 
+    def _previous_settings_used_dxvk(self, target):
+        """Use the previous saved selection as legacy ownership proof."""
+        settings_path = self._settings_path(target)
+        if not os.path.isfile(settings_path):
+            return False
+        try:
+            with open(settings_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            return False
+        return (
+            isinstance(saved, dict)
+            and saved.get("rendering_mode") == "dxvk"
+        )
+
     def configure_dxvk(self, target):
+        """Manage DXVK transactionally and never delete unowned renderer files."""
         payload_dir = os.path.join(get_base_path(), "Payload")
+        d3d9_src = os.path.join(payload_dir, "DXVK_Standard", "d3d9.dll")
+        conf_src = os.path.join(payload_dir, "dxvk.conf")
         d3d9_target = os.path.join(target, "d3d9.dll")
         conf_target = os.path.join(target, "dxvk.conf")
+        managed_id = "renderer_dxvk"
+
+        managed_files = remote_packages._load_managed_manifest(target, managed_id)
 
         if self.rendering_mode.get() == "dxvk":
-            d3d9_src = os.path.join(payload_dir, "DXVK_Standard", "d3d9.dll")
-            conf_src = os.path.join(payload_dir, "dxvk.conf")
+            missing = [
+                path for path in (d3d9_src, conf_src)
+                if not os.path.isfile(path)
+            ]
+            if missing:
+                raise FileNotFoundError(
+                    "Bundled DXVK files are incomplete: "
+                    + ", ".join(os.path.basename(path) for path in missing)
+                )
 
-            if os.path.exists(d3d9_src):
-                shutil.copy2(d3d9_src, d3d9_target)
-            if os.path.exists(conf_src):
-                shutil.copy2(conf_src, conf_target)
-        else:
-            for path in (d3d9_target, conf_target):
-                if os.path.exists(path):
-                    os.remove(path)
+            # Migrate installations created before renderer ownership manifests
+            # existed. A saved DXVK selection is explicit evidence that these
+            # two paths were managed by this tool on the previous Apply.
+            if not managed_files and self._previous_settings_used_dxvk(target):
+                for path in (conf_target, d3d9_target):
+                    if os.path.lexists(path):
+                        try:
+                            os.remove(path)
+                        except OSError as exc:
+                            raise RuntimeError(
+                                f"Could not migrate the previous managed DXVK file {os.path.basename(path)}. "
+                                "Close WoW and any program using it, then try again."
+                            ) from exc
+
+            remote_packages._install_managed_files_transactional(
+                target,
+                managed_id,
+                [
+                    (d3d9_src, "d3d9.dll"),
+                    (conf_src, "dxvk.conf"),
+                ],
+                revision="1",
+            )
+            return
+
+        # New managed installs restore any files that existed before DXVK was
+        # enabled. This means a user's own d3d9.dll/dxvk.conf is never lost.
+        if managed_files:
+            remote_packages.remove_managed_mod(target, managed_id)
+            return
+
+        # Legacy cleanup is allowed only with explicit previous settings proof.
+        # Unknown/manual renderer files are deliberately preserved.
+        if self._previous_settings_used_dxvk(target):
+            for path in (conf_target, d3d9_target):
+                if os.path.lexists(path):
+                    try:
+                        os.remove(path)
+                    except OSError as exc:
+                        raise RuntimeError(
+                            f"Could not remove the previous managed DXVK file {os.path.basename(path)}. "
+                            "Close WoW and any program using it, then try again."
+                        ) from exc
+
 
     def _managed_dll_entries(self):
         """Return every dlls.txt entry owned by this tool."""

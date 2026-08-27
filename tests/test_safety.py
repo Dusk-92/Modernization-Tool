@@ -155,6 +155,83 @@ class WdbBlockerTests(unittest.TestCase):
                 self.assertEqual(handle.read(), b"foreign")
 
 
+class DxvkOwnershipTests(unittest.TestCase):
+    def make_tool(self, mode):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool.rendering_mode = FakeVar(mode)
+        return tool
+
+    def make_payload(self, root):
+        payload = os.path.join(root, "Payload")
+        dxvk = os.path.join(payload, "DXVK_Standard")
+        os.makedirs(dxvk)
+        with open(os.path.join(dxvk, "d3d9.dll"), "wb") as handle:
+            handle.write(b"bundled-dxvk")
+        with open(os.path.join(payload, "dxvk.conf"), "wb") as handle:
+            handle.write(b"bundled-conf")
+
+    def test_enable_then_disable_restores_preexisting_renderer_files(self):
+        tool = self.make_tool("dxvk")
+        with tempfile.TemporaryDirectory() as bundle, tempfile.TemporaryDirectory() as target:
+            self.make_payload(bundle)
+            d3d9 = os.path.join(target, "d3d9.dll")
+            conf = os.path.join(target, "dxvk.conf")
+            with open(d3d9, "wb") as handle:
+                handle.write(b"user-d3d9")
+            with open(conf, "wb") as handle:
+                handle.write(b"user-conf")
+
+            with mock.patch("setup_tool.get_base_path", return_value=bundle):
+                tool.configure_dxvk(target)
+                with open(d3d9, "rb") as handle:
+                    self.assertEqual(handle.read(), b"bundled-dxvk")
+                with open(conf, "rb") as handle:
+                    self.assertEqual(handle.read(), b"bundled-conf")
+
+                tool.rendering_mode.set("directx9")
+                tool.configure_dxvk(target)
+
+            with open(d3d9, "rb") as handle:
+                self.assertEqual(handle.read(), b"user-d3d9")
+            with open(conf, "rb") as handle:
+                self.assertEqual(handle.read(), b"user-conf")
+
+    def test_directx9_preserves_unowned_renderer_files(self):
+        tool = self.make_tool("directx9")
+        with tempfile.TemporaryDirectory() as target:
+            d3d9 = os.path.join(target, "d3d9.dll")
+            conf = os.path.join(target, "dxvk.conf")
+            with open(d3d9, "wb") as handle:
+                handle.write(b"manual-d3d9")
+            with open(conf, "wb") as handle:
+                handle.write(b"manual-conf")
+
+            tool.configure_dxvk(target)
+
+            with open(d3d9, "rb") as handle:
+                self.assertEqual(handle.read(), b"manual-d3d9")
+            with open(conf, "rb") as handle:
+                self.assertEqual(handle.read(), b"manual-conf")
+
+
+class StrictCleanupTests(unittest.TestCase):
+    def test_locked_managed_plugin_removal_is_not_silently_ignored(self):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool.install_autologin = FakeVar(True)
+        tool.core_plugins = {"CorePlugin.dll": FakeVar(False)}
+        tool.optional_plugins = {}
+        tool.addon_dependencies = {}
+
+        with tempfile.TemporaryDirectory() as target:
+            dll_path = os.path.join(target, "CorePlugin.dll")
+            with open(dll_path, "wb") as handle:
+                handle.write(b"dll")
+
+            with mock.patch("setup_tool.os.remove", side_effect=PermissionError("locked")):
+                with self.assertRaises(RuntimeError):
+                    tool.clean_unselected_files(target)
+
+
 class ManagedPackageTests(unittest.TestCase):
     def test_mpq_revision_and_magic_are_both_checked(self):
         with tempfile.TemporaryDirectory() as root:
