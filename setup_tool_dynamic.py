@@ -341,6 +341,15 @@ class ModernWowSetupTool(WowSetupTool):
             f"{action}\n\nDetails: {error}",
         )
 
+    def _valid_x86_dll(self, path, label):
+        if not os.path.isfile(path):
+            return False
+        try:
+            remote_packages._verify_x86_pe(path, label)
+            return True
+        except Exception:
+            return False
+
     def _fallback_core_dll(self, payload_base, target, dll_name, error):
         source_dll = os.path.join(payload_base, dll_name)
         target_dll = os.path.join(target, dll_name)
@@ -353,7 +362,10 @@ class ModernWowSetupTool(WowSetupTool):
 
         # Never downgrade a complete existing install because an upstream link
         # happens to be unavailable during an update.
-        existing_complete = os.path.isfile(target_dll) and (
+        existing_complete = self._valid_x86_dll(
+            target_dll,
+            f"installed {dll_name}",
+        ) and (
             target_addon is None or os.path.isdir(target_addon)
         )
         if existing_complete:
@@ -368,6 +380,11 @@ class ModernWowSetupTool(WowSetupTool):
             raise RuntimeError(
                 f"Could not download the latest {dll_name}, and no bundled fallback exists.\n\n{error}"
             ) from error
+
+        remote_packages._verify_x86_pe(
+            source_dll,
+            f"bundled fallback {dll_name}",
+        )
 
         source_addon = None
         if addon_folder:
@@ -397,7 +414,7 @@ class ModernWowSetupTool(WowSetupTool):
 
     def _fallback_simple_dll(self, target, dll_name, error):
         target_dll = os.path.join(target, dll_name)
-        if os.path.isfile(target_dll):
+        if self._valid_x86_dll(target_dll, f"installed {dll_name}"):
             self._warn_offline(
                 dll_name,
                 "The version already installed in your WoW folder was kept unchanged.",
@@ -411,6 +428,10 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Could not download the latest {dll_name}, and its bundled backup is missing.\n\n{error}"
             ) from error
 
+        remote_packages._verify_x86_pe(
+            fallback,
+            f"bundled fallback {dll_name}",
+        )
         remote_packages._atomic_replace_file(fallback, target_dll)
         self._warn_offline(
             dll_name,
@@ -420,7 +441,10 @@ class ModernWowSetupTool(WowSetupTool):
 
     def _fallback_vmmfix(self, target, error):
         target_dll = os.path.join(target, "VanillaMultiMonitorFix.dll")
-        if os.path.isfile(target_dll):
+        if self._valid_x86_dll(
+            target_dll,
+            "installed VanillaMultiMonitorFix.dll",
+        ):
             self._warn_offline(
                 "VanillaMultiMonitorFix",
                 "The version already installed in your WoW folder was kept unchanged.",
@@ -438,7 +462,11 @@ class ModernWowSetupTool(WowSetupTool):
                 f"VanillaMultiMonitorFix update failed and its bundled backup is missing.\n\n{error}"
             ) from error
 
-        shutil.copy2(fallback_dll, target_dll)
+        remote_packages._verify_x86_pe(
+            fallback_dll,
+            "bundled fallback VanillaMultiMonitorFix.dll",
+        )
+        remote_packages._atomic_replace_file(fallback_dll, target_dll)
         target_config = os.path.join(target, "VMMFix_preferred_monitor.txt")
         if not os.path.exists(target_config) and os.path.isfile(fallback_config):
             shutil.copy2(fallback_config, target_config)
@@ -452,7 +480,10 @@ class ModernWowSetupTool(WowSetupTool):
     def _fallback_interact(self, target, error):
         target_dll = os.path.join(target, "Interact.dll")
         target_addon = os.path.join(target, "Interface", "AddOns", "Interact")
-        if os.path.isfile(target_dll) and os.path.isdir(target_addon):
+        if (
+            self._valid_x86_dll(target_dll, "installed Interact.dll")
+            and os.path.isdir(target_addon)
+        ):
             self._warn_offline(
                 "Interact",
                 "The version already installed in your WoW folder was kept unchanged.",
@@ -468,6 +499,10 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Interact update failed and its bundled backup is incomplete.\n\n{error}"
             ) from error
 
+        remote_packages._verify_x86_pe(
+            fallback_dll,
+            "bundled fallback Interact.dll",
+        )
         remote_packages._transactional_replace_bundle(
             [
                 ("file", fallback_dll, target_dll),
