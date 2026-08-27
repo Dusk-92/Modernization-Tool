@@ -556,7 +556,7 @@
     "WeirdUtils bundled modules": {
       "version": "v0.7.0",
       "source": "https://codeberg.org/MarcelineVQ/WeirdUtils/releases/tag/v0.7.0",
-      "note": "All listed bundled modules were verified byte-for-byte against v0.7.0. worldmarkers.dll has a newer upstream binary in v0.7.1 and was intentionally not changed during the provenance audit.",
+      "note": "All listed bundled modules were verified byte-for-byte against WeirdUtils v0.7.0. WorldMarkers is tracked separately because it was updated to v0.7.1.",
       "files": [
         {
           "path": "Payload/transmogfix.dll",
@@ -587,11 +587,18 @@
           "path": "Payload/WeirdUtils/pngscreenshots.dll",
           "size": 16896,
           "sha256": "44ca42ac8428eb4e69017ad264b8e86206e803ccbe3a3591d6ba1916d7888dca"
-        },
+        }
+      ]
+    },
+    "WeirdUtils WorldMarkers": {
+      "version": "v0.7.1",
+      "source": "https://codeberg.org/MarcelineVQ/WeirdUtils/releases/tag/v0.7.1",
+      "note": "Bug-fix release: relaxes overly strict zone checking that could prevent valid world markers from appearing.",
+      "files": [
         {
           "path": "Payload/WeirdUtils/worldmarkers.dll",
-          "size": 487936,
-          "sha256": "ea6812a3e1858777fc88d4296bc9782b51e9149642ead75bc4d08b49417fb7d5"
+          "size": 488448,
+          "sha256": "7b0b0fcdb8bb9e82c5a18ab395af670f57da3e03035b27d5e244e4f8b457fdf2"
         }
       ]
     }
