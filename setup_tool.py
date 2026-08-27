@@ -111,7 +111,7 @@ class WowSetupTool:
 
         # Basic Setup Variables
         self.wow_dir = tk.StringVar()
-        self.rendering_mode = tk.StringVar(value="dxvk")
+        self.rendering_mode = tk.StringVar(value="directx9")
         self.install_autologin = tk.BooleanVar(value=True)
 
         self.screen_w = self.root.winfo_screenwidth()
@@ -171,7 +171,7 @@ class WowSetupTool:
         self.vt_laa = tk.BooleanVar(value=True)
         self.vt_cam_fix = tk.BooleanVar(value=True)
         self.vt_dep_fix = tk.BooleanVar(value=True)
-        self.vt_script_memory = tk.BooleanVar(value=False)
+        self.vt_script_memory = tk.BooleanVar(value=True)
         
         # Safety Limit Toggle
         self.safety_override = tk.BooleanVar(value=False)
