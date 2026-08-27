@@ -1844,7 +1844,10 @@ class WowSetupTool:
                 messagebox.showinfo(
                     "Success",
                     "Installation and patching complete!\n\n"
-                    "Use the new 'Play Modernized WoW' shortcut in your directory to launch the game."
+                    "'Play Modernized WoW' shortcuts were created in:\n"
+                    "• your WoW game folder\n"
+                    "• your Windows desktop\n\n"
+                    "Use either shortcut to launch the modernized game."
                     + settings_warning,
                 )
             except PermissionError as exc:
@@ -1903,7 +1906,7 @@ class WowSetupTool:
                 pass
 
     def create_launcher_shortcut(self, target_dir):
-        """Create the launcher transactionally and verify cscript succeeded."""
+        """Create matching game-folder and Desktop launchers transactionally."""
         shortcut_path = os.path.join(target_dir, "Play Modernized WoW.lnk")
         staged_shortcut = shortcut_path + ".modernization-new.lnk"
         vanilla_fixes_exe = os.path.join(target_dir, "VanillaFixes.exe")
@@ -1911,11 +1914,11 @@ class WowSetupTool:
 
         if not os.path.isfile(vanilla_fixes_exe):
             raise RuntimeError(
-                "VanillaFixes.exe is missing, so the launcher shortcut cannot be created."
+                "VanillaFixes.exe is missing, so the launcher shortcuts cannot be created."
             )
         if not os.path.isfile(modernized_exe):
             raise RuntimeError(
-                "WoW_Modernized.exe is missing, so the launcher shortcut cannot be created."
+                "WoW_Modernized.exe is missing, so the launcher shortcuts cannot be created."
             )
 
         support_dir = os.path.join(target_dir, ".modernization_tool")
@@ -1937,6 +1940,9 @@ class WowSetupTool:
         def vbs_escape(value):
             return str(value).replace('"', '""')
 
+        # WScript.Shell resolves the real Windows Desktop path, including
+        # localized/OneDrive-redirected desktops. Echo it back so Python can
+        # install the same verified shortcut there.
         vbs_script = f"""
 Set oWS = WScript.CreateObject("WScript.Shell")
 sLinkFile = "{vbs_escape(staged_shortcut)}"
@@ -1947,6 +1953,7 @@ oLink.WorkingDirectory = "{vbs_escape(target_dir)}"
 oLink.Description = "Launch Vanilla WoW with VanillaFixes and Tweaks"
 {icon_vbs_line}
 oLink.Save
+WScript.Echo oWS.SpecialFolders("Desktop")
 """
         vbs_path = os.path.join(support_dir, "create_shortcut.vbs")
 
@@ -1972,7 +1979,7 @@ oLink.Save
             except FileNotFoundError as exc:
                 raise RuntimeError(
                     "Windows Script Host (cscript.exe) was not found, so the "
-                    "launcher shortcut could not be created."
+                    "launcher shortcuts could not be created."
                 ) from exc
 
             if result.returncode != 0:
@@ -1994,10 +2001,32 @@ oLink.Save
                     "Play Modernized WoW shortcut was not produced."
                 )
 
-            # Only replace the user's current shortcut after the new one has
-            # been created and verified, so a cscript failure leaves the old
-            # shortcut intact.
-            os.replace(staged_shortcut, shortcut_path)
+            desktop_lines = [
+                line.strip()
+                for line in (result.stdout or "").splitlines()
+                if line.strip()
+            ]
+            desktop_dir = desktop_lines[-1] if desktop_lines else ""
+            if not desktop_dir or not os.path.isdir(desktop_dir):
+                raise RuntimeError(
+                    "Windows could not resolve your Desktop folder, so the "
+                    "Play Modernized WoW Desktop shortcut could not be created."
+                )
+
+            desktop_shortcut = os.path.join(
+                desktop_dir,
+                "Play Modernized WoW.lnk",
+            )
+
+            # Commit both launchers as one transaction. If either destination
+            # cannot be updated, the previous shortcuts are restored.
+            remote_packages._transactional_replace_bundle(
+                [
+                    ("file", staged_shortcut, shortcut_path),
+                    ("file", staged_shortcut, desktop_shortcut),
+                ],
+                label="Play Modernized WoW shortcuts",
+            )
 
         finally:
             for temp_path in (vbs_path, staged_shortcut):
