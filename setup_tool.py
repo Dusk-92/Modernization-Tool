@@ -1303,31 +1303,157 @@ class WowSetupTool:
                     pass
 
 
+    def _wdb_marker_path(self, target_dir):
+        return os.path.join(
+            target_dir,
+            ".modernization_tool",
+            "wdb_blocker.json",
+        )
+
+    def _previous_settings_used_wdb_blocker(self, target_dir):
+        """Use the last successful settings file as legacy ownership evidence."""
+        settings_path = self._settings_path(target_dir)
+        if not os.path.isfile(settings_path):
+            return False
+        try:
+            with open(settings_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            tweaks = saved.get("vanilla_tweaks", {})
+            return isinstance(tweaks, dict) and tweaks.get("clear_wdb") is True
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            return False
+
+    def _wdb_blocker_owned_by_tool(self, target_dir):
+        marker_path = self._wdb_marker_path(target_dir)
+        if os.path.isfile(marker_path):
+            try:
+                with open(marker_path, "r", encoding="utf-8") as handle:
+                    marker = json.load(handle)
+                if (
+                    isinstance(marker, dict)
+                    and marker.get("target") == "WDB"
+                    and marker.get("type") == "empty_file_blocker"
+                ):
+                    return True
+            except (OSError, json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+        return self._previous_settings_used_wdb_blocker(target_dir)
+
+    def _write_wdb_marker(self, target_dir):
+        marker_path = self._wdb_marker_path(target_dir)
+        os.makedirs(os.path.dirname(marker_path), exist_ok=True)
+        temp_path = marker_path + ".new"
+        payload = {
+            "schema": 1,
+            "target": "WDB",
+            "type": "empty_file_blocker",
+            "expected_size": 0,
+        }
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        os.replace(temp_path, marker_path)
+
     def configure_wdb_cache(self, target):
-        """Apply the RetroCro WDB blocker method when enabled."""
+        """Apply/remove the RetroCro WDB blocker without deleting foreign files."""
         wdb_path = os.path.join(target, "WDB")
+        marker_path = self._wdb_marker_path(target)
 
         if self.vt_clear_wdb.get():
             if os.path.islink(wdb_path):
-                raise RuntimeError("WDB is a symbolic link. Remove it manually before enabling Automatically Clear WDB.")
+                raise RuntimeError(
+                    "WDB is a symbolic link. Remove it manually before enabling "
+                    "Automatically Clear WDB."
+                )
 
             if os.path.isdir(wdb_path):
+                # Clearing the real WDB cache is the explicit purpose of this
+                # option. After removal we create our own empty blocker.
                 shutil.rmtree(wdb_path)
+
             elif os.path.exists(wdb_path) and not os.path.isfile(wdb_path):
-                raise RuntimeError("The existing WDB path is not a normal file or directory.")
+                raise RuntimeError(
+                    "The existing WDB path is not a normal file or directory."
+                )
+
+            elif os.path.isfile(wdb_path):
+                # A zero-byte WDB is already a blocker. Because the user has
+                # explicitly enabled this option, it is safe to adopt that
+                # blocker into tool ownership. Never adopt a non-empty file.
+                try:
+                    size = os.path.getsize(wdb_path)
+                except OSError as exc:
+                    raise RuntimeError(
+                        f"Could not inspect the existing WDB file: {exc}"
+                    ) from exc
+
+                if size != 0:
+                    raise RuntimeError(
+                        "A non-empty file named WDB already exists in the game "
+                        "folder. Modernization Tool will not overwrite or claim "
+                        "ownership of it. Rename/remove that file manually before "
+                        "enabling Automatically Clear WDB."
+                    )
 
             if not os.path.exists(wdb_path):
                 with open(wdb_path, "wb"):
                     pass
-        else:
-            # Only remove the blocker file. A real WDB cache directory is left
-            # untouched so WoW can manage it normally.
-            if os.path.isfile(wdb_path):
+
+            # At this point WDB is guaranteed to be the empty blocker selected
+            # by the user. Record ownership atomically for later removal.
+            try:
+                self._write_wdb_marker(target)
+            except OSError:
+                # settings.json, saved after a successful Apply, also provides
+                # legacy ownership evidence on the next run.
+                pass
+            return
+
+        # Disabled: remove only a blocker that this tool can identify as its
+        # own, and only if it is still an empty regular file. A replaced or
+        # foreign WDB file is never deleted.
+        owned = self._wdb_blocker_owned_by_tool(target)
+
+        if os.path.isfile(wdb_path) and owned:
+            try:
+                size = os.path.getsize(wdb_path)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Could not inspect the WDB blocker before removal: {exc}"
+                ) from exc
+
+            if size == 0:
                 try:
-                    os.chmod(wdb_path, os.stat(wdb_path).st_mode | stat.S_IWRITE)
+                    os.chmod(
+                        wdb_path,
+                        os.stat(wdb_path).st_mode | stat.S_IWRITE,
+                    )
                 except OSError:
                     pass
                 os.remove(wdb_path)
+            else:
+                messagebox.showwarning(
+                    "WDB file preserved",
+                    "Modernization Tool previously created a WDB blocker here, "
+                    "but the current WDB file is no longer empty. It may have "
+                    "been replaced by another program, so it was left untouched.",
+                )
+
+        elif os.path.isfile(wdb_path) and not owned:
+            messagebox.showwarning(
+                "WDB file preserved",
+                "A regular file named WDB already exists, but Modernization Tool "
+                "cannot verify that it created it. The file was left untouched.",
+            )
+
+        # A real WDB directory is always left alone when the option is disabled.
+        # Remove stale ownership metadata only after the blocker is gone or no
+        # longer ours.
+        if os.path.isfile(marker_path):
+            try:
+                os.remove(marker_path)
+            except OSError:
+                pass
 
     def configure_visual_audio(self, target):
         progress = getattr(self, "_report_download_progress", None)
