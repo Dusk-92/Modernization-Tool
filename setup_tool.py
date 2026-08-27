@@ -9,6 +9,8 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk, filedialog, messagebox
 
+import remote_packages
+
 def get_base_path():
     """Gets the correct directory whether running as a script or a compiled .exe"""
     if getattr(sys, 'frozen', False):
@@ -63,7 +65,7 @@ class WowSetupTool:
         self.root.title("WoW Vanilla 1.12 Modernization Tool")
         
         # Lock window size exactly as requested
-        self.root.geometry("680x610") 
+        self.root.geometry("680x660") 
         self.root.resizable(False, False)
 
         icon_path = os.path.join(get_base_path(), "PurpleWowLogo.ico")
@@ -110,7 +112,16 @@ class WowSetupTool:
             "script_memory": "Sets WoW's AddOn Script Memory to 0 (unlimited). When disabled, the tool leaves your existing Config.wtf value unchanged.",
             "crossfaction_res": "Allows the client to attempt resurrection of released cross-faction players.",
             "custom_glues": "Enables custom GlueXML frames and XML on the login and character-selection screens.",
-            "bluemoon": "Restores the rare blue moon visual effect that appears around 1 AM on some nights."
+            "bluemoon": "Restores the rare blue moon visual effect that appears around 1 AM on some nights.",
+            "clear_wdb": "Automatically clears the current WDB cache and prevents stale WDB data from rebuilding by placing an empty WDB blocker file in the game folder. Unchecking this option removes the blocker so WoW can create its WDB folder normally.",
+            "darker_nights": "Installs Project Reforged Patch-N for darker, more atmospheric nights. Project Reforged recommends VanillaHelpers.",
+            "pretty_night_sky": "Replaces the Vanilla night sky with a more detailed starry sky. Installed as patch-Z.mpq so the official numeric patch-9.mpq is never overwritten.",
+            "epoch_water": "Replaces Vanilla water textures with the Epoch Water visual pack.",
+            "fog_pushback": "Pushes environmental fog farther back for a clearer long-distance view. Works best together with an increased Farclip value.",
+            "pink_herbs": "Turns most herb-node textures bright pink/purple to make gathering nodes easier to spot.",
+            "no_error_sounds": "Installs the complete NoErrorSounds pack: muted spell fizzle sounds plus its included muted interface sounds.",
+            "fish_ping": "Replaces the fishing bite sound with a much more noticeable ping. Designed specifically for WoW Vanilla 1.12.1.",
+            "warlock_muted_demons": "Mutes the repeated voice lines from Warlock demons using Vanilla-compatible loose sound replacements."
         }
 
         # Basic Setup Variables
@@ -179,6 +190,21 @@ class WowSetupTool:
         self.vt_crossfaction_res = tk.BooleanVar(value=False)
         self.vt_custom_glues = tk.BooleanVar(value=True)
         self.vt_bluemoon = tk.BooleanVar(value=False)
+        self.vt_clear_wdb = tk.BooleanVar(value=True)
+
+        # Optional visual and audio mods.
+        self.visual_mods = {
+            "darker_nights": tk.BooleanVar(value=False),
+            "pretty_night_sky": tk.BooleanVar(value=False),
+            "epoch_water": tk.BooleanVar(value=False),
+            "fog_pushback": tk.BooleanVar(value=False),
+            "pink_herbs": tk.BooleanVar(value=False),
+        }
+        self.audio_mods = {
+            "no_error_sounds": tk.BooleanVar(value=False),
+            "fish_ping": tk.BooleanVar(value=False),
+            "warlock_muted_demons": tk.BooleanVar(value=False),
+        }
         
         # Safety Limit Toggle
         self.safety_override = tk.BooleanVar(value=False)
@@ -224,6 +250,22 @@ class WowSetupTool:
         self.slider_widgets.append((scale, safe_max, extreme_max, var))
         return lbl, scale, entry
 
+    def create_mod_option_row(self, parent, text, variable, attribution, tooltip):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=10, pady=4)
+
+        cb = ttk.Checkbutton(row, text=text, variable=variable)
+        cb.pack(side="left")
+        ToolTip(cb, tooltip)
+
+        if attribution:
+            ttk.Label(
+                row,
+                text=attribution,
+                font=("Segoe UI", 7, "italic"),
+            ).pack(side="right", padx=(6, 0))
+        return cb
+
     def build_ui(self):
         help_banner = tk.Label(
             self.root,
@@ -244,16 +286,19 @@ class WowSetupTool:
         tab_main = ttk.Frame(notebook)
         tab_plugins = ttk.Frame(notebook)
         tab_tweaks = ttk.Frame(notebook)
+        tab_visual_audio = ttk.Frame(notebook)
         tab_credits = ttk.Frame(notebook)
 
         notebook.add(tab_main, text="Setup & Rendering")
         notebook.add(tab_plugins, text="Plugins")
         notebook.add(tab_tweaks, text="Vanilla Tweaks")
+        notebook.add(tab_visual_audio, text="Visual & Audio")
         notebook.add(tab_credits, text="Credits & Sources")
 
         self.build_main_tab(tab_main)
         self.build_plugins_tab(tab_plugins)
         self.build_tweaks_tab(tab_tweaks)
+        self.build_visual_audio_tab(tab_visual_audio)
         self.build_credits_tab(tab_credits)
 
         ttk.Button(self.root, text="Apply Setup & Tweaks", command=self.run_installation, style="Accent.TButton").pack(pady=10, fill='x', padx=20)
@@ -456,15 +501,97 @@ class WowSetupTool:
         cb_custom_glues.grid(row=3, column=1, sticky='w', padx=10, pady=2)
         ToolTip(cb_custom_glues, self.descriptions["custom_glues"])
 
-        cb_bluemoon = ttk.Checkbutton(
+        cb_clear_wdb = ttk.Checkbutton(
             toggles_frame,
-            text="Bluemoon Patch",
-            variable=self.vt_bluemoon
+            text="Automatically Clear WDB",
+            variable=self.vt_clear_wdb
         )
-        cb_bluemoon.grid(row=4, column=0, sticky='w', padx=10, pady=2)
-        ToolTip(cb_bluemoon, self.descriptions["bluemoon"])
+        cb_clear_wdb.grid(row=4, column=0, sticky='w', padx=10, pady=2)
+        ToolTip(cb_clear_wdb, self.descriptions["clear_wdb"])
 
         self.update_superwow_managed_controls()
+
+
+    def build_visual_audio_tab(self, parent):
+        ttk.Label(
+            parent,
+            text="Optional appearance and sound replacements. Everything here is disabled by default.",
+            font=("Segoe UI", 9, "italic"),
+        ).pack(anchor="w", padx=12, pady=(10, 6))
+
+        container = ttk.Frame(parent)
+        container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        visual_frame = ttk.LabelFrame(container, text="Visual Mods")
+        visual_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        audio_frame = ttk.LabelFrame(container, text="Audio Mods")
+        audio_frame.pack(side="right", fill="both", expand=True, padx=(5, 0))
+
+        self.create_mod_option_row(
+            visual_frame,
+            "Bluemoon Patch",
+            self.vt_bluemoon,
+            "via vanilla-tweaks",
+            self.descriptions["bluemoon"],
+        )
+        self.create_mod_option_row(
+            visual_frame,
+            "Darker Nights",
+            self.visual_mods["darker_nights"],
+            "by Project Reforged",
+            self.descriptions["darker_nights"],
+        )
+        self.create_mod_option_row(
+            visual_frame,
+            "Pretty Night Sky",
+            self.visual_mods["pretty_night_sky"],
+            "source: RetroCro",
+            self.descriptions["pretty_night_sky"],
+        )
+        self.create_mod_option_row(
+            visual_frame,
+            "Epoch Water",
+            self.visual_mods["epoch_water"],
+            "source: RetroCro",
+            self.descriptions["epoch_water"],
+        )
+        self.create_mod_option_row(
+            visual_frame,
+            "Fog Pushback",
+            self.visual_mods["fog_pushback"],
+            "source: RetroCro",
+            self.descriptions["fog_pushback"],
+        )
+        self.create_mod_option_row(
+            visual_frame,
+            "Pink Herbs",
+            self.visual_mods["pink_herbs"],
+            "by seacrabsam",
+            self.descriptions["pink_herbs"],
+        )
+
+        self.create_mod_option_row(
+            audio_frame,
+            "NoErrorSounds",
+            self.audio_mods["no_error_sounds"],
+            "by Macumbafeh",
+            self.descriptions["no_error_sounds"],
+        )
+        self.create_mod_option_row(
+            audio_frame,
+            "FishPing",
+            self.audio_mods["fish_ping"],
+            "by notsureawake",
+            self.descriptions["fish_ping"],
+        )
+        self.create_mod_option_row(
+            audio_frame,
+            "Warlock Muted Demons",
+            self.audio_mods["warlock_muted_demons"],
+            "by spzilyk",
+            self.descriptions["warlock_muted_demons"],
+        )
 
 
     def build_credits_tab(self, parent):
@@ -730,6 +857,72 @@ class WowSetupTool:
                     pass
 
 
+    def configure_wdb_cache(self, target):
+        """Apply the RetroCro WDB blocker method when enabled."""
+        wdb_path = os.path.join(target, "WDB")
+
+        if self.vt_clear_wdb.get():
+            if os.path.islink(wdb_path):
+                raise RuntimeError("WDB is a symbolic link. Remove it manually before enabling Automatically Clear WDB.")
+
+            if os.path.isdir(wdb_path):
+                shutil.rmtree(wdb_path)
+            elif os.path.exists(wdb_path) and not os.path.isfile(wdb_path):
+                raise RuntimeError("The existing WDB path is not a normal file or directory.")
+
+            if not os.path.exists(wdb_path):
+                with open(wdb_path, "wb"):
+                    pass
+        else:
+            # Only remove the blocker file. A real WDB cache directory is left
+            # untouched so WoW can manage it normally.
+            if os.path.isfile(wdb_path):
+                try:
+                    os.chmod(wdb_path, os.stat(wdb_path).st_mode | stat.S_IWRITE)
+                except OSError:
+                    pass
+                os.remove(wdb_path)
+
+    def configure_visual_audio(self, target):
+        progress = getattr(self, "_report_download_progress", None)
+        close_progress = getattr(self, "_close_download_progress", None)
+
+        visual_defs = [
+            ("darker_nights", "visual_darker_nights", "Darker Nights", remote_packages.install_darker_nights),
+            ("pretty_night_sky", "visual_pretty_night_sky", "Pretty Night Sky", remote_packages.install_pretty_night_sky),
+            ("epoch_water", "visual_epoch_water", "Epoch Water", remote_packages.install_epoch_water),
+            ("fog_pushback", "visual_fog_pushback", "Fog Pushback", remote_packages.install_fog_pushback),
+            ("pink_herbs", "visual_pink_herbs", "Pink Herbs", remote_packages.install_pink_herbs),
+        ]
+        audio_defs = [
+            ("no_error_sounds", "audio_no_error_sounds", "NoErrorSounds", remote_packages.install_no_error_sounds),
+            ("fish_ping", "audio_fish_ping", "FishPing", remote_packages.install_fish_ping),
+            ("warlock_muted_demons", "audio_warlock_muted_demons", "Warlock Muted Demons", remote_packages.install_warlock_muted_demons),
+        ]
+
+        try:
+            for key, managed_id, display_name, installer in visual_defs:
+                if self.visual_mods[key].get():
+                    try:
+                        installer(target, progress=progress)
+                    except Exception as exc:
+                        raise RuntimeError(f"{display_name} installation failed:\n{exc}") from exc
+                else:
+                    remote_packages.remove_managed_mod(target, managed_id)
+
+            for key, managed_id, display_name, installer in audio_defs:
+                if self.audio_mods[key].get():
+                    try:
+                        installer(target, progress=progress)
+                    except Exception as exc:
+                        raise RuntimeError(f"{display_name} installation failed:\n{exc}") from exc
+                else:
+                    remote_packages.remove_managed_mod(target, managed_id)
+        finally:
+            if callable(close_progress):
+                close_progress()
+
+
     def apply_process_mitigations(self):
         """Runs the Set-ProcessMitigation PowerShell command with a UAC prompt if needed."""
         if not self.vt_dep_fix.get():
@@ -762,8 +955,10 @@ class WowSetupTool:
             self.copy_base_files(target_dir)
             self.configure_dxvk(target_dir)
             self.configure_plugins(target_dir)
+            self.configure_visual_audio(target_dir)
             self.run_vanilla_tweaks(target_dir)
             self.configure_script_memory(target_dir)
+            self.configure_wdb_cache(target_dir)
             self.apply_process_mitigations()
             
             # Generate the seamless launcher shortcut
