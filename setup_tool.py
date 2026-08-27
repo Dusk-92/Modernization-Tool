@@ -6,6 +6,7 @@ import subprocess
 import math
 import re
 import stat
+import struct
 import tkinter as tk
 import webbrowser
 from tkinter import ttk, filedialog, messagebox
@@ -213,6 +214,7 @@ class WowSetupTool:
 
         self._loaded_settings_dir = None
         self._loading_settings = False
+        self._install_in_progress = False
 
         self.on_ratio_change() 
         self.build_ui()
@@ -621,7 +623,13 @@ class WowSetupTool:
         self.build_visual_audio_tab(tab_visual_audio)
         self.build_credits_tab(tab_credits)
 
-        ttk.Button(self.root, text="Apply Setup & Tweaks", command=self.run_installation, style="Accent.TButton").pack(pady=10, fill='x', padx=20)
+        self.apply_button = ttk.Button(
+            self.root,
+            text="Apply Setup & Tweaks",
+            command=self.run_installation,
+            style="Accent.TButton",
+        )
+        self.apply_button.pack(pady=10, fill='x', padx=20)
 
     def build_main_tab(self, parent):
         ttk.Label(parent, text="Vanilla 1.12 Installation Directory:").pack(anchor='w', pady=(10, 0), padx=10)
@@ -1067,21 +1075,111 @@ class WowSetupTool:
         text_area.config(state='disabled')
 
 
+    def _inspect_wow_executable(self, wow_exe):
+        """Validate the PE architecture without relying on a version-specific hash."""
+        try:
+            file_size = os.path.getsize(wow_exe)
+            if file_size < 1024 * 1024:
+                return False, "WoW.exe is unexpectedly small."
+
+            with open(wow_exe, "rb") as handle:
+                dos_header = handle.read(64)
+                if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+                    return False, "WoW.exe is not a valid Windows executable."
+
+                pe_offset = struct.unpack_from("<I", dos_header, 0x3C)[0]
+                if pe_offset < 64 or pe_offset > file_size - 26:
+                    return False, "WoW.exe has an invalid PE header."
+
+                handle.seek(pe_offset)
+                if handle.read(4) != b"PE\0\0":
+                    return False, "WoW.exe has an invalid PE signature."
+
+                coff = handle.read(20)
+                if len(coff) != 20:
+                    return False, "WoW.exe has a truncated PE header."
+
+                machine = struct.unpack_from("<H", coff, 0)[0]
+                optional_size = struct.unpack_from("<H", coff, 16)[0]
+                if optional_size < 2:
+                    return False, "WoW.exe has no valid optional PE header."
+
+                optional_magic = struct.unpack("<H", handle.read(2))[0]
+
+            # Vanilla 1.12/Turtle uses the 32-bit x86 PE format.
+            if machine != 0x014C or optional_magic != 0x010B:
+                return (
+                    False,
+                    "WoW.exe is not a 32-bit x86 client. Modernization Tool is "
+                    "intended for Vanilla 1.12/Turtle-compatible clients only.",
+                )
+
+            return True, ""
+        except (OSError, struct.error) as exc:
+            return False, f"WoW.exe could not be inspected: {exc}"
+
+    def _find_data_file_case_insensitive(self, data_dir, wanted):
+        try:
+            entries = {name.casefold(): name for name in os.listdir(data_dir)}
+        except OSError:
+            return None
+        actual = entries.get(wanted.casefold())
+        return os.path.join(data_dir, actual) if actual else None
+
     def validate_installation_dir(self, target_dir):
-        """Checks if the directory exists and contains necessary WoW components."""
+        """Validate a Vanilla/Turtle-compatible 32-bit client before patching."""
         if not target_dir:
-            messagebox.showerror("Directory Error", "Please select a Vanilla 1.12 installation directory.")
+            messagebox.showerror(
+                "Directory Error",
+                "Please select a Vanilla 1.12 installation directory.",
+            )
             return False
 
-        if not os.path.exists(os.path.join(target_dir, "WoW.exe")) or \
-           not os.path.isdir(os.path.join(target_dir, "Data")) or \
-           not os.path.isdir(os.path.join(target_dir, "Interface")):
-            
-            msg = ("This does not look like a valid Vanilla 1.12 installation directory.\n\n"
-                   "Please make sure you are selecting the directory that has the WoW.exe in it.")
-            messagebox.showerror("Invalid Directory", msg)
+        target_dir = os.path.abspath(target_dir)
+        wow_exe = os.path.join(target_dir, "WoW.exe")
+        data_dir = os.path.join(target_dir, "Data")
+        interface_dir = os.path.join(target_dir, "Interface")
+
+        if (
+            not os.path.isfile(wow_exe)
+            or not os.path.isdir(data_dir)
+            or not os.path.isdir(interface_dir)
+        ):
+            messagebox.showerror(
+                "Invalid Directory",
+                "This does not look like a valid Vanilla 1.12 installation directory.\n\n"
+                "Select the game directory that directly contains WoW.exe, Data and Interface.",
+            )
             return False
-            
+
+        valid_pe, pe_reason = self._inspect_wow_executable(wow_exe)
+        if not valid_pe:
+            messagebox.showerror(
+                "Unsupported WoW Client",
+                pe_reason
+                + "\n\nNo files were changed. Select a Vanilla 1.12/Turtle-compatible client.",
+            )
+            return False
+
+        # These are core archives in the Vanilla/Turtle data layout. Requiring
+        # them rejects most later-expansion/modern clients without tying the
+        # tool to one exact Turtle WoW.exe hash.
+        required_archives = ("base.MPQ", "dbc.MPQ", "interface.MPQ")
+        missing = [
+            name
+            for name in required_archives
+            if self._find_data_file_case_insensitive(data_dir, name) is None
+        ]
+        if missing:
+            messagebox.showerror(
+                "Unsupported WoW Client",
+                "The selected client does not have the expected Vanilla/Turtle data layout.\n\n"
+                "Missing core archive(s): "
+                + ", ".join(missing)
+                + "\n\nNo files were changed.",
+            )
+            return False
+
         return True
 
     def validate_limits(self):
@@ -1351,61 +1449,93 @@ class WowSetupTool:
         except Exception:
             pass # Fail silently if the user clicks "No" on the Administrator prompt
 
-    def run_installation(self):
-        target_dir = self.wow_dir.get()
-        
-        # 1. Validate Directory
-        if not self.validate_installation_dir(target_dir):
-            return
-
-        # 2. Validate Bounds
-        if not self.validate_limits():
-            return
-
-        # 3. Validate plugin combinations independently of UI callbacks.
-        if not self.validate_plugin_conflicts():
-            return
-
-        try:
-            self.clean_unselected_files(target_dir)
-            self.copy_base_files(target_dir)
-            self.configure_dxvk(target_dir)
-            self.configure_plugins(target_dir)
-            self.configure_visual_audio(target_dir)
-            self.run_vanilla_tweaks(target_dir)
-            self.configure_script_memory(target_dir)
-            self.configure_wdb_cache(target_dir)
-            self.apply_process_mitigations()
-            
-            # Generate the seamless launcher shortcut
-            self.create_launcher_shortcut(target_dir)
-            self.cleanup_legacy_outputs(target_dir)
-
-            settings_warning = ""
+    def _set_install_busy(self, busy):
+        self._install_in_progress = bool(busy)
+        button = getattr(self, "apply_button", None)
+        if button is not None:
             try:
-                self.save_settings(target_dir)
-            except OSError as exc:
-                settings_warning = (
-                    "\n\nWarning: your choices could not be saved for the next run. "
-                    f"Details: {exc}"
+                button.configure(
+                    state="disabled" if busy else "normal",
+                    text="Applying Setup..." if busy else "Apply Setup & Tweaks",
                 )
-            
-            messagebox.showinfo(
-                "Success",
-                "Installation and patching complete!\n\n"
-                "Use the new 'Play Modernized WoW' shortcut in your directory to launch the game."
-                + settings_warning,
-            )
-        except PermissionError as e:
-            messagebox.showerror(
-                "Permission Error",
-                "Windows denied access to a file or folder in the selected WoW directory.\n\n"
-                "Close WoW and any program using the files. If the folder is protected, "
-                "run the Modernization Tool as administrator and try again.\n\n"
-                f"Details: {e}"
-            )
-        except Exception as e:
-            messagebox.showerror("Installation Error", str(e))
+            except tk.TclError:
+                pass
+        try:
+            self.root.configure(cursor="wait" if busy else "")
+            self.root.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def run_installation(self):
+        # Progress callbacks intentionally process Tk events. This explicit
+        # guard prevents a second Apply event from entering the installer while
+        # the first one is still running.
+        if self._install_in_progress:
+            return
+
+        self._set_install_busy(True)
+        try:
+            target_dir = self.wow_dir.get().strip()
+
+            # 1. Validate Directory / client architecture.
+            if not self.validate_installation_dir(target_dir):
+                return
+
+            # 2. Validate Bounds.
+            if not self.validate_limits():
+                return
+
+            # 3. Validate plugin combinations independently of UI callbacks.
+            if not self.validate_plugin_conflicts():
+                return
+
+            try:
+                self.clean_unselected_files(target_dir)
+                self.copy_base_files(target_dir)
+                self.configure_dxvk(target_dir)
+                self.configure_plugins(target_dir)
+                self.configure_visual_audio(target_dir)
+                self.run_vanilla_tweaks(target_dir)
+                self.configure_script_memory(target_dir)
+                self.configure_wdb_cache(target_dir)
+                self.apply_process_mitigations()
+
+                # Generate the seamless launcher shortcut.
+                self.create_launcher_shortcut(target_dir)
+                self.cleanup_legacy_outputs(target_dir)
+
+                settings_warning = ""
+                try:
+                    self.save_settings(target_dir)
+                except OSError as exc:
+                    settings_warning = (
+                        "\n\nWarning: your choices could not be saved for the next run. "
+                        f"Details: {exc}"
+                    )
+
+                messagebox.showinfo(
+                    "Success",
+                    "Installation and patching complete!\n\n"
+                    "Use the new 'Play Modernized WoW' shortcut in your directory to launch the game."
+                    + settings_warning,
+                )
+            except PermissionError as exc:
+                messagebox.showerror(
+                    "Permission Error",
+                    "Windows denied access to a file or folder in the selected WoW directory.\n\n"
+                    "Close WoW and any program using the files. If the folder is protected, "
+                    "run the Modernization Tool as administrator and try again.\n\n"
+                    f"Details: {exc}",
+                )
+            except Exception as exc:
+                messagebox.showerror("Installation Error", str(exc))
+        finally:
+            # Never leave the UI locked after validation errors, network
+            # failures, cancelled UAC prompts or installation exceptions.
+            close_progress = getattr(self, "_close_download_progress", None)
+            if callable(close_progress):
+                close_progress()
+            self._set_install_busy(False)
 
     def cleanup_legacy_outputs(self, target_dir):
         """Remove only known leftovers from older Modernization Tool builds."""
