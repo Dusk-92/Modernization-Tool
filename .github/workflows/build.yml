@@ -11,6 +11,10 @@ on:
       - 'feature/client-tweaks'
   workflow_dispatch:
 
+concurrency:
+  group: modernization-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
