@@ -78,7 +78,7 @@ class WowSetupTool:
         # Dictionary containing all tooltip explanations
         self.descriptions = {
             # Setup & General
-            "autologin": "Adds Turtle AutoLogin account/character shortcuts on the login screen. IMPORTANT: saved passwords are stored locally by AutoLogin. They are encrypted only when Nampower encryption is available, WOW_ENCRYPTION_KEY is configured and encryption remains enabled; otherwise AutoLogin may store them in plaintext. Modernization Tool itself does not save your account name or password in its settings.",
+            "autologin": "Adds saved account/character shortcuts to the login screen. AutoLogin saves your login details on this PC. Nampower is required to encrypt saved passwords; without active Nampower encryption, passwords may be readable in a file.",
             "render_directx9": "Uses VanillaFixes with the game's native DirectX 9 renderer. Existing d3d9.dll/dxvk.conf proxy files are moved to a Modernization Tool backup so they cannot keep DXVK or another D3D9 wrapper active.",
             "render_dxvk": "Uses VanillaFixes with DXVK, translating DirectX 9 to Vulkan for smoother frame pacing on many modern systems.",
 
@@ -672,8 +672,8 @@ class WowSetupTool:
         autologin_warning = tk.Label(
             parent,
             text=(
-                "⚠ Security note: AutoLogin saves credentials locally. Passwords "
-                "may be stored in plaintext if its encryption is unavailable or disabled."
+                "⚠ AutoLogin saves your login details on this PC. Nampower is required "
+                "to encrypt saved passwords; without it, passwords may be readable in a file."
             ),
             justify="left",
             anchor="w",
