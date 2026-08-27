@@ -239,6 +239,74 @@ def _find_directory(root, dirname):
     raise RemotePackageError(f"{dirname} was not found in downloaded archive.")
 
 
+def install_nampower(target_dir, progress=None):
+    _emit_progress(progress, "Checking Nampower release...", None, None)
+    release = _latest_release("brues-code/nampower")
+    asset = _find_asset(
+        release,
+        predicate=lambda name: name.lower().startswith("nampower-") and name.lower().endswith(".zip"),
+    )
+    zip_path = _download_asset(asset, progress=progress, label="Downloading Nampower package")
+    extract_root = tempfile.mkdtemp(prefix="modernization_nampower_")
+    try:
+        _emit_progress(progress, "Extracting Nampower...", None, None)
+        _safe_extract(zip_path, extract_root)
+        dll_path = _find_file(extract_root, "nampower.dll")
+        addon_dir = _find_directory(extract_root, "NampowerSettings")
+
+        _emit_progress(progress, "Installing nampower.dll...", None, None)
+        _atomic_replace_file(dll_path, os.path.join(target_dir, "nampower.dll"))
+        _emit_progress(progress, "Installing NampowerSettings addon...", None, None)
+        _replace_directory(
+            addon_dir,
+            os.path.join(target_dir, "Interface", "AddOns", "nampowersettings"),
+        )
+    finally:
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+        shutil.rmtree(extract_root, ignore_errors=True)
+    return release.get("tag_name", "latest")
+
+
+def install_vanillahelpers(target_dir, progress=None):
+    _emit_progress(progress, "Checking VanillaHelpers release...", None, None)
+    release = _latest_release("isfir/VanillaHelpers")
+    asset = _find_asset(release, exact_name="VanillaHelpers.dll")
+    temp_path = _download_asset(
+        asset,
+        progress=progress,
+        label="Downloading VanillaHelpers.dll",
+    )
+    try:
+        _emit_progress(progress, "Installing VanillaHelpers.dll...", None, None)
+        _atomic_replace_file(temp_path, os.path.join(target_dir, "VanillaHelpers.dll"))
+    finally:
+        os.remove(temp_path)
+    return release.get("tag_name", "latest")
+
+
+def install_no1600x1200(target_dir, progress=None):
+    _emit_progress(progress, "Checking no1600x1200 source...", None, None)
+    url = (
+        "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/"
+        "refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll"
+    )
+    temp_path = _download(
+        url,
+        suffix=".dll",
+        progress=progress,
+        label="Downloading no1600x1200.dll",
+    )
+    try:
+        _emit_progress(progress, "Installing no1600x1200.dll...", None, None)
+        _atomic_replace_file(temp_path, os.path.join(target_dir, "no1600x1200.dll"))
+    finally:
+        os.remove(temp_path)
+    return "RetroCro/TurtleWoW-Mods main"
+
+
 def install_classicapi(target_dir, progress=None):
     _emit_progress(progress, "Checking ClassicAPI release...", None, None)
     release = _latest_release("brues-code/ClassicAPI")
