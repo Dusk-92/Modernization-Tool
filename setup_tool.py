@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import math
 import re
+import secrets
 import stat
 import struct
 import tkinter as tk
@@ -13,6 +14,13 @@ import webbrowser
 from tkinter import ttk, filedialog, messagebox
 
 import remote_packages
+
+try:
+    import winreg
+except ImportError:
+    # Keeps the module importable by non-Windows test runners. The application
+    # itself targets Windows, and AutoLogin encryption setup validates this.
+    winreg = None
 
 def get_base_path():
     """Gets the correct directory whether running as a script or a compiled .exe"""
@@ -78,7 +86,7 @@ class WowSetupTool:
         # Dictionary containing all tooltip explanations
         self.descriptions = {
             # Setup & General
-            "autologin": "Adds saved account/character shortcuts to the login screen. AutoLogin saves your login details on this PC. Nampower is required to encrypt saved passwords; without active Nampower encryption, passwords may be readable in a file.",
+            "autologin": "Adds saved account/character shortcuts to the login screen. When AutoLogin and Nampower are enabled together, the tool automatically creates or reuses the Windows user encryption key required by Nampower so saved passwords can be encrypted.",
             "render_directx9": "Uses VanillaFixes with the game's native DirectX 9 renderer. Existing d3d9.dll/dxvk.conf proxy files are moved to a Modernization Tool backup so they cannot keep DXVK or another D3D9 wrapper active.",
             "render_dxvk": "Uses VanillaFixes with DXVK, translating DirectX 9 to Vulkan for smoother frame pacing on many modern systems.",
 
@@ -672,8 +680,8 @@ class WowSetupTool:
         autologin_warning = tk.Label(
             parent,
             text=(
-                "⚠ AutoLogin saves your login details on this PC. Nampower is required "
-                "to encrypt saved passwords; without it, passwords may be readable in a file."
+                "🔒 With Nampower enabled, the tool automatically prepares password "
+                "encryption for AutoLogin. Existing encryption keys are never replaced."
             ),
             justify="left",
             anchor="w",
@@ -1070,7 +1078,8 @@ class WowSetupTool:
         insert_link("Source Repository", "https://github.com/MarcelineVQ/turtle-autologin")
         text_area.insert(
             "end",
-            "  (credentials are stored by AutoLogin itself; password encryption depends on its runtime configuration)"
+            "  (when AutoLogin + Nampower are selected, the tool creates or reuses "
+            "WOW_ENCRYPTION_KEY automatically; existing keys are never replaced)"
         )
 
         # WeirdUtils
@@ -1298,6 +1307,105 @@ class WowSetupTool:
                     f"managed plugin {dll_name}",
                 )
 
+
+    @staticmethod
+    def _broadcast_environment_change():
+        """Notify Windows shells that persistent user environment values changed."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+
+            result = ctypes.c_ulong()
+            ctypes.windll.user32.SendMessageTimeoutW(
+                0xFFFF,       # HWND_BROADCAST
+                0x001A,       # WM_SETTINGCHANGE
+                0,
+                "Environment",
+                0x0002,       # SMTO_ABORTIFHUNG
+                5000,
+                ctypes.byref(result),
+            )
+        except (AttributeError, OSError):
+            # The registry value is already persistent. A failed broadcast only
+            # means some already-running shells may not see it until restarted.
+            pass
+
+    def configure_autologin_encryption(self):
+        """Create the Nampower AutoLogin entropy key once, never rotate it."""
+        autologin_enabled = bool(self.install_autologin.get())
+        nampower_var = self.core_plugins.get("nampower.dll")
+        nampower_enabled = bool(nampower_var is not None and nampower_var.get())
+
+        if not (autologin_enabled and nampower_enabled):
+            return "not-needed"
+
+        variable_name = "WOW_ENCRYPTION_KEY"
+
+        # Respect any value already inherited by this process. It may come from
+        # a machine-level policy or another legitimate user configuration.
+        inherited = os.environ.get(variable_name)
+        if inherited:
+            return "existing"
+
+        if winreg is None:
+            raise RuntimeError(
+                "AutoLogin password encryption could not be configured because "
+                "the Windows registry API is unavailable."
+            )
+
+        # Prefer an existing per-user registry value even if this process was
+        # started before Windows propagated it into the environment.
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                "Environment",
+                0,
+                winreg.KEY_READ,
+            ) as key:
+                existing, _value_type = winreg.QueryValueEx(key, variable_name)
+            if isinstance(existing, str) and existing:
+                os.environ[variable_name] = existing
+                self._broadcast_environment_change()
+                return "existing"
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise RuntimeError(
+                "AutoLogin password encryption could not read the current "
+                "Windows user environment settings."
+            ) from exc
+
+        # 256 bits of random entropy encoded as plain hex. The key is persisted
+        # only in HKCU\Environment; it is deliberately never written to the WoW
+        # folder, settings.json, logs, dialogs, or console output.
+        generated = secrets.token_hex(32)
+        try:
+            with winreg.CreateKeyEx(
+                winreg.HKEY_CURRENT_USER,
+                "Environment",
+                0,
+                winreg.KEY_SET_VALUE,
+            ) as key:
+                winreg.SetValueEx(
+                    key,
+                    variable_name,
+                    0,
+                    winreg.REG_SZ,
+                    generated,
+                )
+        except OSError as exc:
+            raise RuntimeError(
+                "AutoLogin password encryption could not create the Windows "
+                "user encryption key."
+            ) from exc
+
+        # Make the current process consistent immediately and notify Explorer
+        # so shortcuts launched after Apply inherit the new variable without a
+        # sign-out/reboot on normal Windows configurations.
+        os.environ[variable_name] = generated
+        self._broadcast_environment_change()
+        return "created"
 
     def configure_script_memory(self, target):
         """Optionally set AddOn Script Memory to 0 (unlimited) in WTF/Config.wtf."""
@@ -1822,6 +1930,7 @@ class WowSetupTool:
                 self.copy_base_files(target_dir)
                 self.configure_dxvk(target_dir)
                 self.configure_plugins(target_dir)
+                self.configure_autologin_encryption()
                 self.configure_visual_audio(target_dir)
                 self.run_vanilla_tweaks(target_dir)
                 self.configure_script_memory(target_dir)
