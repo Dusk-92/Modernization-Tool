@@ -1,0 +1,46 @@
+name: One-time WeirdPerformance 0.7.3 import
+
+on:
+  push:
+    branches:
+      - feature/client-tweaks
+    paths:
+      - .github/workflows/import-weirdperformance-073.yml
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/client-tweaks
+          fetch-depth: 0
+
+      - name: Download WeirdPerformance 0.7.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://codeberg.org/Dusk92/WeirdUtils/releases/download/0.7.3/weirdperformance.dll"
+          out="Payload/weirdperformance.dll"
+          curl -fL --retry 3 --retry-delay 2 "$url" -o "$out"
+          test "$(wc -c < "$out")" -gt 100000
+          test "$(head -c 2 "$out")" = "MZ"
+          sha256sum "$out"
+
+      - name: Commit bundled DLL
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Payload/weirdperformance.dll; then
+            echo "Bundled DLL already matches 0.7.3"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Payload/weirdperformance.dll
+          git commit -m "payload: update WeirdPerformance to 0.7.3"
+          git push origin HEAD:feature/client-tweaks
