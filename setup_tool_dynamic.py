@@ -13,8 +13,8 @@ class ModernWowSetupTool(WowSetupTool):
     def __init__(self, root):
         # Define these before WowSetupTool.__init__ because the parent constructor
         # calls self.build_ui(), which dispatches to our overridden Plugins tab.
-        self.classicapi_enabled = tk.BooleanVar(master=root, value=False)
-        self.auction_throttle_enabled = tk.BooleanVar(master=root, value=False)
+        self.classicapi_enabled = tk.BooleanVar(master=root, value=True)
+        self.auction_throttle_enabled = tk.BooleanVar(master=root, value=True)
         self._download_window = None
         self._download_label = None
         self._download_detail = None
@@ -154,6 +154,23 @@ class ModernWowSetupTool(WowSetupTool):
         self._download_bar = None
         self._download_indeterminate = False
 
+    def _plugin_row(self, parent, text, variable, attribution, tooltip):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=10, pady=2)
+
+        cb = ttk.Checkbutton(row, text=text, variable=variable)
+        cb.pack(side="left")
+        ToolTip(cb, tooltip)
+
+        byline = ttk.Label(
+            row,
+            text=attribution,
+            font=("Segoe UI", 7, "italic"),
+        )
+        byline.pack(side="right", padx=(6, 0))
+
+        return cb
+
     def build_plugins_tab(self, parent):
         container = ttk.Frame(parent)
         container.pack(fill="both", expand=True, padx=10, pady=10)
@@ -167,30 +184,43 @@ class ModernWowSetupTool(WowSetupTool):
             font=("", 8, "italic"),
         ).pack(anchor="w", padx=10, pady=10)
 
-        for dll, var in self.core_plugins.items():
-            cb = ttk.Checkbutton(left_frame, text=dll, variable=var)
-            cb.pack(anchor="w", padx=10, pady=4)
-            ToolTip(cb, self.descriptions.get(dll, ""))
+        core_display = {
+            "nampower.dll": ("Nampower", "created by brues-code"),
+            "no1600x1200.dll": ("No1600x1200", "source: RetroCro"),
+            "perf_boost.dll": ("PerfBoost", "by Dusk-92"),
+            "SuperWoWhook.dll": ("SuperWoW", "created by balakethelock"),
+            "transmogfix.dll": ("TransmogFix", "created by MarcelineVQ"),
+            "UnitXP_SP3.dll": ("UnitXP SP3", "created by brues-code"),
+            "VanillaHelpers.dll": ("VanillaHelpers", "created by isfir"),
+            "weirdperformance.dll": ("WeirdPerformance", "created by MarcelineVQ"),
+        }
 
-        cb_classicapi = ttk.Checkbutton(
+        for dll, var in self.core_plugins.items():
+            display_name, attribution = core_display.get(
+                dll,
+                (os.path.splitext(dll)[0], "")
+            )
+            self._plugin_row(
+                left_frame,
+                display_name,
+                var,
+                attribution,
+                self.descriptions.get(dll, ""),
+            )
+
+        self._plugin_row(
             left_frame,
-            text="ClassicAPI.dll",
-            variable=self.classicapi_enabled,
-        )
-        cb_classicapi.pack(anchor="w", padx=10, pady=4)
-        ToolTip(
-            cb_classicapi,
+            "ClassicAPI",
+            self.classicapi_enabled,
+            "created by brues-code",
             "Adds newer WoW API functions to the Vanilla client so more modern addons can work.",
         )
 
-        cb_auction = ttk.Checkbutton(
+        self._plugin_row(
             left_frame,
-            text="AuctionQueryThrottle.dll",
-            variable=self.auction_throttle_enabled,
-        )
-        cb_auction.pack(anchor="w", padx=10, pady=4)
-        ToolTip(
-            cb_auction,
+            "AuctionQueryThrottle",
+            self.auction_throttle_enabled,
+            "created by brues-code",
             "Makes Auction House searches much faster by removing the fixed 5-second wait between queries.",
         )
 
@@ -203,10 +233,23 @@ class ModernWowSetupTool(WowSetupTool):
             font=("", 8, "italic"),
         ).pack(anchor="w", padx=10, pady=10)
 
+        optional_display = {
+            "bigcursor.dll": "BigCursor",
+            "customassets.dll": "CustomAssets",
+            "logsessions.dll": "LogSessions",
+            "minimapicons.dll": "MinimapIcons",
+            "pngscreenshots.dll": "PNG Screenshots",
+            "worldmarkers.dll": "WorldMarkers",
+        }
+
         for dll, var in self.optional_plugins.items():
-            cb = ttk.Checkbutton(right_frame, text=dll, variable=var)
-            cb.pack(anchor="w", padx=10, pady=4)
-            ToolTip(cb, self.descriptions.get(dll, ""))
+            self._plugin_row(
+                right_frame,
+                optional_display.get(dll, os.path.splitext(dll)[0]),
+                var,
+                "created by MarcelineVQ",
+                self.descriptions.get(dll, ""),
+            )
 
     def clean_unselected_files(self, target):
         super().clean_unselected_files(target)
