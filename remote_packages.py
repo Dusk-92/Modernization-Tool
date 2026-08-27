@@ -239,6 +239,116 @@ def _find_directory(root, dirname):
     raise RemotePackageError(f"{dirname} was not found in downloaded archive.")
 
 
+def _find_directory_with_file(root, filename):
+    wanted = filename.lower()
+    for current_root, _, files in os.walk(root):
+        if any(item.lower() == wanted for item in files):
+            return current_root
+    return None
+
+
+def prepare_vanilla_tweaks(progress=None):
+    """Download and extract the latest stable tubtubs vanilla-tweaks Windows build."""
+    _emit_progress(progress, "Checking vanilla-tweaks release...", None, None)
+    release = _latest_release("tubtubs/vanilla-tweaks")
+    asset = _find_asset(
+        release,
+        predicate=lambda name: (
+            name.lower().endswith(".zip")
+            and "windows" in name.lower()
+            and not name.lower().endswith(".sha256sum")
+        ),
+    )
+    zip_path = _download_asset(
+        asset,
+        progress=progress,
+        label="Downloading vanilla-tweaks",
+    )
+    extract_root = tempfile.mkdtemp(prefix="modernization_vanillatweaks_")
+    try:
+        _emit_progress(progress, "Extracting vanilla-tweaks...", None, None)
+        _safe_extract(zip_path, extract_root)
+        exe_path = _find_file(extract_root, "vanilla-tweaks.exe")
+    except Exception:
+        shutil.rmtree(extract_root, ignore_errors=True)
+        raise
+    finally:
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+
+    return exe_path, extract_root, release.get("name") or release.get("tag_name", "latest")
+
+
+def install_interact(target_dir, progress=None):
+    _emit_progress(progress, "Checking Interact release...", None, None)
+    release = _latest_release("lookino/Interact")
+    asset = _find_asset(release, exact_name="Interact.zip")
+    zip_path = _download_asset(asset, progress=progress, label="Downloading Interact package")
+    extract_root = tempfile.mkdtemp(prefix="modernization_interact_")
+    try:
+        _emit_progress(progress, "Extracting Interact...", None, None)
+        _safe_extract(zip_path, extract_root)
+        dll_path = _find_file(extract_root, "Interact.dll")
+
+        _emit_progress(progress, "Installing Interact.dll...", None, None)
+        _atomic_replace_file(dll_path, os.path.join(target_dir, "Interact.dll"))
+
+        addon_dir = _find_directory_with_file(extract_root, "Interact.toc")
+        if addon_dir is not None:
+            _emit_progress(progress, "Installing Interact addon...", None, None)
+            _replace_directory(
+                addon_dir,
+                os.path.join(target_dir, "Interface", "AddOns", "Interact"),
+            )
+    finally:
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+        shutil.rmtree(extract_root, ignore_errors=True)
+
+    return release.get("tag_name", "latest")
+
+
+def install_vanilla_multimonitor_fix(target_dir, progress=None):
+    _emit_progress(progress, "Checking VanillaMultiMonitorFix release...", None, None)
+    release = _latest_release("Mates1500/VanillaMultiMonitorFix")
+    asset = _find_asset(release, exact_name="release.zip")
+    zip_path = _download_asset(
+        asset,
+        progress=progress,
+        label="Downloading VanillaMultiMonitorFix package",
+    )
+    extract_root = tempfile.mkdtemp(prefix="modernization_vmmfix_")
+    try:
+        _emit_progress(progress, "Extracting VanillaMultiMonitorFix...", None, None)
+        _safe_extract(zip_path, extract_root)
+        dll_path = _find_file(extract_root, "VanillaMultiMonitorFix.dll")
+        config_path = _find_file(extract_root, "VMMFix_preferred_monitor.txt")
+
+        _emit_progress(progress, "Installing VanillaMultiMonitorFix.dll...", None, None)
+        _atomic_replace_file(
+            dll_path,
+            os.path.join(target_dir, "VanillaMultiMonitorFix.dll"),
+        )
+
+        # Preserve a user's chosen monitor index on subsequent runs.
+        target_config = os.path.join(target_dir, "VMMFix_preferred_monitor.txt")
+        if not os.path.exists(target_config):
+            _emit_progress(progress, "Installing monitor preference file...", None, None)
+            _atomic_replace_file(config_path, target_config)
+    finally:
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+        shutil.rmtree(extract_root, ignore_errors=True)
+
+    return release.get("tag_name", "latest")
+
+
 def install_nampower(target_dir, progress=None):
     _emit_progress(progress, "Checking Nampower release...", None, None)
     release = _latest_release("brues-code/nampower")
