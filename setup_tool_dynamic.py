@@ -185,14 +185,14 @@ class ModernWowSetupTool(WowSetupTool):
         ).pack(anchor="w", padx=10, pady=10)
 
         core_display = {
-            "nampower.dll": ("Nampower", "created by brues-code"),
+            "nampower.dll": ("Nampower", "by brues-code"),
             "no1600x1200.dll": ("No1600x1200", "source: RetroCro"),
-            "perf_boost.dll": ("PerfBoost", "by Dusk-92"),
-            "SuperWoWhook.dll": ("SuperWoW", "created by balakethelock"),
-            "transmogfix.dll": ("TransmogFix", "created by MarcelineVQ"),
-            "UnitXP_SP3.dll": ("UnitXP SP3", "created by brues-code"),
-            "VanillaHelpers.dll": ("VanillaHelpers", "created by isfir"),
-            "weirdperformance.dll": ("WeirdPerformance", "created by MarcelineVQ"),
+            "perf_boost.dll": ("PerfBoost", "by avitasia"),
+            "SuperWoWhook.dll": ("SuperWoW", "by balakethelock"),
+            "transmogfix.dll": ("TransmogFix", "by MarcelineVQ"),
+            "UnitXP_SP3.dll": ("UnitXP SP3", "by brues-code"),
+            "VanillaHelpers.dll": ("VanillaHelpers", "by isfir"),
+            "weirdperformance.dll": ("WeirdPerformance", "by MarcelineVQ"),
         }
 
         for dll, var in self.core_plugins.items():
@@ -212,7 +212,7 @@ class ModernWowSetupTool(WowSetupTool):
             left_frame,
             "ClassicAPI",
             self.classicapi_enabled,
-            "created by brues-code",
+            "by brues-code",
             "Adds newer WoW API functions to the Vanilla client so more modern addons can work.",
         )
 
@@ -220,7 +220,7 @@ class ModernWowSetupTool(WowSetupTool):
             left_frame,
             "AuctionQueryThrottle",
             self.auction_throttle_enabled,
-            "created by brues-code",
+            "by brues-code",
             "Makes Auction House searches much faster by removing the fixed 5-second wait between queries.",
         )
 
@@ -247,7 +247,7 @@ class ModernWowSetupTool(WowSetupTool):
                 right_frame,
                 optional_display.get(dll, os.path.splitext(dll)[0]),
                 var,
-                "created by MarcelineVQ",
+                "by MarcelineVQ",
                 self.descriptions.get(dll, ""),
             )
 
