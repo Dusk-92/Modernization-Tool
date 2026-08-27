@@ -1433,21 +1433,138 @@ class WowSetupTool:
             )
 
 
-    def apply_process_mitigations(self):
-        """Runs the Set-ProcessMitigation PowerShell command with a UAC prompt if needed."""
-        if not self.vt_dep_fix.get():
-            return
-            
-        ps_cmd = "Set-ProcessMitigation -Name WoW_Modernized.exe -Disable DEP, EmulateAtlThunks"
-        
-        # Start-Process with '-Verb RunAs' triggers the Windows Administrator UAC prompt automatically
-        full_cmd = f"Start-Process powershell -WindowStyle Hidden -Verb RunAs -ArgumentList \"-Command {ps_cmd}\""
-        
+    def _dep_marker_path(self, target_dir):
+        return os.path.join(
+            target_dir,
+            ".modernization_tool",
+            "dep_override.json",
+        )
+
+    def _previous_settings_used_dep_override(self, target_dir):
+        """Use the last successful settings file as migration/ownership evidence."""
+        settings_path = self._settings_path(target_dir)
+        if not os.path.isfile(settings_path):
+            return False
         try:
-            # Execute the elevation request
-            subprocess.run(["powershell", "-Command", full_cmd], creationflags=0x08000000)
-        except Exception:
-            pass # Fail silently if the user clicks "No" on the Administrator prompt
+            with open(settings_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            tweaks = saved.get("vanilla_tweaks", {})
+            return isinstance(tweaks, dict) and tweaks.get("dep_fix") is True
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            return False
+
+    def _dep_override_owned_by_tool(self, target_dir):
+        return (
+            os.path.isfile(self._dep_marker_path(target_dir))
+            or self._previous_settings_used_dep_override(target_dir)
+        )
+
+    def _run_elevated_powershell(self, target_dir, script_text, action_name):
+        """Run one small PowerShell script elevated and verify its exit code."""
+        support_dir = os.path.join(target_dir, ".modernization_tool")
+        os.makedirs(support_dir, exist_ok=True)
+        script_path = os.path.join(support_dir, "process_mitigation.ps1")
+
+        with open(script_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("$ErrorActionPreference = 'Stop'\n")
+            handle.write(script_text.rstrip() + "\n")
+            handle.write("exit 0\n")
+
+        escaped_script = script_path.replace("'", "''")
+        launcher = (
+            "$ErrorActionPreference='Stop'; "
+            "try { "
+            "$p = Start-Process -FilePath 'powershell.exe' -Verb RunAs "
+            "-Wait -PassThru -ArgumentList @("
+            "'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',"
+            f"'-File','{escaped_script}'"
+            "); "
+            "exit $p.ExitCode "
+            "} catch { Write-Error $_; exit 1 }"
+        )
+
+        try:
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    launcher,
+                ],
+                creationflags=0x08000000,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"{action_name} could not run because Windows PowerShell was not found."
+            ) from exc
+        finally:
+            try:
+                os.remove(script_path)
+            except OSError:
+                pass
+
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout or "").strip()
+            if len(details) > 800:
+                details = details[-800:]
+            suffix = f"\n\nDetails: {details}" if details else ""
+            raise RuntimeError(
+                f"{action_name} was not completed. The Administrator/UAC prompt may "
+                f"have been declined, or Windows rejected the mitigation change.{suffix}"
+            )
+
+    def apply_process_mitigations(self, target_dir):
+        """Apply or restore the per-app DEP override with verified UAC completion."""
+        marker_path = self._dep_marker_path(target_dir)
+
+        if self.vt_dep_fix.get():
+            self._run_elevated_powershell(
+                target_dir,
+                "Set-ProcessMitigation -Name 'WoW_Modernized.exe' "
+                "-Disable DEP, EmulateAtlThunks",
+                "Disabling DEP for WoW_Modernized.exe",
+            )
+
+            # Keep explicit ownership evidence so disabling this option later
+            # restores only a setting that Modernization Tool applied.
+            try:
+                os.makedirs(os.path.dirname(marker_path), exist_ok=True)
+                temp_marker = marker_path + ".new"
+                with open(temp_marker, "w", encoding="utf-8") as handle:
+                    json.dump(
+                        {
+                            "target": "WoW_Modernized.exe",
+                            "disabled": ["DEP", "EmulateAtlThunks"],
+                        },
+                        handle,
+                        indent=2,
+                    )
+                os.replace(temp_marker, marker_path)
+            except OSError:
+                # settings.json is also ownership evidence after a successful
+                # Apply, so a marker write failure must not invalidate DEP.
+                pass
+            return
+
+        if not self._dep_override_owned_by_tool(target_dir):
+            return
+
+        # Microsoft documents -Remove together with -Disable for restoring an
+        # app-specific mitigation override back to the system default.
+        self._run_elevated_powershell(
+            target_dir,
+            "Set-ProcessMitigation -Name 'WoW_Modernized.exe' "
+            "-Remove -Disable DEP, EmulateAtlThunks",
+            "Restoring the system DEP defaults for WoW_Modernized.exe",
+        )
+
+        try:
+            os.remove(marker_path)
+        except OSError:
+            pass
 
     def _set_install_busy(self, busy):
         self._install_in_progress = bool(busy)
@@ -1498,7 +1615,7 @@ class WowSetupTool:
                 self.run_vanilla_tweaks(target_dir)
                 self.configure_script_memory(target_dir)
                 self.configure_wdb_cache(target_dir)
-                self.apply_process_mitigations()
+                self.apply_process_mitigations(target_dir)
 
                 # Generate the seamless launcher shortcut.
                 self.create_launcher_shortcut(target_dir)
@@ -1575,44 +1692,109 @@ class WowSetupTool:
                 pass
 
     def create_launcher_shortcut(self, target_dir):
-        """Automates creating the VanillaFixes shortcut targeting WoW_Modernized.exe"""
+        """Create the launcher transactionally and verify cscript succeeded."""
         shortcut_path = os.path.join(target_dir, "Play Modernized WoW.lnk")
+        staged_shortcut = shortcut_path + ".modernization-new.lnk"
         vanilla_fixes_exe = os.path.join(target_dir, "VanillaFixes.exe")
-        
-        # Keep support assets out of the game root.
-        source_icon = os.path.join(get_base_path(), "PurpleWowLogo.ico")
+        modernized_exe = os.path.join(target_dir, "WoW_Modernized.exe")
+
+        if not os.path.isfile(vanilla_fixes_exe):
+            raise RuntimeError(
+                "VanillaFixes.exe is missing, so the launcher shortcut cannot be created."
+            )
+        if not os.path.isfile(modernized_exe):
+            raise RuntimeError(
+                "WoW_Modernized.exe is missing, so the launcher shortcut cannot be created."
+            )
+
         support_dir = os.path.join(target_dir, ".modernization_tool")
+        os.makedirs(support_dir, exist_ok=True)
+
+        source_icon = os.path.join(get_base_path(), "PurpleWowLogo.ico")
         target_icon = os.path.join(support_dir, "PurpleWowLogo.ico")
         icon_vbs_line = ""
-        
-        if os.path.exists(source_icon):
+
+        if os.path.isfile(source_icon):
             try:
-                os.makedirs(support_dir, exist_ok=True)
-                shutil.copy2(source_icon, target_icon)
-                icon_vbs_line = f'oLink.IconLocation = "{target_icon}, 0"'
+                remote_packages._atomic_replace_file(source_icon, target_icon)
+                escaped_icon = (target_icon + ", 0").replace('"', '""')
+                icon_vbs_line = f'oLink.IconLocation = "{escaped_icon}"'
             except Exception:
-                pass  # The shortcut can still be created without a custom icon.
+                # A custom icon is cosmetic; shortcut creation may continue.
+                icon_vbs_line = ""
+
+        def vbs_escape(value):
+            return str(value).replace('"', '""')
 
         vbs_script = f"""
 Set oWS = WScript.CreateObject("WScript.Shell")
-sLinkFile = "{shortcut_path}"
+sLinkFile = "{vbs_escape(staged_shortcut)}"
 Set oLink = oWS.CreateShortcut(sLinkFile)
-oLink.TargetPath = "{vanilla_fixes_exe}"
+oLink.TargetPath = "{vbs_escape(vanilla_fixes_exe)}"
 oLink.Arguments = "WoW_Modernized.exe"
-oLink.WorkingDirectory = "{target_dir}"
+oLink.WorkingDirectory = "{vbs_escape(target_dir)}"
 oLink.Description = "Launch Vanilla WoW with VanillaFixes and Tweaks"
 {icon_vbs_line}
 oLink.Save
 """
-        vbs_path = os.path.join(target_dir, "create_shortcut.vbs")
-        with open(vbs_path, "w") as f:
-            f.write(vbs_script)
-            
+        vbs_path = os.path.join(support_dir, "create_shortcut.vbs")
+
+        if os.path.exists(staged_shortcut):
+            try:
+                os.remove(staged_shortcut)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Could not prepare the launcher shortcut update: {exc}"
+                ) from exc
+
         try:
-            subprocess.run(["cscript", "//nologo", vbs_path], creationflags=0x08000000)
+            with open(vbs_path, "w", encoding="utf-8", newline="\r\n") as handle:
+                handle.write(vbs_script)
+
+            try:
+                result = subprocess.run(
+                    ["cscript", "//nologo", vbs_path],
+                    creationflags=0x08000000,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    "Windows Script Host (cscript.exe) was not found, so the "
+                    "launcher shortcut could not be created."
+                ) from exc
+
+            if result.returncode != 0:
+                details = (result.stderr or result.stdout or "").strip()
+                if len(details) > 800:
+                    details = details[-800:]
+                suffix = f"\n\nDetails: {details}" if details else ""
+                raise RuntimeError(
+                    "Windows Script Host failed to create the launcher shortcut."
+                    + suffix
+                )
+
+            if (
+                not os.path.isfile(staged_shortcut)
+                or os.path.getsize(staged_shortcut) <= 0
+            ):
+                raise RuntimeError(
+                    "Windows reported successful shortcut creation, but the new "
+                    "Play Modernized WoW shortcut was not produced."
+                )
+
+            # Only replace the user's current shortcut after the new one has
+            # been created and verified, so a cscript failure leaves the old
+            # shortcut intact.
+            os.replace(staged_shortcut, shortcut_path)
+
         finally:
-            if os.path.exists(vbs_path):
-                os.remove(vbs_path)
+            for temp_path in (vbs_path, staged_shortcut):
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
 
     def copy_base_files(self, target):
         payload_dir = os.path.join(get_base_path(), "Payload")
