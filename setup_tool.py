@@ -78,7 +78,7 @@ class WowSetupTool:
         # Dictionary containing all tooltip explanations
         self.descriptions = {
             # Setup & General
-            "autologin": "Automates the authentication process. Bypasses the standard login screen by securely passing your credentials so you drop directly into the character selection screen.",
+            "autologin": "Adds Turtle AutoLogin account/character shortcuts on the login screen. IMPORTANT: saved passwords are stored locally by AutoLogin. They are encrypted only when Nampower encryption is available, WOW_ENCRYPTION_KEY is configured and encryption remains enabled; otherwise AutoLogin may store them in plaintext. Modernization Tool itself does not save your account name or password in its settings.",
             "render_directx9": "Uses VanillaFixes with the game's native DirectX 9 renderer. Choose this if you do not want DXVK/Vulkan.",
             "render_dxvk": "Uses VanillaFixes with DXVK, translating DirectX 9 to Vulkan for smoother frame pacing on many modern systems.",
 
@@ -661,9 +661,28 @@ class WowSetupTool:
 
         ttk.Label(parent, text="Optional Mods:").pack(anchor='w', pady=(20, 0), padx=10)
         
-        cb_login = ttk.Checkbutton(parent, text="Install Auto Login Mod (Data/Interface/GlueXML)", variable=self.install_autologin)
+        cb_login = ttk.Checkbutton(
+            parent,
+            text="Install Auto Login Mod (Data/Interface/GlueXML)",
+            variable=self.install_autologin,
+        )
         cb_login.pack(anchor='w', padx=20, pady=2)
         ToolTip(cb_login, self.descriptions["autologin"])
+
+        autologin_warning = tk.Label(
+            parent,
+            text=(
+                "⚠ Security note: AutoLogin saves credentials locally. Passwords "
+                "may be stored in plaintext if its encryption is unavailable or disabled."
+            ),
+            justify="left",
+            anchor="w",
+            wraplength=610,
+            foreground="#8A4B00",
+            font=("Segoe UI", 8, "italic"),
+        )
+        autologin_warning.pack(anchor="w", padx=38, pady=(1, 0))
+        ToolTip(autologin_warning, self.descriptions["autologin"])
 
     def build_plugins_tab(self, parent):
         container = ttk.Frame(parent)
@@ -1049,6 +1068,10 @@ class WowSetupTool:
         text_area.insert("end", "\n\nOther Bundled Enhancements\n", "header")
         text_area.insert("end", "• Vanilla-Autologin: ", "bold")
         insert_link("Source Repository", "https://github.com/MarcelineVQ/turtle-autologin")
+        text_area.insert(
+            "end",
+            "  (credentials are stored by AutoLogin itself; password encryption depends on its runtime configuration)"
+        )
 
         # WeirdUtils
         text_area.insert("end", "\n\nWeirdUtils Suite\n", "header")
