@@ -89,6 +89,12 @@ class ModernWowSetupTool(WowSetupTool):
         y = self.root.winfo_rooty() + max((self.root.winfo_height() - height) // 2, 0)
         win.geometry(f"{width}x{height}+{x}+{y}")
         win.lift()
+        try:
+            # Keep checkboxes and folder selection from changing underneath a
+            # synchronous installation while progress callbacks pump Tk events.
+            win.grab_set()
+        except tk.TclError:
+            pass
 
         # update(), not only update_idletasks(), is intentional here: downloads
         # run synchronously on the main thread, so Windows otherwise paints an
@@ -145,6 +151,10 @@ class ModernWowSetupTool(WowSetupTool):
         if self._download_window is not None:
             try:
                 if self._download_window.winfo_exists():
+                    try:
+                        self._download_window.grab_release()
+                    except tk.TclError:
+                        pass
                     self._download_window.destroy()
             except tk.TclError:
                 pass
