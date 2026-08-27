@@ -1,1 +1,1 @@
-pyinstaller --noconsole --onefile --icon=PurpleWowLogo.ico --add-data "Payload;Payload" --add-data "vanilla-tweaks.exe;." --name "WoW_Modernization_Tool" setup_tool_dynamic.py
+pyinstaller --noconsole --onefile --icon=PurpleWowLogo.ico --add-data "PurpleWowLogo.ico;." --add-data "Payload;Payload" --add-data "vanilla-tweaks.exe;." --name "WoW_Modernization_Tool" setup_tool_dynamic.py
