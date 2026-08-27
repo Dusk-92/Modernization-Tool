@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -516,23 +517,161 @@ class ModernWowSetupTool(WowSetupTool):
             error,
         )
 
+    def _vanilla_tweaks_marker_path(self, target):
+        return os.path.join(
+            target,
+            ".modernization_tool",
+            "vanilla_tweaks.json",
+        )
+
+    def _bundled_vanilla_tweaks_info(self):
+        info = {
+            "version": "bundled",
+            "source": "bundled vanilla-tweaks.exe",
+        }
+        metadata_path = os.path.join(
+            get_base_path(),
+            "Payload",
+            "Fallback",
+            "versions.json",
+        )
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            component = data.get("components", {}).get("vanilla-tweaks fallback", {})
+            if isinstance(component, dict):
+                if component.get("version"):
+                    info["version"] = str(component["version"])
+                if component.get("source"):
+                    info["source"] = str(component["source"])
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            pass
+        return info
+
+    def _write_vanilla_tweaks_marker(
+        self,
+        target,
+        patcher_source,
+        patcher_version,
+        patcher_path,
+    ):
+        wow_exe = os.path.join(target, "WoW.exe")
+        output_exe = os.path.join(target, "WoW_Modernized.exe")
+        if not os.path.isfile(wow_exe) or not os.path.isfile(output_exe):
+            raise RuntimeError(
+                "Cannot record vanilla-tweaks state because a required WoW executable is missing."
+            )
+
+        marker_path = self._vanilla_tweaks_marker_path(target)
+        os.makedirs(os.path.dirname(marker_path), exist_ok=True)
+        temp_path = marker_path + ".new"
+        payload = {
+            "schema": 1,
+            "patcher_source": patcher_source,
+            "patcher_version": str(patcher_version),
+            "patcher_sha256": (
+                self._file_sha256(patcher_path)
+                if patcher_path and os.path.isfile(patcher_path)
+                else None
+            ),
+            "input_wow_sha256": self._file_sha256(wow_exe),
+            "output_sha256": self._file_sha256(output_exe),
+            "settings_signature": self._vanilla_tweaks_signature(),
+        }
+
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        os.replace(temp_path, marker_path)
+
+    def _existing_vanilla_tweaks_output_matches(self, target):
+        marker_path = self._vanilla_tweaks_marker_path(target)
+        wow_exe = os.path.join(target, "WoW.exe")
+        output_exe = os.path.join(target, "WoW_Modernized.exe")
+
+        if not (
+            os.path.isfile(marker_path)
+            and os.path.isfile(wow_exe)
+            and os.path.isfile(output_exe)
+        ):
+            return False, None
+
+        try:
+            with open(marker_path, "r", encoding="utf-8") as handle:
+                marker = json.load(handle)
+            if not isinstance(marker, dict):
+                return False, None
+
+            if marker.get("settings_signature") != self._vanilla_tweaks_signature():
+                return False, marker
+
+            if marker.get("input_wow_sha256") != self._file_sha256(wow_exe):
+                return False, marker
+
+            if marker.get("output_sha256") != self._file_sha256(output_exe):
+                return False, marker
+
+            valid_pe, _ = self._inspect_wow_executable(output_exe)
+            if not valid_pe:
+                return False, marker
+
+            return True, marker
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            return False, None
+
     def run_vanilla_tweaks(self, target):
-        # Prefer the latest stable tubtubs build on every Apply. A known-good
-        # tubtubs build is bundled as the offline fallback.
+        # Prefer the latest stable tubtubs build on every Apply. If the network
+        # is unavailable, preserve an already valid/current WoW_Modernized.exe
+        # instead of unnecessarily repatching it with an older bundled build.
         try:
             tweaks_exe, extract_root, version = remote_packages.prepare_vanilla_tweaks(
                 progress=self._report_download_progress,
             )
         except Exception as exc:
             self._close_download_progress()
+
+            existing_matches, marker = self._existing_vanilla_tweaks_output_matches(
+                target
+            )
+            if existing_matches:
+                patcher_version = (
+                    marker.get("patcher_version", "previously installed")
+                    if isinstance(marker, dict)
+                    else "previously installed"
+                )
+                messagebox.showwarning(
+                    "Latest vanilla-tweaks unavailable",
+                    "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
+                    "Your existing WoW_Modernized.exe matches the current WoW.exe "
+                    "and all executable patch settings, so it was kept unchanged "
+                    f"instead of being repatched with the bundled fallback.\n\n"
+                    f"Existing patcher version: {patcher_version}\n\n"
+                    f"Details: {exc}",
+                )
+                return os.path.join(target, "WoW_Modernized.exe")
+
+            bundled = self._bundled_vanilla_tweaks_info()
+            bundled_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
             messagebox.showwarning(
                 "Latest vanilla-tweaks unavailable",
                 "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
-                "The bundled known-good tubtubs build will be used instead, so "
-                "the same modern patch options remain available.\n\n"
+                "The current WoW.exe or executable patch settings need to be "
+                "repatched, so the bundled known-good vanilla-tweaks build will "
+                f"be used instead ({bundled['version']}).\n\n"
                 f"Details: {exc}",
             )
-            return super().run_vanilla_tweaks(target, modern_cli=True)
+
+            result = super().run_vanilla_tweaks(
+                target,
+                tweaks_exe=bundled_exe,
+                modern_cli=True,
+            )
+            self._write_vanilla_tweaks_marker(
+                target,
+                patcher_source="bundled",
+                patcher_version=bundled["version"],
+                patcher_path=bundled_exe,
+            )
+            return result
 
         try:
             self._report_download_progress(
@@ -540,11 +679,18 @@ class ModernWowSetupTool(WowSetupTool):
                 None,
                 None,
             )
-            return super().run_vanilla_tweaks(
+            result = super().run_vanilla_tweaks(
                 target,
                 tweaks_exe=tweaks_exe,
                 modern_cli=True,
             )
+            self._write_vanilla_tweaks_marker(
+                target,
+                patcher_source="online",
+                patcher_version=version,
+                patcher_path=tweaks_exe,
+            )
+            return result
         finally:
             shutil.rmtree(extract_root, ignore_errors=True)
             self._close_download_progress()
