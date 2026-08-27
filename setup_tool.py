@@ -3,6 +3,7 @@ import sys
 import shutil
 import subprocess
 import math
+import re
 import tkinter as tk
 import webbrowser
 from tkinter import ttk, filedialog, messagebox
@@ -72,11 +73,11 @@ class WowSetupTool:
         self.descriptions = {
             # Setup & General
             "autologin": "Automates the authentication process. Bypasses the standard login screen by securely passing your credentials so you drop directly into the character selection screen.",
-            "dxvk_standard": "Includes DXVK v2.6.2. Translates legacy DirectX 9 calls into modern Vulkan API, dramatically improving frame pacing on modern NVIDIA and Intel GPUs.",
-            "dxvk_amd": "Uses DXVK v2.5.3, an older stable release that prevents crashing issues specific to AMD graphics cards.",
+            "render_directx9": "Uses VanillaFixes with the game's native DirectX 9 renderer. Choose this if you do not want DXVK/Vulkan.",
+            "render_dxvk": "Uses VanillaFixes with DXVK, translating DirectX 9 to Vulkan for smoother frame pacing on many modern systems.",
 
             # Core DLLs
-            "nampower.dll": "Nampower 4.6.2: Implements ping compensation. Bypasses a 1.12 client flaw to enable queueing spell casts, enabling tighter spell batching for players with network latency.",
+            "nampower.dll": "Improves spell input responsiveness by adding modern spell queueing and latency compensation to the Vanilla client.",
             "no1600x1200.dll": "Removes the hardcoded 1600x1200 resolution limit. Natively unlocks widescreen and ultrawidescreen resolutions in the game settings.",
             "perf_boost.dll": "Provides dynamic render distance controls (culling). Stabilizes framerates in crowded environments by lowering the rendering priority of non-essential entities.",
             "UnitXP_SP3.dll": "Engine-level optimizations replacing legacy assembly. Introduces improved network handling, better Tab-targeting, true line-of-sight checks via Lua, and modern nameplate support.",
@@ -104,12 +105,13 @@ class WowSetupTool:
             "bg_sound": "Allows game sounds to continue playing while the game is minimized or in the background.",
             "laa": "Patches the executable to be Large Address Aware, allowing the 32-bit client to utilize up to 4GB of RAM (Essential for HD Mods).",
             "cam_fix": "Fixes a bug where right-clicking and dragging to rotate the camera occasionally snaps your view in a random direction.",
-            "dep_fix": "Disables Data Execution Prevention (DEP) and EmulateAtlThunks for WoW_Tweaked.exe. Prevents Windows from force-closing the game due to memory hooks. (Prompts for Admin Privileges)."
+            "dep_fix": "Disables Data Execution Prevention (DEP) and EmulateAtlThunks for WoW_Tweaked.exe. Prevents Windows from force-closing the game due to memory hooks. (Prompts for Admin Privileges).",
+            "script_memory": "Sets WoW's AddOn Script Memory to 0 (unlimited). When disabled, the tool leaves your existing Config.wtf value unchanged."
         }
 
         # Basic Setup Variables
         self.wow_dir = tk.StringVar()
-        self.gpu_type = tk.StringVar(value=self.detect_gpu())
+        self.rendering_mode = tk.StringVar(value="dxvk")
         self.install_autologin = tk.BooleanVar(value=True)
 
         self.screen_w = self.root.winfo_screenwidth()
@@ -158,7 +160,7 @@ class WowSetupTool:
         self.vt_fov = tk.DoubleVar()
         self.ratio_var = tk.StringVar(value=list(self.ratio_options.keys())[0]) 
         self.vt_farclip = tk.IntVar(value=777)
-        self.vt_frill = tk.IntVar(value=70)
+        self.vt_frill = tk.IntVar(value=300)
         self.vt_nameplate = tk.IntVar(value=41)
         self.vt_soundchan = tk.IntVar(value=64)
         self.vt_maxcam = tk.IntVar(value=100)
@@ -169,6 +171,7 @@ class WowSetupTool:
         self.vt_laa = tk.BooleanVar(value=True)
         self.vt_cam_fix = tk.BooleanVar(value=True)
         self.vt_dep_fix = tk.BooleanVar(value=True)
+        self.vt_script_memory = tk.BooleanVar(value=False)
         
         # Safety Limit Toggle
         self.safety_override = tk.BooleanVar(value=False)
@@ -176,15 +179,6 @@ class WowSetupTool:
 
         self.on_ratio_change() 
         self.build_ui()
-
-    def detect_gpu(self):
-        try:
-            output = subprocess.check_output("wmic path win32_VideoController get name", shell=True).decode()
-            if "AMD" in output.upper() or "RADEON" in output.upper():
-                return "AMD"
-            return "Standard"
-        except Exception:
-            return "Standard" 
 
     def on_ratio_change(self, event=None):
         selection = self.ratio_var.get()
@@ -232,7 +226,7 @@ class WowSetupTool:
         tab_tweaks = ttk.Frame(notebook)
         tab_credits = ttk.Frame(notebook)
 
-        notebook.add(tab_main, text="Setup & DXVK")
+        notebook.add(tab_main, text="Setup & Rendering")
         notebook.add(tab_plugins, text="Plugins")
         notebook.add(tab_tweaks, text="Vanilla Tweaks")
         notebook.add(tab_credits, text="Credits & Sources")
@@ -251,15 +245,25 @@ class WowSetupTool:
         ttk.Entry(dir_frame, textvariable=self.wow_dir).pack(side='left', fill='x', expand=True)
         ttk.Button(dir_frame, text="Browse...", command=lambda: self.wow_dir.set(filedialog.askdirectory())).pack(side='left', padx=(5,0))
 
-        ttk.Label(parent, text="DXVK Version (GPU Detected):").pack(anchor='w', pady=(20, 0), padx=10)
+        ttk.Label(parent, text="Rendering Mode:").pack(anchor='w', pady=(20, 0), padx=10)
         
-        rb_std = ttk.Radiobutton(parent, text="Standard (NVIDIA / Intel)", variable=self.gpu_type, value="Standard")
-        rb_std.pack(anchor='w', padx=20, pady=2)
-        ToolTip(rb_std, self.descriptions["dxvk_standard"])
+        rb_directx9 = ttk.Radiobutton(
+            parent,
+            text="VanillaFixes (DirectX 9)",
+            variable=self.rendering_mode,
+            value="directx9"
+        )
+        rb_directx9.pack(anchor='w', padx=20, pady=2)
+        ToolTip(rb_directx9, self.descriptions["render_directx9"])
 
-        rb_amd = ttk.Radiobutton(parent, text="AMD Specific (Fixes AMD crashes)", variable=self.gpu_type, value="AMD")
-        rb_amd.pack(anchor='w', padx=20, pady=2)
-        ToolTip(rb_amd, self.descriptions["dxvk_amd"])
+        rb_dxvk = ttk.Radiobutton(
+            parent,
+            text="VanillaFixes + DXVK (Vulkan)",
+            variable=self.rendering_mode,
+            value="dxvk"
+        )
+        rb_dxvk.pack(anchor='w', padx=20, pady=2)
+        ToolTip(rb_dxvk, self.descriptions["render_dxvk"])
 
         ttk.Label(parent, text="Optional Mods:").pack(anchor='w', pady=(20, 0), padx=10)
         
@@ -350,6 +354,14 @@ class WowSetupTool:
         cb_dep.grid(row=2, column=0, sticky='w', padx=10, pady=2)
         ToolTip(cb_dep, self.descriptions["dep_fix"])
 
+        cb_script_memory = ttk.Checkbutton(
+            toggles_frame,
+            text="Unlimited AddOn Script Memory (0)",
+            variable=self.vt_script_memory
+        )
+        cb_script_memory.grid(row=2, column=1, sticky='w', padx=10, pady=2)
+        ToolTip(cb_script_memory, self.descriptions["script_memory"])
+
 
     def build_credits_tab(self, parent):
         # Create a frame with a scrollbar
@@ -433,13 +445,13 @@ class WowSetupTool:
         text_area.insert("end", "\n• AuctionQueryThrottle: ", "bold")
         insert_link("Source Repository", "https://github.com/brues-code/AuctionQueryThrottle")
 
-        text_area.insert("end", "\n• Nampower v4.6.2: ", "bold")
-        insert_link("Mod Source", "https://github.com/Emyrk/nampower")
+        text_area.insert("end", "\n• Nampower: ", "bold")
+        insert_link("Mod Source", "https://github.com/brues-code/nampower")
         text_area.insert("end", " | ")
-        insert_link("Addon Source", "https://github.com/Emyrk/NampowerSettings")
+        insert_link("Addon Source", "https://github.com/brues-code/NampowerSettings")
 
         text_area.insert("end", "\n• no1600x1200.dll: ", "bold")
-        text_area.insert("end", "Legacy file (no upstream repository currently referenced by this tool)")
+        insert_link("Source / Backup", "https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200")
 
         # Other bundled enhancements
         text_area.insert("end", "\n\nOther Bundled Enhancements\n", "header")
@@ -555,6 +567,34 @@ class WowSetupTool:
                     try: os.remove(dll_path)
                     except: pass
 
+    def configure_script_memory(self, target):
+        """Optionally set AddOn Script Memory to 0 (unlimited) in WTF/Config.wtf."""
+        if not self.vt_script_memory.get():
+            return
+
+        wtf_dir = os.path.join(target, "WTF")
+        os.makedirs(wtf_dir, exist_ok=True)
+        config_path = os.path.join(wtf_dir, "Config.wtf")
+
+        existing = ""
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8", errors="ignore") as f:
+                existing = f.read()
+
+        setting = 'SET scriptMemory "0"'
+        pattern = re.compile(r'^\s*SET\s+scriptMemory\s+"[^"]*"\s*$', re.IGNORECASE | re.MULTILINE)
+
+        if pattern.search(existing):
+            updated = pattern.sub(setting, existing)
+        else:
+            if existing and not existing.endswith(("\n", "\r")):
+                existing += "\n"
+            updated = existing + setting + "\n"
+
+        with open(config_path, "w", encoding="utf-8", newline="") as f:
+            f.write(updated)
+
+
     def apply_process_mitigations(self):
         """Runs the Set-ProcessMitigation PowerShell command with a UAC prompt if needed."""
         if not self.vt_dep_fix.get():
@@ -588,6 +628,7 @@ class WowSetupTool:
             self.configure_dxvk(target_dir)
             self.configure_plugins(target_dir)
             self.run_vanilla_tweaks(target_dir)
+            self.configure_script_memory(target_dir)
             self.apply_process_mitigations()
             
             # Generate the seamless launcher shortcut
@@ -651,36 +692,31 @@ oLink.Save
             source_file = os.path.join(payload_dir, file)
             if os.path.exists(source_file): shutil.copy2(source_file, target)
 
-        # dxvk.conf uniquement pour NVIDIA / Standard
-        if self.gpu_type.get() != "AMD":
-            source_file = os.path.join(payload_dir, "dxvk.conf")
-            if os.path.exists(source_file):
-                shutil.copy2(source_file, target)
-        else:
-            # On nettoie aussi l'éventuel ancien dxvk.conf en mode AMD
-            conf_target = os.path.join(target, "dxvk.conf")
-            if os.path.exists(conf_target):
-                os.remove(conf_target)
 
     def configure_dxvk(self, target):
         payload_dir = os.path.join(get_base_path(), "Payload")
-        if self.gpu_type.get() == "AMD":
-            # AMD n'a pas besoin de d3d9.dll — on supprime l'eventuel fichier Standard
-            d3d9_target = os.path.join(target, "d3d9.dll")
-            if os.path.exists(d3d9_target):
-                os.remove(d3d9_target)
-        else:
+        d3d9_target = os.path.join(target, "d3d9.dll")
+        conf_target = os.path.join(target, "dxvk.conf")
+
+        if self.rendering_mode.get() == "dxvk":
             d3d9_src = os.path.join(payload_dir, "DXVK_Standard", "d3d9.dll")
+            conf_src = os.path.join(payload_dir, "dxvk.conf")
+
             if os.path.exists(d3d9_src):
-                shutil.copy2(d3d9_src, target)
+                shutil.copy2(d3d9_src, d3d9_target)
+            if os.path.exists(conf_src):
+                shutil.copy2(conf_src, conf_target)
+        else:
+            for path in (d3d9_target, conf_target):
+                if os.path.exists(path):
+                    os.remove(path)
 
     def configure_plugins(self, target):
         payload_base = os.path.join(get_base_path(), "Payload")
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
         
-        # On met "dxvk" seulement si on est en version Standard (NVIDIA/Intel)
         dlls_text_lines = []
-        if self.gpu_type.get() != "AMD":
+        if self.rendering_mode.get() == "dxvk":
             dlls_text_lines.append("dxvk")
 
         # Process Core Plugins
