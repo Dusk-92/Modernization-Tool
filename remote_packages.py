@@ -527,22 +527,27 @@ def _managed_locations(target_dir, mod_id):
     return root, manifest, backups
 
 
-def _load_managed_manifest(target_dir, mod_id):
+def _load_managed_manifest_data(target_dir, mod_id):
     _, manifest_path, _ = _managed_locations(target_dir, mod_id)
     if not os.path.isfile(manifest_path):
-        return []
+        return {}
     try:
         with open(manifest_path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-        files = data.get("files", [])
-        if not isinstance(files, list):
-            return []
-        return [_safe_relative_path(item) for item in files if isinstance(item, str)]
+        return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _load_managed_manifest(target_dir, mod_id):
+    data = _load_managed_manifest_data(target_dir, mod_id)
+    files = data.get("files", [])
+    if not isinstance(files, list):
         return []
+    return [_safe_relative_path(item) for item in files if isinstance(item, str)]
 
 
-def _write_managed_manifest(target_dir, mod_id, relative_files):
+def _write_managed_manifest(target_dir, mod_id, relative_files, revision=None):
     _, manifest_path, _ = _managed_locations(target_dir, mod_id)
     os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
     temp_path = manifest_path + ".new"
@@ -550,6 +555,8 @@ def _write_managed_manifest(target_dir, mod_id, relative_files):
         "mod_id": mod_id,
         "files": [str(path).replace(os.sep, "/") for path in relative_files],
     }
+    if revision is not None:
+        payload["revision"] = str(revision)
     with open(temp_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
     os.replace(temp_path, manifest_path)
@@ -591,12 +598,56 @@ def _restore_or_remove_managed_file(target_dir, mod_id, relative_path):
 
 
 
+# Existing manifests created before revision tracking correspond to revision 1
+# of these visual sources. This lets current installations migrate without one
+# unnecessary large re-download, while a future revision bump can still force
+# a refresh automatically.
+VISUAL_MOD_REVISIONS = {
+    "visual_darker_nights": "1",
+    "visual_pretty_night_sky": "1",
+    "visual_epoch_water": "1",
+    "visual_fog_pushback": "1",
+    "visual_pink_herbs": "1",
+}
+
+
 def managed_mod_is_installed(target_dir, mod_id):
     """True only when a tool-managed manifest exists and all owned files remain present."""
     files = _load_managed_manifest(target_dir, mod_id)
     if not files:
         return False
     return all(os.path.isfile(os.path.join(target_dir, rel)) for rel in files)
+
+
+def managed_mod_is_current(target_dir, mod_id, revision):
+    """Check installed files plus the source revision recorded by the tool."""
+    if not managed_mod_is_installed(target_dir, mod_id):
+        return False
+
+    data = _load_managed_manifest_data(target_dir, mod_id)
+    installed_revision = data.get("revision")
+
+    # Migrate pre-revision manifests for the visual sources that existed when
+    # revision tracking was introduced.
+    if installed_revision is None and mod_id in VISUAL_MOD_REVISIONS:
+        installed_revision = "1"
+
+    return str(installed_revision) == str(revision)
+
+
+def managed_mpq_is_current(target_dir, mod_id, revision):
+    """Cheap integrity check for an already installed managed MPQ."""
+    if not managed_mod_is_current(target_dir, mod_id, revision):
+        return False
+    files = _load_managed_manifest(target_dir, mod_id)
+    if len(files) != 1:
+        return False
+    path = os.path.join(target_dir, files[0])
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(3) == b"MPQ"
+    except OSError:
+        return False
 
 
 def remove_managed_mod(target_dir, mod_id):
@@ -627,7 +678,7 @@ def remove_managed_mod(target_dir, mod_id):
                 pass
 
 
-def _install_managed_files(target_dir, mod_id, file_mappings):
+def _install_managed_files(target_dir, mod_id, file_mappings, revision=None):
     """Install files while preserving any pre-existing user files for restore."""
     root, _, backup_root = _managed_locations(target_dir, mod_id)
     del root
@@ -657,7 +708,7 @@ def _install_managed_files(target_dir, mod_id, file_mappings):
 
         _atomic_replace_file(source_path, target)
 
-    _write_managed_manifest(target_dir, mod_id, new_files)
+    _write_managed_manifest(target_dir, mod_id, new_files, revision=revision)
 
 
 def _verify_mpq(path):
@@ -670,7 +721,16 @@ def _verify_mpq(path):
         raise RemotePackageError("Downloaded file is not a valid MPQ archive.")
 
 
-def _install_remote_mpq(target_dir, mod_id, url, destination, progress=None, label="Downloading visual mod", timeout=300):
+def _install_remote_mpq(
+    target_dir,
+    mod_id,
+    url,
+    destination,
+    progress=None,
+    label="Downloading visual mod",
+    timeout=300,
+    revision=None,
+):
     temp_path = _download(
         url,
         suffix=".mpq",
@@ -685,6 +745,7 @@ def _install_remote_mpq(target_dir, mod_id, url, destination, progress=None, lab
             target_dir,
             mod_id,
             [(temp_path, destination)],
+            revision=revision,
         )
     finally:
         try:
@@ -708,6 +769,7 @@ def install_darker_nights(target_dir, progress=None):
         os.path.join("Data", "patch-N.mpq"),
         progress=progress,
         label="Downloading Darker Nights",
+        revision=VISUAL_MOD_REVISIONS["visual_darker_nights"],
     )
     return "Project Reforged Patch-N"
 
@@ -722,6 +784,7 @@ def install_pretty_night_sky(target_dir, progress=None):
         os.path.join("Data", "patch-Z.mpq"),
         progress=progress,
         label="Downloading Pretty Night Sky",
+        revision=VISUAL_MOD_REVISIONS["visual_pretty_night_sky"],
     )
     return "RetroCro mirror"
 
@@ -734,6 +797,7 @@ def install_epoch_water(target_dir, progress=None):
         os.path.join("Data", "patch-W.mpq"),
         progress=progress,
         label="Downloading Epoch Water",
+        revision=VISUAL_MOD_REVISIONS["visual_epoch_water"],
     )
     return "RetroCro mirror"
 
@@ -746,6 +810,7 @@ def install_fog_pushback(target_dir, progress=None):
         os.path.join("Data", "patch-Y.mpq"),
         progress=progress,
         label="Downloading Fog Pushback",
+        revision=VISUAL_MOD_REVISIONS["visual_fog_pushback"],
     )
     return "RetroCro mirror"
 
@@ -758,6 +823,7 @@ def install_pink_herbs(target_dir, progress=None):
         os.path.join("Data", "patch-H.mpq"),
         progress=progress,
         label="Downloading Pink Herbs",
+        revision=VISUAL_MOD_REVISIONS["visual_pink_herbs"],
     )
     return "seacrabsam/patch-herb main"
 
