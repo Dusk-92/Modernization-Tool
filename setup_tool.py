@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import math
 import re
+import stat
 import tkinter as tk
 import webbrowser
 from tkinter import ttk, filedialog, messagebox
@@ -426,7 +427,7 @@ class WowSetupTool:
         insert_link("Source Repository", "https://github.com/isfir/VanillaHelpers")
 
         text_area.insert("end", "\n• PerfBoost: ", "bold")
-        insert_link("Mod Source", "https://github.com/Dusk-92/perf_boost")
+        insert_link("Mod Source", "https://gitea.com/avitasia/PerfBoost")
         text_area.insert("end", " | ")
         insert_link("Addon Source", "https://gitea.com/avitasia/PerfBoostSettings")
 
@@ -573,26 +574,52 @@ class WowSetupTool:
             return
 
         wtf_dir = os.path.join(target, "WTF")
-        os.makedirs(wtf_dir, exist_ok=True)
         config_path = os.path.join(wtf_dir, "Config.wtf")
+        original_mode = None
+        restore_readonly = False
 
-        existing = ""
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8", errors="ignore") as f:
-                existing = f.read()
+        try:
+            os.makedirs(wtf_dir, exist_ok=True)
 
-        setting = 'SET scriptMemory "0"'
-        pattern = re.compile(r'^\s*SET\s+scriptMemory\s+"[^"]*"\s*$', re.IGNORECASE | re.MULTILINE)
+            if os.path.exists(config_path):
+                original_mode = os.stat(config_path).st_mode
+                if not (original_mode & stat.S_IWRITE):
+                    os.chmod(config_path, original_mode | stat.S_IWRITE)
+                    restore_readonly = True
 
-        if pattern.search(existing):
-            updated = pattern.sub(setting, existing)
-        else:
-            if existing and not existing.endswith(("\n", "\r")):
-                existing += "\n"
-            updated = existing + setting + "\n"
+            existing = ""
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8", errors="ignore") as f:
+                    existing = f.read()
 
-        with open(config_path, "w", encoding="utf-8", newline="") as f:
-            f.write(updated)
+            setting = 'SET scriptMemory "0"'
+            pattern = re.compile(
+                r'^\s*SET\s+scriptMemory\s+"[^"]*"\s*$',
+                re.IGNORECASE | re.MULTILINE
+            )
+
+            if pattern.search(existing):
+                updated = pattern.sub(setting, existing)
+            else:
+                if existing and not existing.endswith(("\n", "\r")):
+                    existing += "\n"
+                updated = existing + setting + "\n"
+
+            with open(config_path, "w", encoding="utf-8", newline="") as f:
+                f.write(updated)
+
+        except PermissionError as exc:
+            raise RuntimeError(
+                "Windows denied access to WTF\\Config.wtf. Close WoW and any "
+                "program using the file. If your WoW folder is protected, run "
+                "the Modernization Tool as administrator and try again."
+            ) from exc
+        finally:
+            if restore_readonly and original_mode is not None and os.path.exists(config_path):
+                try:
+                    os.chmod(config_path, original_mode)
+                except OSError:
+                    pass
 
 
     def apply_process_mitigations(self):
@@ -635,6 +662,14 @@ class WowSetupTool:
             self.create_launcher_shortcut(target_dir)
             
             messagebox.showinfo("Success", "Installation and patching complete!\n\nUse the new 'Play Modernized WoW' shortcut in your directory to launch the game.")
+        except PermissionError as e:
+            messagebox.showerror(
+                "Permission Error",
+                "Windows denied access to a file or folder in the selected WoW directory.\n\n"
+                "Close WoW and any program using the files. If the folder is protected, "
+                "run the Modernization Tool as administrator and try again.\n\n"
+                f"Details: {e}"
+            )
         except Exception as e:
             messagebox.showerror("Installation Error", str(e))
 
