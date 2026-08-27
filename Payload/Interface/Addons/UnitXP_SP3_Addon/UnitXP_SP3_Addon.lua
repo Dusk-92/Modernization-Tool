@@ -374,12 +374,13 @@ local function UnitXP_SP3_setShowInCombatNameplatesNearPlayer(enable)
 end
 
 local function UnitXP_SP3_setWeatherAlwaysClear(enable)
-    local test, result;
-    if enable then
-        test, result = pcall(UnitXP, "weatherAlwaysClear", "disableRain");
+    local subcmd;
+    if enable == "enable" then
+        subcmd = "disableRain";
     else
-        test, result = pcall(UnitXP, "weatherAlwaysClear", "enableRain");
+        subcmd = "enableRain";
     end
+    local test, result = pcall(UnitXP, "weatherAlwaysClear", subcmd);
 
     if not test then
         if not skipUpdateMessage then
@@ -612,10 +613,10 @@ local function UnitXP_SP3_reloadConfig()
     end
 
     if UnitXP_SP3_Addon["weatherAlwaysClear"] then
-        UnitXP_SP3_setWeatherAlwaysClear(true);
+        UnitXP_SP3_setWeatherAlwaysClear("enable");
         xpsp3_checkButton_weatherAlwaysClear:SetChecked(true);
     else
-        UnitXP_SP3_setWeatherAlwaysClear(false);
+        UnitXP_SP3_setWeatherAlwaysClear("disable");
         xpsp3_checkButton_weatherAlwaysClear:SetChecked(false);
     end
 

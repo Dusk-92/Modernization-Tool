@@ -1,0 +1,8 @@
+<Bindings>
+    <Binding name="Interact" header="INTERACT">
+        Interact(0)
+    </Binding>
+    <Binding name="Interact (auto-loot)">
+        Interact(1)
+    </Binding>
+</Bindings>

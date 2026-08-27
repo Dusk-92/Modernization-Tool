@@ -1,0 +1,530 @@
+{
+  "components": {
+    "AuctionQueryThrottle fallback": {
+      "files": [
+        {
+          "path": "Payload/Fallback/AuctionQueryThrottle.dll",
+          "sha256": "720b7ad72941206249df23cb9d36addafa2634f190081f7b33834b84af184f5e",
+          "size": 92672
+        }
+      ],
+      "source": "https://github.com/brues-code/AuctionQueryThrottle/releases/download/v1.2.0/AuctionQueryThrottle.dll",
+      "version": "v1.2.0"
+    },
+    "ClassicAPI fallback": {
+      "files": [
+        {
+          "path": "Payload/Fallback/ClassicAPI.dll",
+          "sha256": "2a823b141326383a56fba100d09f5a72f34798b08f38fa9340e5bdc2ee31dc65",
+          "size": 1145856
+        }
+      ],
+      "source": "https://github.com/brues-code/ClassicAPI/releases/download/v1.12.7/ClassicAPI.dll",
+      "version": "v1.12.7"
+    },
+    "FishPing fallback": {
+      "files": [
+        {
+          "path": "Payload/Fallback/Audio/FishPing/Sound/Spells/Tradeskills/FishBite.wav",
+          "sha256": "80497c141e2dfe1dde5cc78d0afc7e1381363e8f1dd491af8dd8faa70d872def",
+          "size": 44596
+        }
+      ],
+      "source": "https://codeload.github.com/notsureawake/FishPing/zip/refs/heads/master",
+      "version": "master"
+    },
+    "Interact fallback": {
+      "files": [
+        {
+          "path": "Payload/Fallback/Interact/Interact.dll",
+          "sha256": "ab716314eed559a10607ecdc655f71911196ffae69706cf1d373d01df86a915d",
+          "size": 55808
+        }
+      ],
+      "source": "https://github.com/lookino/Interact/releases/download/v1.0.4/Interact.zip",
+      "version": "v1.0.4"
+    },
+    "Nampower": {
+      "files": [
+        {
+          "path": "Payload/nampower.dll",
+          "sha256": "304bdb35bc00b18ee092b3bc01195319f717c37d9c6babe6775e8fe278229d22",
+          "size": 1058816
+        }
+      ],
+      "source": "https://github.com/brues-code/nampower/releases/download/v4.6.1/nampower-v4.6.1.zip",
+      "version": "v4.6.1"
+    },
+    "NoErrorSounds fallback": {
+      "files": [
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/interface/uChatScrollButton.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/interface/iUiInterfaceButtonA.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/interface/uEscapeScreenClose.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/interface/uEscapeScreenOpen.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/Spells/Fizzle/FizzleFrostA.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/Spells/Fizzle/FizzleNatureA.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/Spells/Fizzle/FizzleHolyA.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/Spells/Fizzle/FizzleFireA.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/NoErrorSounds/Sound/Spells/Fizzle/FizzleShadowA.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        }
+      ],
+      "source": "https://codeload.github.com/Macumbafeh/NoErrorSounds/zip/refs/heads/main",
+      "version": "main"
+    },
+    "PerfBoost": {
+      "files": [
+        {
+          "path": "Payload/perf_boost.dll",
+          "sha256": "7019e2f31c4f56caa616f1b4b2587c56ff276f2c27c9f35535e2578eafbd4dbe",
+          "size": 578560
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/refs/heads/main/Archive/DLL%20BACKUP/perf_boost.dll",
+      "version": "RetroCro main"
+    },
+    "SuperWoW": {
+      "files": [
+        {
+          "path": "Payload/SuperWoWhook.dll",
+          "sha256": "bd214b32c878649e94ce654835946bd05e0ce7710e8f01bae10d8ab50a89351d",
+          "size": 1000448
+        }
+      ],
+      "source": "https://github.com/balakethelock/SuperWoW/releases/download/Release/SuperWoW.release.2.2.zip",
+      "version": "Release"
+    },
+    "UnitXP_SP3": {
+      "files": [
+        {
+          "path": "Payload/UnitXP_SP3.dll",
+          "sha256": "1d1a622fc4fd74864bdd5aa29d8c4ed2dd5cbb0340f978cbf4daca815235d10a",
+          "size": 185344
+        }
+      ],
+      "source": "https://github.com/brues-code/UnitXP_SP3/releases/download/v90/UnitXP_SP3-v90.zip",
+      "version": "v90"
+    },
+    "VanillaHelpers": {
+      "files": [
+        {
+          "path": "Payload/VanillaHelpers.dll",
+          "sha256": "1e74ddf6484c23482550d5f9e5f9d291085c4ac538d3b3ed9d87155521841196",
+          "size": 254976
+        }
+      ],
+      "source": "https://github.com/isfir/VanillaHelpers/releases/download/v1.1.2/VanillaHelpers.dll",
+      "version": "v1.1.2"
+    },
+    "VanillaMultiMonitorFix fallback": {
+      "files": [
+        {
+          "path": "Payload/Fallback/VanillaMultiMonitorFix/VanillaMultiMonitorFix.dll",
+          "sha256": "7fa033e744c4b8794a4c97a45d563a8870264244bfa1e478a1c0f85e0c6e3371",
+          "size": 28160
+        },
+        {
+          "path": "Payload/Fallback/VanillaMultiMonitorFix/VMMFix_preferred_monitor.txt",
+          "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+          "size": 1
+        }
+      ],
+      "source": "https://github.com/Mates1500/VanillaMultiMonitorFix/releases/download/0.2/release.zip",
+      "version": "0.2"
+    },
+    "WarlockMutedDemons fallback": {
+      "files": [
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_KILL03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_KILL02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_DISMISS03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_DISMISS04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_SUMMON04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_ORDER01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_SUMMON02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_FUNNY.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_ORDER03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_DISMISS01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_SUMMON03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_SUMMON01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_ORDER02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_KILL01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_KILL04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_DISMISS02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/DoomGuardVO/DOOM_ORDER05.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_SUMMON02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_ORDER03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_KILL04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_ORDER05.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_ORDER01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_DISMISS03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_SUMMON01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_SUMMON03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_FUNNY.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_ORDER02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_SUMMON04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_KILL02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_DISMISS02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_DISMISS01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_DISMISS04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_KILL01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/VoidWalkerVO/VOID_KILL03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_KILL02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_ORDER04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_DISMISS03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_DISMISS02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_KILL03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_ORDER02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_ORDER01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_DISMISS04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_KILL04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_DISMISS05.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_ORDER03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_FUNNY.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/ImpVO/IMP_KILL01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_DISMISS04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_FUNNY.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_SUMMON02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_KILL03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_SUMMON03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_KILL04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_SUMMON01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_KILL02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_ORDER02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_DISMISS03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_DISMISS01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_ORDER01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_KILL01.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_ORDER05.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_DISMISS02.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_ORDER03.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        },
+        {
+          "path": "Payload/Fallback/Audio/WarlockMutedDemons/Data/Sound/Creature/SuccubusVO/SUCCUBUS_SUMMON04.wav",
+          "sha256": "4f1c48e911f813417f6f7324e68e0b09dab1ebb09032c7d7a940168c5d92a954",
+          "size": 482
+        }
+      ],
+      "source": "https://codeload.github.com/spzilyk/Warlock-Muted-Demons/zip/refs/heads/main",
+      "version": "main"
+    },
+    "WeirdPerformance": {
+      "files": [
+        {
+          "path": "Payload/weirdperformance.dll",
+          "sha256": "872b73e9074b8fd95f968b099adf4139591c10ab6cd916c96082ed4a7b7b8c69",
+          "size": 204288
+        }
+      ],
+      "source": "https://codeberg.org/Dusk92/WeirdUtils/releases/download/0.7.3/weirdperformance.dll",
+      "version": "0.7.3"
+    },
+    "no1600x1200": {
+      "files": [
+        {
+          "path": "Payload/no1600x1200.dll",
+          "sha256": "0df2274116278e8330dd7069902b642f1a83f33fefd909807a22eda197d88652",
+          "size": 104960
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll",
+      "version": "RetroCro main"
+    },
+    "vanilla-tweaks fallback": {
+      "files": [
+        {
+          "path": "vanilla-tweaks.exe",
+          "sha256": "e386132fd0e5713818893a9cef9e5ae41d99baff2da03f190911d351cc5ed090",
+          "size": 5927433
+        }
+      ],
+      "source": "https://github.com/tubtubs/vanilla-tweaks/releases/download/tag/vanilla-tweaks_tag_x86_64-pc-windows-gnu.zip",
+      "version": "tag"
+    }
+  },
+  "schema": 1
+}
