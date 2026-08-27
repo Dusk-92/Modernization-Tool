@@ -200,7 +200,7 @@ class ModernWowSetupTool(WowSetupTool):
             "SuperWoWhook.dll": ("SuperWoW", "by balakethelock"),
             "transmogfix.dll": ("TransmogFix", "by MarcelineVQ"),
             "perf_boost.dll": ("PerfBoost", "by avitasia"),
-            "weirdperformance.dll": ("WeirdPerformance", "by MarcelineVQ"),
+            "weirdperformance.dll": ("WeirdPerformance", "Dusk92 build 0.7.3"),
             "VanillaHelpers.dll": ("VanillaHelpers", "by isfir"),
         }
 
@@ -323,14 +323,42 @@ class ModernWowSetupTool(WowSetupTool):
             if os.path.exists(addon_path):
                 shutil.rmtree(addon_path, ignore_errors=True)
 
+    def _warn_offline(self, component, action, error):
+        self._close_download_progress()
+        messagebox.showwarning(
+            "Online update unavailable",
+            f"Could not download the latest {component}.\n\n"
+            f"{action}\n\nDetails: {error}",
+        )
+
     def _fallback_core_dll(self, payload_base, target, dll_name, error):
         source_dll = os.path.join(payload_base, dll_name)
-        if not os.path.exists(source_dll):
+        target_dll = os.path.join(target, dll_name)
+        addon_folder = self.addon_dependencies.get(dll_name)
+        target_addon = (
+            os.path.join(target, "Interface", "AddOns", addon_folder)
+            if addon_folder
+            else None
+        )
+
+        # Never downgrade a complete existing install because an upstream link
+        # happens to be unavailable during an update.
+        existing_complete = os.path.isfile(target_dll) and (
+            target_addon is None or os.path.isdir(target_addon)
+        )
+        if existing_complete:
+            self._warn_offline(
+                dll_name,
+                "The version already installed in your WoW folder was kept unchanged.",
+                error,
+            )
+            return
+
+        if not os.path.isfile(source_dll):
             raise RuntimeError(
                 f"Could not download the latest {dll_name}, and no bundled fallback exists.\n\n{error}"
             ) from error
 
-        addon_folder = self.addon_dependencies.get(dll_name)
         source_addon = None
         if addon_folder:
             source_addon = os.path.join(payload_base, "Interface", "Addons", addon_folder)
@@ -340,24 +368,100 @@ class ModernWowSetupTool(WowSetupTool):
                     f"{addon_folder} is missing.\n\n{error}"
                 ) from error
 
-        shutil.copy2(source_dll, target)
-
+        shutil.copy2(source_dll, target_dll)
         if addon_folder and source_addon:
-            remote_packages._replace_directory(
-                source_addon,
-                os.path.join(target, "Interface", "AddOns", addon_folder),
-            )
+            remote_packages._replace_directory(source_addon, target_addon)
 
-        self._close_download_progress()
-        messagebox.showwarning(
-            "Online update unavailable",
-            f"Could not download the latest {dll_name}.\n\n"
-            f"The bundled version will be used instead.\n\nDetails: {error}",
+        self._warn_offline(
+            dll_name,
+            "The bundled known-good backup was installed instead.",
+            error,
+        )
+
+    def _fallback_simple_dll(self, target, dll_name, error):
+        target_dll = os.path.join(target, dll_name)
+        if os.path.isfile(target_dll):
+            self._warn_offline(
+                dll_name,
+                "The version already installed in your WoW folder was kept unchanged.",
+                error,
+            )
+            return
+
+        fallback = os.path.join(get_base_path(), "Payload", "Fallback", dll_name)
+        if not os.path.isfile(fallback):
+            raise RuntimeError(
+                f"Could not download the latest {dll_name}, and its bundled backup is missing.\n\n{error}"
+            ) from error
+
+        shutil.copy2(fallback, target_dll)
+        self._warn_offline(
+            dll_name,
+            "The bundled known-good backup was installed instead.",
+            error,
+        )
+
+    def _fallback_vmmfix(self, target, error):
+        target_dll = os.path.join(target, "VanillaMultiMonitorFix.dll")
+        if os.path.isfile(target_dll):
+            self._warn_offline(
+                "VanillaMultiMonitorFix",
+                "The version already installed in your WoW folder was kept unchanged.",
+                error,
+            )
+            return
+
+        fallback_dir = os.path.join(
+            get_base_path(), "Payload", "Fallback", "VanillaMultiMonitorFix"
+        )
+        fallback_dll = os.path.join(fallback_dir, "VanillaMultiMonitorFix.dll")
+        fallback_config = os.path.join(fallback_dir, "VMMFix_preferred_monitor.txt")
+        if not os.path.isfile(fallback_dll):
+            raise RuntimeError(
+                f"VanillaMultiMonitorFix update failed and its bundled backup is missing.\n\n{error}"
+            ) from error
+
+        shutil.copy2(fallback_dll, target_dll)
+        target_config = os.path.join(target, "VMMFix_preferred_monitor.txt")
+        if not os.path.exists(target_config) and os.path.isfile(fallback_config):
+            shutil.copy2(fallback_config, target_config)
+
+        self._warn_offline(
+            "VanillaMultiMonitorFix",
+            "The bundled known-good backup was installed instead.",
+            error,
+        )
+
+    def _fallback_interact(self, target, error):
+        target_dll = os.path.join(target, "Interact.dll")
+        target_addon = os.path.join(target, "Interface", "AddOns", "Interact")
+        if os.path.isfile(target_dll) and os.path.isdir(target_addon):
+            self._warn_offline(
+                "Interact",
+                "The version already installed in your WoW folder was kept unchanged.",
+                error,
+            )
+            return
+
+        fallback_dir = os.path.join(get_base_path(), "Payload", "Fallback", "Interact")
+        fallback_dll = os.path.join(fallback_dir, "Interact.dll")
+        fallback_addon = os.path.join(fallback_dir, "Addon")
+        if not os.path.isfile(fallback_dll) or not os.path.isdir(fallback_addon):
+            raise RuntimeError(
+                f"Interact update failed and its bundled backup is incomplete.\n\n{error}"
+            ) from error
+
+        shutil.copy2(fallback_dll, target_dll)
+        remote_packages._replace_directory(fallback_addon, target_addon)
+        self._warn_offline(
+            "Interact",
+            "The bundled known-good backup was installed instead.",
+            error,
         )
 
     def run_vanilla_tweaks(self, target):
-        # Prefer the latest stable tubtubs build on every Apply. The bundled
-        # brndd executable remains an offline fallback.
+        # Prefer the latest stable tubtubs build on every Apply. A known-good
+        # tubtubs build is bundled as the offline fallback.
         try:
             tweaks_exe, extract_root, version = remote_packages.prepare_vanilla_tweaks(
                 progress=self._report_download_progress,
@@ -367,11 +471,11 @@ class ModernWowSetupTool(WowSetupTool):
             messagebox.showwarning(
                 "Latest vanilla-tweaks unavailable",
                 "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
-                "The bundled legacy patcher will be used instead. Modern-only "
-                "patches (Cross-faction Res, Custom Glues and Bluemoon) cannot "
-                f"be applied by the legacy fallback.\n\nDetails: {exc}",
+                "The bundled known-good tubtubs build will be used instead, so "
+                "the same modern patch options remain available.\n\n"
+                f"Details: {exc}",
             )
-            return super().run_vanilla_tweaks(target, modern_cli=False)
+            return super().run_vanilla_tweaks(target, modern_cli=True)
 
         try:
             self._report_download_progress(
@@ -456,7 +560,7 @@ class ModernWowSetupTool(WowSetupTool):
                         progress=self._report_download_progress,
                     )
                 except Exception as exc:
-                    raise RuntimeError(f"ClassicAPI update failed:\n{exc}") from exc
+                    self._fallback_simple_dll(target, "ClassicAPI.dll", exc)
                 dlls_text_lines.append("ClassicAPI.dll")
 
             if self.auction_throttle_enabled.get():
@@ -466,7 +570,7 @@ class ModernWowSetupTool(WowSetupTool):
                         progress=self._report_download_progress,
                     )
                 except Exception as exc:
-                    raise RuntimeError(f"Auction Query Throttle update failed:\n{exc}") from exc
+                    self._fallback_simple_dll(target, "AuctionQueryThrottle.dll", exc)
                 dlls_text_lines.append("AuctionQueryThrottle.dll")
 
             # Clean dependent addons when the matching core DLL is disabled.
@@ -501,9 +605,7 @@ class ModernWowSetupTool(WowSetupTool):
                         progress=self._report_download_progress,
                     )
                 except Exception as exc:
-                    raise RuntimeError(
-                        f"VanillaMultiMonitorFix update failed:\n{exc}"
-                    ) from exc
+                    self._fallback_vmmfix(target, exc)
                 dlls_text_lines.append("VanillaMultiMonitorFix.dll")
 
             if self.interact_enabled.get():
@@ -513,7 +615,7 @@ class ModernWowSetupTool(WowSetupTool):
                         progress=self._report_download_progress,
                     )
                 except Exception as exc:
-                    raise RuntimeError(f"Interact update failed:\n{exc}") from exc
+                    self._fallback_interact(target, exc)
                 dlls_text_lines.append("Interact.dll")
 
             # Optional WeirdUtils.
