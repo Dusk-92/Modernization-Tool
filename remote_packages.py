@@ -711,6 +711,163 @@ def _install_managed_files(target_dir, mod_id, file_mappings, revision=None):
     _write_managed_manifest(target_dir, mod_id, new_files, revision=revision)
 
 
+
+def _install_managed_files_transactional(
+    target_dir,
+    mod_id,
+    file_mappings,
+    revision=None,
+):
+    """Install a multi-file managed pack with complete rollback on failure.
+
+    This is intentionally used for sound packs where dozens of loose files are
+    updated together. It snapshots the affected live files, this mod's saved
+    user backups and its manifest before changing anything. If any write fails,
+    the exact pre-update state is restored.
+    """
+    _, manifest_path, backup_root = _managed_locations(target_dir, mod_id)
+    previous = set(_load_managed_manifest(target_dir, mod_id))
+
+    normalized = []
+    new_files = []
+    seen = set()
+    for source_path, relative_target in file_mappings:
+        rel = _safe_relative_path(relative_target)
+        key = os.path.normcase(rel)
+        if key in seen:
+            raise RemotePackageError(
+                f"Duplicate managed target in {mod_id}: {relative_target}"
+            )
+        seen.add(key)
+
+        if not os.path.isfile(source_path):
+            raise RemotePackageError(
+                f"Managed source file is missing: {source_path}"
+            )
+
+        normalized.append((source_path, rel))
+        new_files.append(rel)
+
+    if not normalized:
+        raise RemotePackageError(f"No files were provided for managed mod {mod_id}.")
+
+    affected = sorted(previous | set(new_files))
+    snapshot_root = tempfile.mkdtemp(prefix=f"modernization_{mod_id}_rollback_")
+    live_snapshot = os.path.join(snapshot_root, "live")
+    backup_snapshot = os.path.join(snapshot_root, "backups")
+    manifest_snapshot = os.path.join(snapshot_root, "manifest.json")
+    had_backup_root = os.path.isdir(backup_root)
+    had_manifest = os.path.isfile(manifest_path)
+
+    try:
+        # Snapshot all affected live files before touching the installation.
+        for rel in affected:
+            target = os.path.join(target_dir, rel)
+            if os.path.isfile(target):
+                snapshot = os.path.join(live_snapshot, rel)
+                os.makedirs(os.path.dirname(snapshot), exist_ok=True)
+                shutil.copy2(target, snapshot)
+            elif os.path.lexists(target):
+                raise RemotePackageError(
+                    f"Managed audio target is not a regular file: {target}"
+                )
+
+        # Snapshot ownership metadata as well. Persistent backups are part of
+        # the user's restore state and must roll back together with the WAVs.
+        if had_backup_root:
+            shutil.copytree(backup_root, backup_snapshot)
+        if had_manifest:
+            os.makedirs(os.path.dirname(manifest_snapshot), exist_ok=True)
+            shutil.copy2(manifest_path, manifest_snapshot)
+
+        try:
+            # Remove files no longer present in a newer pack version, restoring
+            # the user's original file when this tool had backed one up.
+            for old_rel in sorted(previous - set(new_files), reverse=True):
+                _restore_or_remove_managed_file(target_dir, mod_id, old_rel)
+
+            # Install every new file. First ownership of an existing user file
+            # still creates the same persistent restore backup as before.
+            for source_path, rel in normalized:
+                target = os.path.join(target_dir, rel)
+                backup = os.path.join(backup_root, rel)
+
+                if (
+                    rel not in previous
+                    and os.path.isfile(target)
+                    and not os.path.exists(backup)
+                ):
+                    os.makedirs(os.path.dirname(backup), exist_ok=True)
+                    shutil.copy2(target, backup)
+
+                _atomic_replace_file(source_path, target)
+
+            _write_managed_manifest(
+                target_dir,
+                mod_id,
+                new_files,
+                revision=revision,
+            )
+
+        except Exception as install_exc:
+            rollback_errors = []
+
+            # Restore every affected live file to its exact pre-update state.
+            for rel in affected:
+                target = os.path.join(target_dir, rel)
+                snapshot = os.path.join(live_snapshot, rel)
+                try:
+                    if os.path.isfile(snapshot):
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        _atomic_replace_file(snapshot, target)
+                    elif os.path.isfile(target):
+                        os.remove(target)
+                    elif os.path.lexists(target):
+                        _remove_path(target)
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        f"could not restore {target}: {rollback_exc}"
+                    )
+
+            # Restore the persistent user-backup tree exactly as it was.
+            try:
+                if os.path.isdir(backup_root):
+                    shutil.rmtree(backup_root)
+                if had_backup_root:
+                    os.makedirs(os.path.dirname(backup_root), exist_ok=True)
+                    shutil.copytree(backup_snapshot, backup_root)
+            except Exception as rollback_exc:
+                rollback_errors.append(
+                    f"could not restore managed backups: {rollback_exc}"
+                )
+
+            # Restore/remove the manifest to its previous state.
+            try:
+                if had_manifest:
+                    os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+                    _atomic_replace_file(manifest_snapshot, manifest_path)
+                elif os.path.exists(manifest_path):
+                    os.remove(manifest_path)
+            except Exception as rollback_exc:
+                rollback_errors.append(
+                    f"could not restore managed manifest: {rollback_exc}"
+                )
+
+            if rollback_errors:
+                raise RemotePackageError(
+                    f"{mod_id} installation failed and rollback was incomplete. "
+                    + "; ".join(rollback_errors)
+                ) from install_exc
+
+            raise RemotePackageError(
+                f"{mod_id} installation failed; the previous sound-pack state "
+                f"was restored. ({install_exc})"
+            ) from install_exc
+
+    finally:
+        shutil.rmtree(snapshot_root, ignore_errors=True)
+
+
 def _verify_mpq(path):
     try:
         with open(path, "rb") as handle:
@@ -841,11 +998,11 @@ def _download_github_branch_archive(repo, branch, progress=None, label="Download
 
 
 def install_bundled_tree(target_dir, mod_id, source_dir, destination_prefix):
-    """Install an already bundled directory tree through the managed-file layer."""
+    """Install a bundled multi-file tree with full rollback protection."""
     if not os.path.isdir(source_dir):
         raise RemotePackageError(f"Bundled backup folder is missing: {source_dir}")
     mappings = _collect_tree_files(source_dir, destination_prefix)
-    _install_managed_files(target_dir, mod_id, mappings)
+    _install_managed_files_transactional(target_dir, mod_id, mappings)
 
 
 def _collect_tree_files(source_dir, destination_prefix):
@@ -875,7 +1032,7 @@ def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, 
         source_dir = _find_directory(extract_root, source_folder)
         mappings = _collect_tree_files(source_dir, destination_prefix)
         _emit_progress(progress, f"Installing {label.replace('Downloading ', '')}...", None, None)
-        _install_managed_files(target_dir, mod_id, mappings)
+        _install_managed_files_transactional(target_dir, mod_id, mappings)
     finally:
         try:
             os.remove(zip_path)
