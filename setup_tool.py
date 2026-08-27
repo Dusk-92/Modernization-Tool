@@ -292,10 +292,10 @@ class WowSetupTool:
             cb.pack(anchor='w', padx=10, pady=4)
             ToolTip(cb, self.descriptions.get(dll, "")) 
 
-        right_frame = ttk.LabelFrame(container, text="Optional WeirdUtils")
+        right_frame = ttk.LabelFrame(container, text="Optional")
         right_frame.pack(side='right', fill='both', expand=True, padx=(5, 0))
 
-        ttk.Label(right_frame, text="Additional quality-of-life adjustments.", font=("", 8, "italic")).pack(anchor='w', padx=10, pady=10)
+        ttk.Label(right_frame, text="Optional client-side fixes and quality-of-life enhancements.", font=("", 8, "italic")).pack(anchor='w', padx=10, pady=10)
         
         for dll, var in self.optional_plugins.items():
             cb = ttk.Checkbutton(right_frame, text=dll, variable=var)
@@ -480,8 +480,14 @@ class WowSetupTool:
         text_area.insert("end", " | ")
         insert_link("Addon Source", "https://github.com/brues-code/NampowerSettings")
 
-        text_area.insert("end", "\n• no1600x1200.dll: ", "bold")
+        text_area.insert("end", "\n• No1600x1200: ", "bold")
         insert_link("Source / Backup", "https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200")
+
+        text_area.insert("end", "\n• VanillaMultiMonitorFix: ", "bold")
+        insert_link("Source Repository", "https://github.com/Mates1500/VanillaMultiMonitorFix")
+
+        text_area.insert("end", "\n• Interact: ", "bold")
+        insert_link("Source Repository", "https://github.com/lookino/Interact")
 
         # Other bundled enhancements
         text_area.insert("end", "\n\nOther Bundled Enhancements\n", "header")
@@ -589,7 +595,7 @@ class WowSetupTool:
                     if os.path.exists(addon_path):
                         shutil.rmtree(addon_path, ignore_errors=True)
 
-        # 3. Clean unselected Optional WeirdUtils Plugins (Now checks the root directory)
+        # 3. Clean unselected Optional plugins
         for dll_name, var in self.optional_plugins.items():
             if not var.get():
                 dll_path = os.path.join(target, dll_name)
