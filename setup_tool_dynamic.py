@@ -15,6 +15,8 @@ class ModernWowSetupTool(WowSetupTool):
         # calls self.build_ui(), which dispatches to our overridden Plugins tab.
         self.classicapi_enabled = tk.BooleanVar(master=root, value=True)
         self.auction_throttle_enabled = tk.BooleanVar(master=root, value=True)
+        self.vmmfix_enabled = tk.BooleanVar(master=root, value=False)
+        self.interact_enabled = tk.BooleanVar(master=root, value=False)
         self._download_window = None
         self._download_label = None
         self._download_detail = None
@@ -154,11 +156,11 @@ class ModernWowSetupTool(WowSetupTool):
         self._download_bar = None
         self._download_indeterminate = False
 
-    def _plugin_row(self, parent, text, variable, attribution, tooltip):
+    def _plugin_row(self, parent, text, variable, attribution, tooltip, command=None):
         row = ttk.Frame(parent)
         row.pack(fill="x", padx=10, pady=2)
 
-        cb = ttk.Checkbutton(row, text=text, variable=variable)
+        cb = ttk.Checkbutton(row, text=text, variable=variable, command=command)
         cb.pack(side="left")
         ToolTip(cb, tooltip)
 
@@ -167,11 +169,7 @@ class ModernWowSetupTool(WowSetupTool):
             text=attribution,
             font=("Segoe UI", 7, "italic"),
         )
-        byline.pack(side="right", padx=(6, 0))
-
-        return cb
-
-    def build_plugins_tab(self, parent):
+        byline.pack(side="right", pa    def build_plugins_tab(self, parent):
         container = ttk.Frame(parent)
         container.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -186,13 +184,12 @@ class ModernWowSetupTool(WowSetupTool):
 
         core_display = {
             "nampower.dll": ("Nampower", "by brues-code"),
-            "no1600x1200.dll": ("No1600x1200", "source: RetroCro"),
-            "perf_boost.dll": ("PerfBoost", "by avitasia"),
+            "UnitXP_SP3.dll": ("UnitXP SP3", "by brues-code"),
             "SuperWoWhook.dll": ("SuperWoW", "by balakethelock"),
             "transmogfix.dll": ("TransmogFix", "by MarcelineVQ"),
-            "UnitXP_SP3.dll": ("UnitXP SP3", "by brues-code"),
-            "VanillaHelpers.dll": ("VanillaHelpers", "by isfir"),
+            "perf_boost.dll": ("PerfBoost", "by avitasia"),
             "weirdperformance.dll": ("WeirdPerformance", "by MarcelineVQ"),
+            "VanillaHelpers.dll": ("VanillaHelpers", "by isfir"),
         }
 
         for dll, var in self.core_plugins.items():
@@ -224,14 +221,42 @@ class ModernWowSetupTool(WowSetupTool):
             "Makes Auction House searches much faster by removing the fixed 5-second wait between queries.",
         )
 
-        right_frame = ttk.LabelFrame(container, text="Optional WeirdUtils")
+        right_frame = ttk.LabelFrame(container, text="Optional")
         right_frame.pack(side="right", fill="both", expand=True, padx=(5, 0))
 
         ttk.Label(
             right_frame,
-            text="Additional quality-of-life adjustments.",
+            text="Optional client-side fixes and quality-of-life enhancements.",
             font=("", 8, "italic"),
+            wraplength=260,
         ).pack(anchor="w", padx=10, pady=10)
+
+        no1600_var = self.optional_plugins["no1600x1200.dll"]
+        self._plugin_row(
+            right_frame,
+            "No1600x1200",
+            no1600_var,
+            "source: RetroCro",
+            self.descriptions.get("no1600x1200.dll", ""),
+            command=self._select_no1600,
+        )
+
+        self._plugin_row(
+            right_frame,
+            "VanillaMultiMonitorFix",
+            self.vmmfix_enabled,
+            "by Mates1500",
+            "Fixes resolution and refresh-rate detection on multi-monitor setups with different display modes. Uses VMMFix_preferred_monitor.txt to select the preferred display.",
+            command=self._select_vmmfix,
+        )
+
+        self._plugin_row(
+            right_frame,
+            "Interact",
+            self.interact_enabled,
+            "by lookino",
+            "Adds a modern Interact key for nearby objects, gathering nodes and loot without precise mouse clicking.",
+        )
 
         optional_display = {
             "bigcursor.dll": "BigCursor",
@@ -243,6 +268,8 @@ class ModernWowSetupTool(WowSetupTool):
         }
 
         for dll, var in self.optional_plugins.items():
+            if dll == "no1600x1200.dll":
+                continue
             self._plugin_row(
                 right_frame,
                 optional_display.get(dll, os.path.splitext(dll)[0]),
@@ -257,6 +284,8 @@ class ModernWowSetupTool(WowSetupTool):
         managed = {
             "ClassicAPI.dll": self.classicapi_enabled,
             "AuctionQueryThrottle.dll": self.auction_throttle_enabled,
+            "VanillaMultiMonitorFix.dll": self.vmmfix_enabled,
+            "Interact.dll": self.interact_enabled,
         }
 
         # Remove each live core DLL independently when its checkbox is off.
@@ -270,6 +299,11 @@ class ModernWowSetupTool(WowSetupTool):
                         raise RuntimeError(
                             f"Could not remove {filename}. Close WoW and any tool using the file, then try again."
                         ) from exc
+
+        if not self.interact_enabled.get():
+            addon_path = os.path.join(target, "Interface", "AddOns", "Interact")
+            if os.path.exists(addon_path):
+                shutil.rmtree(addon_path, ignore_errors=True)
 
     def _fallback_core_dll(self, payload_base, target, dll_name, error):
         source_dll = os.path.join(payload_base, dll_name)
@@ -303,6 +337,39 @@ class ModernWowSetupTool(WowSetupTool):
             f"The bundled version will be used instead.\n\nDetails: {error}",
         )
 
+    def run_vanilla_tweaks(self, target):
+        # Prefer the latest stable tubtubs build on every Apply. The bundled
+        # brndd executable remains an offline fallback.
+        try:
+            tweaks_exe, extract_root, version = remote_packages.prepare_vanilla_tweaks(
+                progress=self._report_download_progress,
+            )
+        except Exception as exc:
+            self._close_download_progress()
+            messagebox.showwarning(
+                "Latest vanilla-tweaks unavailable",
+                "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
+                "The bundled legacy patcher will be used instead. Modern-only "
+                "patches (Cross-faction Res, Custom Glues and Bluemoon) cannot "
+                f"be applied by the legacy fallback.\n\nDetails: {exc}",
+            )
+            return super().run_vanilla_tweaks(target, modern_cli=False)
+
+        try:
+            self._report_download_progress(
+                f"Applying vanilla-tweaks {version}...",
+                None,
+                None,
+            )
+            return super().run_vanilla_tweaks(
+                target,
+                tweaks_exe=tweaks_exe,
+                modern_cli=True,
+            )
+        finally:
+            shutil.rmtree(extract_root, ignore_errors=True)
+            self._close_download_progress()
+
     def configure_plugins(self, target):
         payload_base = os.path.join(get_base_path(), "Payload")
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
@@ -322,15 +389,6 @@ class ModernWowSetupTool(WowSetupTool):
                 if dll_name == "nampower.dll":
                     try:
                         remote_packages.install_nampower(
-                            target,
-                            progress=self._report_download_progress,
-                        )
-                    except Exception as exc:
-                        self._fallback_core_dll(payload_base, target, dll_name, exc)
-
-                elif dll_name == "no1600x1200.dll":
-                    try:
-                        remote_packages.install_no1600x1200(
                             target,
                             progress=self._report_download_progress,
                         )
@@ -401,8 +459,49 @@ class ModernWowSetupTool(WowSetupTool):
                     if os.path.exists(addon_path):
                         shutil.rmtree(addon_path, ignore_errors=True)
 
+            # Optional client fixes, in the same order as the UI.
+            no1600_var = self.optional_plugins["no1600x1200.dll"]
+            if no1600_var.get():
+                try:
+                    remote_packages.install_no1600x1200(
+                        target,
+                        progress=self._report_download_progress,
+                    )
+                except Exception as exc:
+                    self._fallback_core_dll(
+                        payload_base,
+                        target,
+                        "no1600x1200.dll",
+                        exc,
+                    )
+                dlls_text_lines.append("no1600x1200.dll")
+
+            if self.vmmfix_enabled.get():
+                try:
+                    remote_packages.install_vanilla_multimonitor_fix(
+                        target,
+                        progress=self._report_download_progress,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"VanillaMultiMonitorFix update failed:\n{exc}"
+                    ) from exc
+                dlls_text_lines.append("VanillaMultiMonitorFix.dll")
+
+            if self.interact_enabled.get():
+                try:
+                    remote_packages.install_interact(
+                        target,
+                        progress=self._report_download_progress,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(f"Interact update failed:\n{exc}") from exc
+                dlls_text_lines.append("Interact.dll")
+
             # Optional WeirdUtils.
             for dll_name, var in self.optional_plugins.items():
+                if dll_name == "no1600x1200.dll":
+                    continue
                 if var.get():
                     source_dll = os.path.join(payload_weirdu, dll_name)
                     if os.path.exists(source_dll):
