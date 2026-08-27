@@ -368,9 +368,16 @@ class ModernWowSetupTool(WowSetupTool):
                     f"{addon_folder} is missing.\n\n{error}"
                 ) from error
 
-        shutil.copy2(source_dll, target_dll)
         if addon_folder and source_addon:
-            remote_packages._replace_directory(source_addon, target_addon)
+            remote_packages._transactional_replace_bundle(
+                [
+                    ("file", source_dll, target_dll),
+                    ("dir", source_addon, target_addon),
+                ],
+                label=f"{dll_name} bundled fallback",
+            )
+        else:
+            remote_packages._atomic_replace_file(source_dll, target_dll)
 
         self._warn_offline(
             dll_name,
@@ -394,7 +401,7 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Could not download the latest {dll_name}, and its bundled backup is missing.\n\n{error}"
             ) from error
 
-        shutil.copy2(fallback, target_dll)
+        remote_packages._atomic_replace_file(fallback, target_dll)
         self._warn_offline(
             dll_name,
             "The bundled known-good backup was installed instead.",
@@ -451,8 +458,13 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Interact update failed and its bundled backup is incomplete.\n\n{error}"
             ) from error
 
-        shutil.copy2(fallback_dll, target_dll)
-        remote_packages._replace_directory(fallback_addon, target_addon)
+        remote_packages._transactional_replace_bundle(
+            [
+                ("file", fallback_dll, target_dll),
+                ("dir", fallback_addon, target_addon),
+            ],
+            label="Interact bundled fallback",
+        )
         self._warn_offline(
             "Interact",
             "The bundled known-good backup was installed instead.",
