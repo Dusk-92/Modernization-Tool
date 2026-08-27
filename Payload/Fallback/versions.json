@@ -1,4 +1,5 @@
 {
+  "schema": 1,
   "components": {
     "AuctionQueryThrottle fallback": {
       "files": [
@@ -21,6 +22,17 @@
       ],
       "source": "https://github.com/brues-code/ClassicAPI/releases/download/v1.12.7/ClassicAPI.dll",
       "version": "v1.12.7"
+    },
+    "DXVK": {
+      "version": "v2.6.1 x86",
+      "source": "https://github.com/doitsujin/dxvk/releases/tag/v2.6.1",
+      "files": [
+        {
+          "path": "Payload/DXVK_Standard/d3d9.dll",
+          "size": 4452366,
+          "sha256": "0349923a6618f2383451c170a0f24d9c8f328392179aca71826a853655982405"
+        }
+      ]
     },
     "FishPing fallback": {
       "files": [
@@ -54,6 +66,17 @@
       ],
       "source": "https://github.com/brues-code/nampower/releases/download/v4.6.1/nampower-v4.6.1.zip",
       "version": "v4.6.1"
+    },
+    "no1600x1200": {
+      "files": [
+        {
+          "path": "Payload/no1600x1200.dll",
+          "sha256": "0df2274116278e8330dd7069902b642f1a83f33fefd909807a22eda197d88652",
+          "size": 104960
+        }
+      ],
+      "source": "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll",
+      "version": "RetroCro main"
     },
     "NoErrorSounds fallback": {
       "files": [
@@ -138,6 +161,33 @@
       ],
       "source": "https://github.com/brues-code/UnitXP_SP3/releases/download/v90/UnitXP_SP3-v90.zip",
       "version": "v90"
+    },
+    "vanilla-tweaks fallback": {
+      "files": [
+        {
+          "path": "vanilla-tweaks.exe",
+          "sha256": "e386132fd0e5713818893a9cef9e5ae41d99baff2da03f190911d351cc5ed090",
+          "size": 5927433
+        }
+      ],
+      "source": "https://github.com/tubtubs/vanilla-tweaks/releases/download/tag/vanilla-tweaks_tag_x86_64-pc-windows-gnu.zip",
+      "version": "tag"
+    },
+    "VanillaFixes": {
+      "version": "v1.5.3",
+      "source": "https://github.com/hannesmann/vanillafixes/releases/tag/v1.5.3",
+      "files": [
+        {
+          "path": "Payload/VanillaFixes.exe",
+          "size": 88576,
+          "sha256": "228d7bb5e3b5b0c2062d6c5f40c38c2a173e4c80d8a5d9e4077be800431b48a3"
+        },
+        {
+          "path": "Payload/VfPatcher.dll",
+          "size": 72704,
+          "sha256": "f283b6b5ad8042e7995eff9768c150042dd47de6e5f00ffe530d2e67743df81d"
+        }
+      ]
     },
     "VanillaHelpers": {
       "files": [
@@ -503,28 +553,47 @@
       "source": "https://codeberg.org/Dusk92/WeirdUtils/releases/download/0.7.3/weirdperformance.dll",
       "version": "0.7.3"
     },
-    "no1600x1200": {
+    "WeirdUtils bundled modules": {
+      "version": "v0.7.0",
+      "source": "https://codeberg.org/MarcelineVQ/WeirdUtils/releases/tag/v0.7.0",
+      "note": "All listed bundled modules were verified byte-for-byte against v0.7.0. worldmarkers.dll has a newer upstream binary in v0.7.1 and was intentionally not changed during the provenance audit.",
       "files": [
         {
-          "path": "Payload/no1600x1200.dll",
-          "sha256": "0df2274116278e8330dd7069902b642f1a83f33fefd909807a22eda197d88652",
-          "size": 104960
-        }
-      ],
-      "source": "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll",
-      "version": "RetroCro main"
-    },
-    "vanilla-tweaks fallback": {
-      "files": [
+          "path": "Payload/transmogfix.dll",
+          "size": 12800,
+          "sha256": "cd9e4c6ce033b0923cf045269f590f5e0b886bd03f43bd81406670d781452210"
+        },
         {
-          "path": "vanilla-tweaks.exe",
-          "sha256": "e386132fd0e5713818893a9cef9e5ae41d99baff2da03f190911d351cc5ed090",
-          "size": 5927433
+          "path": "Payload/WeirdUtils/bigcursor.dll",
+          "size": 14848,
+          "sha256": "daa85d8e29e5458fd9962f922ba1e2a65ff2ac6cddff1242a2d6240c287a22d8"
+        },
+        {
+          "path": "Payload/WeirdUtils/customassets.dll",
+          "size": 16384,
+          "sha256": "86f3a24cfbaa8d775bdab280d63fbf48b445d8789c2759fe912183462f36f06f"
+        },
+        {
+          "path": "Payload/WeirdUtils/logsessions.dll",
+          "size": 14848,
+          "sha256": "f5f37e449dc4646b6d2de8c01e57b954ab2fb7950bef372ddba2c744fb7b9841"
+        },
+        {
+          "path": "Payload/WeirdUtils/minimapicons.dll",
+          "size": 142848,
+          "sha256": "a6821e088d0f8ffa7806e88e1b8686f4ec715a218f74f62d6f33bd9bcf91583e"
+        },
+        {
+          "path": "Payload/WeirdUtils/pngscreenshots.dll",
+          "size": 16896,
+          "sha256": "44ca42ac8428eb4e69017ad264b8e86206e803ccbe3a3591d6ba1916d7888dca"
+        },
+        {
+          "path": "Payload/WeirdUtils/worldmarkers.dll",
+          "size": 487936,
+          "sha256": "ea6812a3e1858777fc88d4296bc9782b51e9149642ead75bc4d08b49417fb7d5"
         }
-      ],
-      "source": "https://github.com/tubtubs/vanilla-tweaks/releases/download/tag/vanilla-tweaks_tag_x86_64-pc-windows-gnu.zip",
-      "version": "tag"
+      ]
     }
-  },
-  "schema": 1
+  }
 }
