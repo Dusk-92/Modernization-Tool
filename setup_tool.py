@@ -689,6 +689,33 @@ class WowSetupTool:
         text_area.insert("end", "\n• Interact: ", "bold")
         insert_link("Source Repository", "https://github.com/lookino/Interact")
 
+        # Visual & audio mods
+        text_area.insert("end", "\n\nVisual & Audio Mods\n", "header")
+
+        text_area.insert("end", "• Bluemoon Patch: ", "bold")
+        insert_link("via vanilla-tweaks", "https://github.com/tubtubs/vanilla-tweaks")
+
+        text_area.insert("end", "\n• Darker Nights: ", "bold")
+        insert_link("Project Reforged", "https://projectreforged.github.io/vanilla/downloads/turtle/")
+
+        text_area.insert("end", "\n• Pretty Night Sky / Epoch Water / Fog Pushback: ", "bold")
+        insert_link("RetroCro TurtleWoW Mods", "https://github.com/RetroCro/TurtleWoW-Mods")
+
+        text_area.insert("end", "\n• Pink Herbs: ", "bold")
+        insert_link("seacrabsam/patch-herb", "https://github.com/seacrabsam/patch-herb")
+
+        text_area.insert("end", "\n• NoErrorSounds: ", "bold")
+        insert_link("Macumbafeh/NoErrorSounds", "https://github.com/Macumbafeh/NoErrorSounds")
+
+        text_area.insert("end", "\n• FishPing: ", "bold")
+        insert_link("notsureawake/FishPing", "https://github.com/notsureawake/FishPing")
+
+        text_area.insert("end", "\n• Warlock Muted Demons: ", "bold")
+        insert_link("spzilyk/Warlock-Muted-Demons", "https://github.com/spzilyk/Warlock-Muted-Demons")
+
+        text_area.insert("end", "\n• Automatically Clear WDB: ", "bold")
+        insert_link("RetroCro guide", "https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow")
+
         # Other bundled enhancements
         text_area.insert("end", "\n\nOther Bundled Enhancements\n", "header")
         text_area.insert("end", "• Vanilla-Autologin: ", "bold")
