@@ -61,12 +61,12 @@ def _find_asset(release, exact_name=None, predicate=None):
     raise RemotePackageError(f"Could not find {wanted} in release {release.get('tag_name', '?')}.")
 
 
-def _download(url, suffix="", expected_digest=None, progress=None, label="Downloading"):
+def _download(url, suffix="", expected_digest=None, progress=None, label="Downloading", timeout=NETWORK_TIMEOUT):
     fd, temp_path = tempfile.mkstemp(prefix="modernization_", suffix=suffix)
     os.close(fd)
     try:
         digest = hashlib.sha256()
-        with urllib.request.urlopen(_request(url), timeout=NETWORK_TIMEOUT) as response, open(temp_path, "wb") as out:
+        with urllib.request.urlopen(_request(url), timeout=timeout) as response, open(temp_path, "wb") as out:
             total = None
             length = response.headers.get("Content-Length")
             if length:
@@ -347,6 +347,339 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
         shutil.rmtree(extract_root, ignore_errors=True)
 
     return release.get("tag_name", "latest")
+
+
+
+MANAGED_ROOT = ".modernization_tool"
+
+
+def _safe_relative_path(relative_path):
+    rel = os.path.normpath(str(relative_path).replace("\\", os.sep).replace("/", os.sep))
+    if os.path.isabs(rel) or rel == ".." or rel.startswith(".." + os.sep):
+        raise RemotePackageError(f"Unsafe managed path: {relative_path}")
+    return rel
+
+
+def _managed_locations(target_dir, mod_id):
+    root = os.path.join(target_dir, MANAGED_ROOT)
+    manifest = os.path.join(root, "manifests", f"{mod_id}.json")
+    backups = os.path.join(root, "backups", mod_id)
+    return root, manifest, backups
+
+
+def _load_managed_manifest(target_dir, mod_id):
+    _, manifest_path, _ = _managed_locations(target_dir, mod_id)
+    if not os.path.isfile(manifest_path):
+        return []
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        files = data.get("files", [])
+        if not isinstance(files, list):
+            return []
+        return [_safe_relative_path(item) for item in files if isinstance(item, str)]
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+
+
+def _write_managed_manifest(target_dir, mod_id, relative_files):
+    _, manifest_path, _ = _managed_locations(target_dir, mod_id)
+    os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+    temp_path = manifest_path + ".new"
+    payload = {
+        "mod_id": mod_id,
+        "files": [str(path).replace(os.sep, "/") for path in relative_files],
+    }
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    os.replace(temp_path, manifest_path)
+
+
+def _prune_empty_parents(path, stop_dir):
+    current = os.path.abspath(path)
+    stop = os.path.abspath(stop_dir)
+    while current != stop and current.startswith(stop + os.sep):
+        try:
+            os.rmdir(current)
+        except OSError:
+            break
+        current = os.path.dirname(current)
+
+
+def _restore_or_remove_managed_file(target_dir, mod_id, relative_path):
+    rel = _safe_relative_path(relative_path)
+    _, _, backup_root = _managed_locations(target_dir, mod_id)
+    target = os.path.join(target_dir, rel)
+    backup = os.path.join(backup_root, rel)
+
+    if os.path.isfile(backup):
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        _atomic_replace_file(backup, target)
+        try:
+            os.remove(backup)
+        except OSError:
+            pass
+    elif os.path.isfile(target):
+        try:
+            os.remove(target)
+        except OSError as exc:
+            raise RemotePackageError(
+                f"Could not remove {target}. Close WoW and try again. ({exc})"
+            ) from exc
+
+    _prune_empty_parents(os.path.dirname(target), target_dir)
+
+
+def remove_managed_mod(target_dir, mod_id):
+    """Remove only files previously installed by this tool, restoring backups."""
+    root, manifest_path, backup_root = _managed_locations(target_dir, mod_id)
+    files = _load_managed_manifest(target_dir, mod_id)
+    if not files:
+        return
+
+    for rel in reversed(files):
+        _restore_or_remove_managed_file(target_dir, mod_id, rel)
+
+    try:
+        os.remove(manifest_path)
+    except OSError:
+        pass
+
+    if os.path.isdir(backup_root):
+        shutil.rmtree(backup_root, ignore_errors=True)
+
+    manifests_dir = os.path.join(root, "manifests")
+    backups_dir = os.path.join(root, "backups")
+    for directory in (manifests_dir, backups_dir, root):
+        if os.path.isdir(directory):
+            try:
+                os.rmdir(directory)
+            except OSError:
+                pass
+
+
+def _install_managed_files(target_dir, mod_id, file_mappings):
+    """Install files while preserving any pre-existing user files for restore."""
+    root, _, backup_root = _managed_locations(target_dir, mod_id)
+    del root
+    previous = set(_load_managed_manifest(target_dir, mod_id))
+    new_files = []
+
+    normalized = []
+    for source_path, relative_target in file_mappings:
+        rel = _safe_relative_path(relative_target)
+        normalized.append((source_path, rel))
+        new_files.append(rel)
+
+    # Restore/remove files that belonged to an older version but disappeared.
+    for old_rel in sorted(previous - set(new_files), reverse=True):
+        _restore_or_remove_managed_file(target_dir, mod_id, old_rel)
+
+    for source_path, rel in normalized:
+        target = os.path.join(target_dir, rel)
+        backup = os.path.join(backup_root, rel)
+
+        # Only snapshot a pre-existing file when this tool is taking ownership
+        # of that path for the first time. On updates, the current target is
+        # already our managed copy.
+        if rel not in previous and os.path.isfile(target) and not os.path.exists(backup):
+            os.makedirs(os.path.dirname(backup), exist_ok=True)
+            shutil.copy2(target, backup)
+
+        _atomic_replace_file(source_path, target)
+
+    _write_managed_manifest(target_dir, mod_id, new_files)
+
+
+def _verify_mpq(path):
+    try:
+        with open(path, "rb") as handle:
+            magic = handle.read(3)
+    except OSError as exc:
+        raise RemotePackageError(f"Could not inspect downloaded MPQ: {exc}") from exc
+    if magic != b"MPQ":
+        raise RemotePackageError("Downloaded file is not a valid MPQ archive.")
+
+
+def _install_remote_mpq(target_dir, mod_id, url, destination, progress=None, label="Downloading visual mod", timeout=300):
+    temp_path = _download(
+        url,
+        suffix=".mpq",
+        progress=progress,
+        label=label,
+        timeout=timeout,
+    )
+    try:
+        _verify_mpq(temp_path)
+        _emit_progress(progress, f"Installing {os.path.basename(destination)}...", None, None)
+        _install_managed_files(
+            target_dir,
+            mod_id,
+            [(temp_path, destination)],
+        )
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+
+
+def _google_drive_download_url(file_id):
+    return (
+        "https://drive.usercontent.google.com/download"
+        f"?id={file_id}&export=download&confirm=t"
+    )
+
+
+def install_darker_nights(target_dir, progress=None):
+    _install_remote_mpq(
+        target_dir,
+        "visual_darker_nights",
+        "https://pub-0f05631d243e4046993fc02ca7be9542.r2.dev/patches/patch-N.mpq",
+        os.path.join("Data", "patch-N.mpq"),
+        progress=progress,
+        label="Downloading Darker Nights",
+    )
+    return "Project Reforged Patch-N"
+
+
+def install_pretty_night_sky(target_dir, progress=None):
+    # The hosted file is traditionally named patch-9.mpq. Never use that stock
+    # numeric name in Data; install it as patch-Z.mpq instead.
+    _install_remote_mpq(
+        target_dir,
+        "visual_pretty_night_sky",
+        _google_drive_download_url("1qu99ZS-SQFfTtYodBmZWYiHmxL8QtUY4"),
+        os.path.join("Data", "patch-Z.mpq"),
+        progress=progress,
+        label="Downloading Pretty Night Sky",
+    )
+    return "RetroCro mirror"
+
+
+def install_epoch_water(target_dir, progress=None):
+    _install_remote_mpq(
+        target_dir,
+        "visual_epoch_water",
+        _google_drive_download_url("1xRx9OrznbgbE1uBae3H3OGke9UoXtzmU"),
+        os.path.join("Data", "patch-W.mpq"),
+        progress=progress,
+        label="Downloading Epoch Water",
+    )
+    return "RetroCro mirror"
+
+
+def install_fog_pushback(target_dir, progress=None):
+    _install_remote_mpq(
+        target_dir,
+        "visual_fog_pushback",
+        _google_drive_download_url("14aHvyfr_ACL-UURbNa_fXRPcfQZoIw8n"),
+        os.path.join("Data", "patch-Y.mpq"),
+        progress=progress,
+        label="Downloading Fog Pushback",
+    )
+    return "RetroCro mirror"
+
+
+def install_pink_herbs(target_dir, progress=None):
+    _install_remote_mpq(
+        target_dir,
+        "visual_pink_herbs",
+        "https://raw.githubusercontent.com/seacrabsam/patch-herb/main/patch-H.mpq",
+        os.path.join("Data", "patch-H.mpq"),
+        progress=progress,
+        label="Downloading Pink Herbs",
+    )
+    return "seacrabsam/patch-herb main"
+
+
+def _download_github_branch_archive(repo, branch, progress=None, label="Downloading sound mod"):
+    url = f"https://codeload.github.com/{repo}/zip/refs/heads/{branch}"
+    return _download(
+        url,
+        suffix=".zip",
+        progress=progress,
+        label=label,
+        timeout=120,
+    )
+
+
+def _collect_tree_files(source_dir, destination_prefix):
+    mappings = []
+    for current_root, _, files in os.walk(source_dir):
+        for filename in files:
+            source_path = os.path.join(current_root, filename)
+            relative = os.path.relpath(source_path, source_dir)
+            target_rel = os.path.join(destination_prefix, relative)
+            mappings.append((source_path, target_rel))
+    if not mappings:
+        raise RemotePackageError(f"No files found in downloaded sound pack: {source_dir}")
+    return mappings
+
+
+def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, destination_prefix, progress=None, label="Downloading sound mod"):
+    zip_path = _download_github_branch_archive(
+        repo,
+        branch,
+        progress=progress,
+        label=label,
+    )
+    extract_root = tempfile.mkdtemp(prefix=f"modernization_{mod_id}_")
+    try:
+        _emit_progress(progress, f"Extracting {label.replace('Downloading ', '')}...", None, None)
+        _safe_extract(zip_path, extract_root)
+        source_dir = _find_directory(extract_root, source_folder)
+        mappings = _collect_tree_files(source_dir, destination_prefix)
+        _emit_progress(progress, f"Installing {label.replace('Downloading ', '')}...", None, None)
+        _install_managed_files(target_dir, mod_id, mappings)
+    finally:
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+        shutil.rmtree(extract_root, ignore_errors=True)
+
+
+def install_no_error_sounds(target_dir, progress=None):
+    _install_github_sound_pack(
+        target_dir,
+        "audio_no_error_sounds",
+        "Macumbafeh/NoErrorSounds",
+        "main",
+        "Sound",
+        "Sound",
+        progress=progress,
+        label="Downloading NoErrorSounds",
+    )
+    return "Macumbafeh/NoErrorSounds main"
+
+
+def install_fish_ping(target_dir, progress=None):
+    _install_github_sound_pack(
+        target_dir,
+        "audio_fish_ping",
+        "notsureawake/FishPing",
+        "master",
+        "Sound",
+        "Sound",
+        progress=progress,
+        label="Downloading FishPing",
+    )
+    return "notsureawake/FishPing master"
+
+
+def install_warlock_muted_demons(target_dir, progress=None):
+    _install_github_sound_pack(
+        target_dir,
+        "audio_warlock_muted_demons",
+        "spzilyk/Warlock-Muted-Demons",
+        "main",
+        "Data",
+        "Data",
+        progress=progress,
+        label="Downloading Warlock Muted Demons",
+    )
+    return "spzilyk/Warlock-Muted-Demons main"
 
 
 def install_nampower(target_dir, progress=None):
