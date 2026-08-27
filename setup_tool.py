@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import shutil
 import subprocess
 import math
@@ -210,8 +211,16 @@ class WowSetupTool:
         self.safety_override = tk.BooleanVar(value=False)
         self.slider_widgets =[] 
 
+        self._loaded_settings_dir = None
+        self._loading_settings = False
+
         self.on_ratio_change() 
         self.build_ui()
+
+        # Settings are stored per WoW installation. Loading on path selection
+        # means a newer copy of the tool can immediately restore the choices
+        # made by an older copy.
+        self.wow_dir.trace_add("write", self._on_wow_dir_changed)
 
     def on_ratio_change(self, event=None):
         selection = self.ratio_var.get()
@@ -265,6 +274,253 @@ class WowSetupTool:
                 font=("Segoe UI", 7, "italic"),
             ).pack(side="right", padx=(6, 0))
         return cb
+
+
+    def _settings_path(self, target_dir):
+        return os.path.join(target_dir, ".modernization_tool", "settings.json")
+
+    def _looks_like_managed_install(self, target_dir):
+        return any(
+            os.path.exists(os.path.join(target_dir, rel))
+            for rel in (
+                "WoW_Modernized.exe",
+                "Play Modernized WoW.lnk",
+                ".modernization_tool",
+            )
+        )
+
+    def _collect_settings(self):
+        live_plugins = {}
+        for name in (
+            "classicapi_enabled",
+            "auction_throttle_enabled",
+            "vmmfix_enabled",
+            "interact_enabled",
+        ):
+            var = getattr(self, name, None)
+            if var is not None:
+                live_plugins[name] = bool(var.get())
+
+        return {
+            "version": 1,
+            "rendering_mode": self.rendering_mode.get(),
+            "install_autologin": bool(self.install_autologin.get()),
+            "core_plugins": {
+                name: bool(var.get()) for name, var in self.core_plugins.items()
+            },
+            "optional_plugins": {
+                name: bool(var.get()) for name, var in self.optional_plugins.items()
+            },
+            "live_plugins": live_plugins,
+            "vanilla_tweaks": {
+                "ratio": self.ratio_var.get(),
+                "fov": float(self.vt_fov.get()),
+                "farclip": int(self.vt_farclip.get()),
+                "frill": int(self.vt_frill.get()),
+                "nameplate": int(self.vt_nameplate.get()),
+                "sound_channels": int(self.vt_soundchan.get()),
+                "max_camera": int(self.vt_maxcam.get()),
+                "quickloot": bool(self.vt_quickloot.get()),
+                "background_sound": bool(self.vt_bg_sound.get()),
+                "laa": bool(self.vt_laa.get()),
+                "camera_fix": bool(self.vt_cam_fix.get()),
+                "dep_fix": bool(self.vt_dep_fix.get()),
+                "script_memory": bool(self.vt_script_memory.get()),
+                "crossfaction_res": bool(self.vt_crossfaction_res.get()),
+                "custom_glues": bool(self.vt_custom_glues.get()),
+                "bluemoon": bool(self.vt_bluemoon.get()),
+                "clear_wdb": bool(self.vt_clear_wdb.get()),
+                "safety_override": bool(self.safety_override.get()),
+            },
+            "visual_mods": {
+                name: bool(var.get()) for name, var in self.visual_mods.items()
+            },
+            "audio_mods": {
+                name: bool(var.get()) for name, var in self.audio_mods.items()
+            },
+        }
+
+    def save_settings(self, target_dir):
+        settings_path = self._settings_path(target_dir)
+        os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+        temp_path = settings_path + ".new"
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(self._collect_settings(), handle, indent=2, sort_keys=True)
+        os.replace(temp_path, settings_path)
+        self._loaded_settings_dir = os.path.normcase(os.path.abspath(target_dir))
+
+    def _set_bool_mapping(self, saved, variables):
+        if not isinstance(saved, dict):
+            return
+        for name, value in saved.items():
+            var = variables.get(name)
+            if var is not None and isinstance(value, bool):
+                var.set(value)
+
+    def _load_legacy_install_state(self, target_dir):
+        """Best-effort migration for installs made before settings.json existed."""
+        if not self._looks_like_managed_install(target_dir):
+            return
+
+        if (
+            os.path.isfile(os.path.join(target_dir, "d3d9.dll"))
+            and os.path.isfile(os.path.join(target_dir, "dxvk.conf"))
+        ):
+            self.rendering_mode.set("dxvk")
+        else:
+            self.rendering_mode.set("directx9")
+
+        # Once this tool has clearly been used on the folder, on-disk presence
+        # is the safest migration signal for plugin checkboxes.
+        for filename, var in self.core_plugins.items():
+            var.set(os.path.isfile(os.path.join(target_dir, filename)))
+
+        for filename, var in self.optional_plugins.items():
+            var.set(os.path.isfile(os.path.join(target_dir, filename)))
+
+        live_files = {
+            "classicapi_enabled": "ClassicAPI.dll",
+            "auction_throttle_enabled": "AuctionQueryThrottle.dll",
+            "vmmfix_enabled": "VanillaMultiMonitorFix.dll",
+            "interact_enabled": "Interact.dll",
+        }
+        for attr, filename in live_files.items():
+            var = getattr(self, attr, None)
+            if var is not None:
+                var.set(os.path.isfile(os.path.join(target_dir, filename)))
+
+        autologin_lua = os.path.join(
+            target_dir, "Data", "Interface", "GlueXML", "AutoLogin.lua"
+        )
+        self.install_autologin.set(os.path.isfile(autologin_lua))
+
+        managed_ids = {
+            "darker_nights": "visual_darker_nights",
+            "pretty_night_sky": "visual_pretty_night_sky",
+            "epoch_water": "visual_epoch_water",
+            "fog_pushback": "visual_fog_pushback",
+            "pink_herbs": "visual_pink_herbs",
+        }
+        for key, managed_id in managed_ids.items():
+            self.visual_mods[key].set(
+                remote_packages.managed_mod_is_installed(target_dir, managed_id)
+            )
+
+        managed_audio = {
+            "no_error_sounds": "audio_no_error_sounds",
+            "fish_ping": "audio_fish_ping",
+            "warlock_muted_demons": "audio_warlock_muted_demons",
+        }
+        for key, managed_id in managed_audio.items():
+            self.audio_mods[key].set(
+                remote_packages.managed_mod_is_installed(target_dir, managed_id)
+            )
+
+        wdb_path = os.path.join(target_dir, "WDB")
+        if os.path.isfile(wdb_path):
+            self.vt_clear_wdb.set(True)
+        elif os.path.isdir(wdb_path):
+            self.vt_clear_wdb.set(False)
+
+    def load_settings(self, target_dir):
+        settings_path = self._settings_path(target_dir)
+        self._loading_settings = True
+        try:
+            if not os.path.isfile(settings_path):
+                self._load_legacy_install_state(target_dir)
+                return False
+
+            with open(settings_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            if not isinstance(saved, dict):
+                return False
+
+            rendering = saved.get("rendering_mode")
+            if rendering in ("directx9", "dxvk"):
+                self.rendering_mode.set(rendering)
+
+            if isinstance(saved.get("install_autologin"), bool):
+                self.install_autologin.set(saved["install_autologin"])
+
+            self._set_bool_mapping(saved.get("core_plugins"), self.core_plugins)
+            self._set_bool_mapping(saved.get("optional_plugins"), self.optional_plugins)
+            self._set_bool_mapping(saved.get("visual_mods"), self.visual_mods)
+            self._set_bool_mapping(saved.get("audio_mods"), self.audio_mods)
+
+            live = saved.get("live_plugins")
+            if isinstance(live, dict):
+                for name, value in live.items():
+                    var = getattr(self, name, None)
+                    if var is not None and isinstance(value, bool):
+                        var.set(value)
+
+            tweaks = saved.get("vanilla_tweaks")
+            if isinstance(tweaks, dict):
+                ratio = tweaks.get("ratio")
+                if isinstance(ratio, str) and ratio in self.ratio_options:
+                    self.ratio_var.set(ratio)
+
+                numeric = (
+                    ("fov", self.vt_fov, float),
+                    ("farclip", self.vt_farclip, int),
+                    ("frill", self.vt_frill, int),
+                    ("nameplate", self.vt_nameplate, int),
+                    ("sound_channels", self.vt_soundchan, int),
+                    ("max_camera", self.vt_maxcam, int),
+                )
+                for key, var, converter in numeric:
+                    value = tweaks.get(key)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        var.set(converter(value))
+
+                boolean = (
+                    ("quickloot", self.vt_quickloot),
+                    ("background_sound", self.vt_bg_sound),
+                    ("laa", self.vt_laa),
+                    ("camera_fix", self.vt_cam_fix),
+                    ("dep_fix", self.vt_dep_fix),
+                    ("script_memory", self.vt_script_memory),
+                    ("crossfaction_res", self.vt_crossfaction_res),
+                    ("custom_glues", self.vt_custom_glues),
+                    ("bluemoon", self.vt_bluemoon),
+                    ("clear_wdb", self.vt_clear_wdb),
+                    ("safety_override", self.safety_override),
+                )
+                for key, var in boolean:
+                    value = tweaks.get(key)
+                    if isinstance(value, bool):
+                        var.set(value)
+
+            self.toggle_safety_limits()
+            self.update_superwow_managed_controls()
+            return True
+        except (OSError, json.JSONDecodeError, ValueError, tk.TclError):
+            # A damaged settings file must never stop the tool from opening.
+            return False
+        finally:
+            self._loading_settings = False
+
+    def _on_wow_dir_changed(self, *_args):
+        if self._loading_settings:
+            return
+
+        target_dir = self.wow_dir.get().strip()
+        if not target_dir:
+            return
+
+        normalized = os.path.normcase(os.path.abspath(target_dir))
+        if normalized == self._loaded_settings_dir:
+            return
+
+        # Do not pop validation errors while the user is typing a path.
+        if not (
+            os.path.isfile(os.path.join(target_dir, "WoW.exe"))
+            and os.path.isdir(os.path.join(target_dir, "Data"))
+        ):
+            return
+
+        self.load_settings(target_dir)
+        self._loaded_settings_dir = normalized
 
     def build_ui(self):
         help_banner = tk.Label(
@@ -913,6 +1169,7 @@ class WowSetupTool:
     def configure_visual_audio(self, target):
         progress = getattr(self, "_report_download_progress", None)
         close_progress = getattr(self, "_close_download_progress", None)
+        warnings = []
 
         visual_defs = [
             ("darker_nights", "visual_darker_nights", "Darker Nights", remote_packages.install_darker_nights),
@@ -922,32 +1179,96 @@ class WowSetupTool:
             ("pink_herbs", "visual_pink_herbs", "Pink Herbs", remote_packages.install_pink_herbs),
         ]
         audio_defs = [
-            ("no_error_sounds", "audio_no_error_sounds", "NoErrorSounds", remote_packages.install_no_error_sounds),
-            ("fish_ping", "audio_fish_ping", "FishPing", remote_packages.install_fish_ping),
-            ("warlock_muted_demons", "audio_warlock_muted_demons", "Warlock Muted Demons", remote_packages.install_warlock_muted_demons),
+            (
+                "no_error_sounds",
+                "audio_no_error_sounds",
+                "NoErrorSounds",
+                remote_packages.install_no_error_sounds,
+                os.path.join("Audio", "NoErrorSounds", "Sound"),
+                "Sound",
+            ),
+            (
+                "fish_ping",
+                "audio_fish_ping",
+                "FishPing",
+                remote_packages.install_fish_ping,
+                os.path.join("Audio", "FishPing", "Sound"),
+                "Sound",
+            ),
+            (
+                "warlock_muted_demons",
+                "audio_warlock_muted_demons",
+                "Warlock Muted Demons",
+                remote_packages.install_warlock_muted_demons,
+                os.path.join("Audio", "WarlockMutedDemons", "Data"),
+                "Data",
+            ),
         ]
 
         try:
+            # Large visual MPQs deliberately stay online-only. If a source goes
+            # down, keep the copy previously installed by this tool.
             for key, managed_id, display_name, installer in visual_defs:
                 if self.visual_mods[key].get():
                     try:
                         installer(target, progress=progress)
                     except Exception as exc:
-                        raise RuntimeError(f"{display_name} installation failed:\n{exc}") from exc
+                        if remote_packages.managed_mod_is_installed(target, managed_id):
+                            warnings.append(
+                                f"{display_name}: online source unavailable; existing installed copy kept."
+                            )
+                        else:
+                            raise RuntimeError(
+                                f"{display_name} installation failed and no bundled MPQ backup is provided:\n{exc}"
+                            ) from exc
                 else:
                     remote_packages.remove_managed_mod(target, managed_id)
 
-            for key, managed_id, display_name, installer in audio_defs:
+            fallback_root = os.path.join(get_base_path(), "Payload", "Fallback")
+            for (
+                key,
+                managed_id,
+                display_name,
+                installer,
+                fallback_rel,
+                destination_prefix,
+            ) in audio_defs:
                 if self.audio_mods[key].get():
                     try:
                         installer(target, progress=progress)
                     except Exception as exc:
-                        raise RuntimeError(f"{display_name} installation failed:\n{exc}") from exc
+                        if remote_packages.managed_mod_is_installed(target, managed_id):
+                            warnings.append(
+                                f"{display_name}: online source unavailable; existing installed copy kept."
+                            )
+                            continue
+
+                        bundled = os.path.join(fallback_root, fallback_rel)
+                        if not os.path.isdir(bundled):
+                            raise RuntimeError(
+                                f"{display_name} installation failed and its bundled backup is missing:\n{exc}"
+                            ) from exc
+
+                        remote_packages.install_bundled_tree(
+                            target,
+                            managed_id,
+                            bundled,
+                            destination_prefix,
+                        )
+                        warnings.append(
+                            f"{display_name}: online source unavailable; bundled backup installed."
+                        )
                 else:
                     remote_packages.remove_managed_mod(target, managed_id)
         finally:
             if callable(close_progress):
                 close_progress()
+
+        if warnings:
+            messagebox.showwarning(
+                "Some online sources were unavailable",
+                "\n\n".join(warnings),
+            )
 
 
     def apply_process_mitigations(self):
@@ -991,8 +1312,22 @@ class WowSetupTool:
             # Generate the seamless launcher shortcut
             self.create_launcher_shortcut(target_dir)
             self.cleanup_legacy_outputs(target_dir)
+
+            settings_warning = ""
+            try:
+                self.save_settings(target_dir)
+            except OSError as exc:
+                settings_warning = (
+                    "\n\nWarning: your choices could not be saved for the next run. "
+                    f"Details: {exc}"
+                )
             
-            messagebox.showinfo("Success", "Installation and patching complete!\n\nUse the new 'Play Modernized WoW' shortcut in your directory to launch the game.")
+            messagebox.showinfo(
+                "Success",
+                "Installation and patching complete!\n\n"
+                "Use the new 'Play Modernized WoW' shortcut in your directory to launch the game."
+                + settings_warning,
+            )
         except PermissionError as e:
             messagebox.showerror(
                 "Permission Error",
