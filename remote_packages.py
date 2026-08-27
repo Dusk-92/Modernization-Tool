@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import stat
+import struct
 import tempfile
 import urllib.error
 import urllib.request
@@ -121,6 +122,68 @@ def _download_asset(asset, progress=None, label=None):
         )
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         raise RemotePackageError(f"Download failed for {asset.get('name', '?')}: {exc}") from exc
+
+
+def _verify_x86_pe(path, label="downloaded DLL", min_size=1024):
+    """Validate a 32-bit x86 PE binary before it can reach the WoW folder."""
+    try:
+        size = os.path.getsize(path)
+        if size < min_size:
+            raise RemotePackageError(
+                f"{label} is unexpectedly small ({size} bytes)."
+            )
+
+        with open(path, "rb") as handle:
+            dos = handle.read(64)
+            if len(dos) < 64 or dos[:2] != b"MZ":
+                raise RemotePackageError(
+                    f"{label} is not a valid Windows PE binary (missing MZ header)."
+                )
+
+            pe_offset = struct.unpack_from("<I", dos, 0x3C)[0]
+            if pe_offset < 64 or pe_offset > size - 26:
+                raise RemotePackageError(
+                    f"{label} has an invalid PE header offset."
+                )
+
+            handle.seek(pe_offset)
+            if handle.read(4) != b"PE\0\0":
+                raise RemotePackageError(
+                    f"{label} is not a valid Windows PE binary (missing PE signature)."
+                )
+
+            coff = handle.read(20)
+            if len(coff) != 20:
+                raise RemotePackageError(
+                    f"{label} has a truncated COFF header."
+                )
+
+            machine = struct.unpack_from("<H", coff, 0)[0]
+            optional_size = struct.unpack_from("<H", coff, 16)[0]
+            if optional_size < 2:
+                raise RemotePackageError(
+                    f"{label} has an invalid optional-header size."
+                )
+
+            optional_magic_raw = handle.read(2)
+            if len(optional_magic_raw) != 2:
+                raise RemotePackageError(
+                    f"{label} has a truncated optional header."
+                )
+            optional_magic = struct.unpack("<H", optional_magic_raw)[0]
+
+        if machine != 0x014C or optional_magic != 0x010B:
+            raise RemotePackageError(
+                f"{label} is not a 32-bit x86 PE binary "
+                f"(machine=0x{machine:04X}, optional=0x{optional_magic:04X})."
+            )
+
+    except RemotePackageError:
+        raise
+    except (OSError, struct.error) as exc:
+        raise RemotePackageError(
+            f"Could not validate {label}: {exc}"
+        ) from exc
 
 
 def _atomic_replace_file(source, target):
@@ -446,6 +509,7 @@ def install_interact(target_dir, progress=None):
         _emit_progress(progress, "Extracting Interact...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "Interact.dll")
+        _verify_x86_pe(dll_path, "Interact.dll")
         addon_dir = _find_directory_with_file(extract_root, "Interact.toc")
         if addon_dir is None:
             raise RemotePackageError("Interact.toc was not found in the Interact archive.")
@@ -486,6 +550,7 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
         _emit_progress(progress, "Extracting VanillaMultiMonitorFix...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "VanillaMultiMonitorFix.dll")
+        _verify_x86_pe(dll_path, "VanillaMultiMonitorFix.dll")
         config_path = _find_file(extract_root, "VMMFix_preferred_monitor.txt")
 
         _emit_progress(progress, "Installing VanillaMultiMonitorFix.dll...", None, None)
@@ -1096,6 +1161,7 @@ def install_nampower(target_dir, progress=None):
         _emit_progress(progress, "Extracting Nampower...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "nampower.dll")
+        _verify_x86_pe(dll_path, "nampower.dll")
         addon_dir = _find_directory(extract_root, "NampowerSettings")
 
         _emit_progress(progress, "Installing Nampower atomically...", None, None)
@@ -1129,6 +1195,7 @@ def install_vanillahelpers(target_dir, progress=None):
         label="Downloading VanillaHelpers.dll",
     )
     try:
+        _verify_x86_pe(temp_path, "VanillaHelpers.dll")
         _emit_progress(progress, "Installing VanillaHelpers.dll...", None, None)
         _atomic_replace_file(temp_path, os.path.join(target_dir, "VanillaHelpers.dll"))
     finally:
@@ -1149,6 +1216,7 @@ def install_no1600x1200(target_dir, progress=None):
         label="Downloading no1600x1200.dll",
     )
     try:
+        _verify_x86_pe(temp_path, "no1600x1200.dll")
         _emit_progress(progress, "Installing no1600x1200.dll...", None, None)
         _atomic_replace_file(temp_path, os.path.join(target_dir, "no1600x1200.dll"))
     finally:
@@ -1162,6 +1230,7 @@ def install_classicapi(target_dir, progress=None):
     asset = _find_asset(release, exact_name="ClassicAPI.dll")
     temp_path = _download_asset(asset, progress=progress, label="Downloading ClassicAPI.dll")
     try:
+        _verify_x86_pe(temp_path, "ClassicAPI.dll")
         _emit_progress(progress, "Installing ClassicAPI.dll...", None, None)
         _atomic_replace_file(temp_path, os.path.join(target_dir, "ClassicAPI.dll"))
     finally:
@@ -1179,6 +1248,7 @@ def install_auction_query_throttle(target_dir, progress=None):
         label="Downloading AuctionQueryThrottle.dll",
     )
     try:
+        _verify_x86_pe(temp_path, "AuctionQueryThrottle.dll")
         _emit_progress(progress, "Installing AuctionQueryThrottle.dll...", None, None)
         _atomic_replace_file(temp_path, os.path.join(target_dir, "AuctionQueryThrottle.dll"))
     finally:
@@ -1199,6 +1269,7 @@ def install_unitxp(target_dir, progress=None):
         _emit_progress(progress, "Extracting UnitXP_SP3...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "UnitXP_SP3.dll")
+        _verify_x86_pe(dll_path, "UnitXP_SP3.dll")
         addon_dir = _find_directory(extract_root, "UnitXP_SP3_Addon")
 
         _emit_progress(progress, "Installing UnitXP_SP3 atomically...", None, None)
@@ -1244,6 +1315,7 @@ def install_superwow(target_dir, progress=None):
         _emit_progress(progress, "Extracting SuperWoW...", None, None)
         _safe_extract(wow_zip, wow_root)
         dll_path = _find_file(wow_root, "SuperWoWhook.dll")
+        _verify_x86_pe(dll_path, "SuperWoWhook.dll")
 
         # Prepare SuperAPI completely before changing the installed DLL.
         _emit_progress(progress, "Preparing SuperAPI update...", None, None)
