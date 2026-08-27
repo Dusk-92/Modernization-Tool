@@ -211,6 +211,161 @@ def _replace_directory(source_dir, target_dir):
                 pass
 
 
+
+def _remove_path(path):
+    """Remove a file, symlink or directory without following directory symlinks."""
+    if not os.path.lexists(path):
+        return
+    if os.path.islink(path) or os.path.isfile(path):
+        try:
+            os.chmod(path, os.stat(path).st_mode | stat.S_IWRITE)
+        except OSError:
+            pass
+        os.remove(path)
+        return
+    if os.path.isdir(path):
+        _remove_tree(path)
+        return
+    os.remove(path)
+
+
+def _transactional_replace_bundle(items, label="component bundle"):
+    """Replace a group of files/directories as one rollback-safe transaction.
+
+    items contains tuples of (kind, source, target), where kind is "file" or
+    "dir". Every new item is fully staged first. Existing targets are then
+    renamed to unique backups before any staged item becomes live. If any
+    commit step fails, all changed targets are removed and every backup is
+    restored, preventing mixed DLL/AddOn versions.
+    """
+    token = uuid.uuid4().hex[:12]
+    records = []
+
+    try:
+        # Stage the complete new bundle before touching any installed file.
+        for kind, source, target in items:
+            if kind not in ("file", "dir"):
+                raise RemotePackageError(f"Unsupported transactional item type: {kind}")
+            if kind == "file" and not os.path.isfile(source):
+                raise RemotePackageError(f"Transactional source file is missing: {source}")
+            if kind == "dir" and not os.path.isdir(source):
+                raise RemotePackageError(f"Transactional source directory is missing: {source}")
+
+            target = os.path.abspath(target)
+            parent = os.path.dirname(target)
+            os.makedirs(parent, exist_ok=True)
+
+            staged = f"{target}.modernization-new-{token}"
+            backup = f"{target}.modernization-backup-{token}"
+
+            if os.path.lexists(staged) or os.path.lexists(backup):
+                raise RemotePackageError(
+                    f"Unexpected temporary path already exists while installing {label}."
+                )
+
+            if kind == "file":
+                shutil.copy2(source, staged)
+            else:
+                shutil.copytree(source, staged)
+
+            records.append(
+                {
+                    "kind": kind,
+                    "target": target,
+                    "staged": staged,
+                    "backup": backup,
+                    "backup_created": False,
+                    "installed": False,
+                }
+            )
+
+        # Move all old components out of the way first.
+        for record in records:
+            if os.path.lexists(record["target"]):
+                try:
+                    os.replace(record["target"], record["backup"])
+                    record["backup_created"] = True
+                except OSError as exc:
+                    raise RemotePackageError(
+                        f"Could not prepare {record['target']} for replacement. "
+                        "Close WoW and any program using its files, then try again."
+                    ) from exc
+
+        # Only now expose the complete new bundle.
+        for record in records:
+            os.replace(record["staged"], record["target"])
+            record["installed"] = True
+
+    except Exception as exc:
+        rollback_errors = []
+
+        # Remove any new components that were already committed.
+        for record in reversed(records):
+            if record["installed"] and os.path.lexists(record["target"]):
+                try:
+                    _remove_path(record["target"])
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        f"could not remove new {record['target']}: {rollback_exc}"
+                    )
+
+        # Put every previous component back exactly where it was.
+        for record in reversed(records):
+            if record["backup_created"] and os.path.lexists(record["backup"]):
+                try:
+                    if os.path.lexists(record["target"]):
+                        _remove_path(record["target"])
+                    os.replace(record["backup"], record["target"])
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        f"could not restore {record['target']}: {rollback_exc}"
+                    )
+
+        if rollback_errors:
+            remaining = [
+                record["backup"]
+                for record in records
+                if os.path.lexists(record["backup"])
+            ]
+            details = "; ".join(rollback_errors)
+            backup_note = (
+                " Remaining backups: " + ", ".join(remaining)
+                if remaining
+                else ""
+            )
+            raise RemotePackageError(
+                f"{label} update failed and rollback was incomplete. "
+                f"{details}.{backup_note}"
+            ) from exc
+
+        if isinstance(exc, RemotePackageError):
+            raise
+        raise RemotePackageError(
+            f"{label} update failed; the previous installation was restored. ({exc})"
+        ) from exc
+
+    else:
+        # Commit succeeded. Old copies are no longer needed.
+        for record in records:
+            if record["backup_created"] and os.path.lexists(record["backup"]):
+                try:
+                    _remove_path(record["backup"])
+                except OSError:
+                    # A stale backup is harmless; never invalidate a successful
+                    # installation just because cleanup was denied.
+                    pass
+
+    finally:
+        # Staged paths are safe to remove. Backups are intentionally not
+        # deleted here: if rollback itself fails, they are the recovery copy.
+        for record in records:
+            if os.path.lexists(record["staged"]):
+                try:
+                    _remove_path(record["staged"])
+                except OSError:
+                    pass
+
+
 def _safe_extract(zip_path, destination):
     root = os.path.realpath(destination)
     with zipfile.ZipFile(zip_path) as archive:
@@ -291,17 +446,22 @@ def install_interact(target_dir, progress=None):
         _emit_progress(progress, "Extracting Interact...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "Interact.dll")
-
-        _emit_progress(progress, "Installing Interact.dll...", None, None)
-        _atomic_replace_file(dll_path, os.path.join(target_dir, "Interact.dll"))
-
         addon_dir = _find_directory_with_file(extract_root, "Interact.toc")
-        if addon_dir is not None:
-            _emit_progress(progress, "Installing Interact addon...", None, None)
-            _replace_directory(
-                addon_dir,
-                os.path.join(target_dir, "Interface", "AddOns", "Interact"),
-            )
+        if addon_dir is None:
+            raise RemotePackageError("Interact.toc was not found in the Interact archive.")
+
+        _emit_progress(progress, "Installing Interact atomically...", None, None)
+        _transactional_replace_bundle(
+            [
+                ("file", dll_path, os.path.join(target_dir, "Interact.dll")),
+                (
+                    "dir",
+                    addon_dir,
+                    os.path.join(target_dir, "Interface", "AddOns", "Interact"),
+                ),
+            ],
+            label="Interact",
+        )
     finally:
         try:
             os.remove(zip_path)
@@ -715,12 +875,17 @@ def install_nampower(target_dir, progress=None):
         dll_path = _find_file(extract_root, "nampower.dll")
         addon_dir = _find_directory(extract_root, "NampowerSettings")
 
-        _emit_progress(progress, "Installing nampower.dll...", None, None)
-        _atomic_replace_file(dll_path, os.path.join(target_dir, "nampower.dll"))
-        _emit_progress(progress, "Installing NampowerSettings addon...", None, None)
-        _replace_directory(
-            addon_dir,
-            os.path.join(target_dir, "Interface", "AddOns", "nampowersettings"),
+        _emit_progress(progress, "Installing Nampower atomically...", None, None)
+        _transactional_replace_bundle(
+            [
+                ("file", dll_path, os.path.join(target_dir, "nampower.dll")),
+                (
+                    "dir",
+                    addon_dir,
+                    os.path.join(target_dir, "Interface", "AddOns", "nampowersettings"),
+                ),
+            ],
+            label="Nampower",
         )
     finally:
         try:
@@ -813,12 +978,17 @@ def install_unitxp(target_dir, progress=None):
         dll_path = _find_file(extract_root, "UnitXP_SP3.dll")
         addon_dir = _find_directory(extract_root, "UnitXP_SP3_Addon")
 
-        _emit_progress(progress, "Installing UnitXP_SP3.dll...", None, None)
-        _atomic_replace_file(dll_path, os.path.join(target_dir, "UnitXP_SP3.dll"))
-        _emit_progress(progress, "Installing UnitXP_SP3_Addon...", None, None)
-        _replace_directory(
-            addon_dir,
-            os.path.join(target_dir, "Interface", "AddOns", "UnitXP_SP3_Addon"),
+        _emit_progress(progress, "Installing UnitXP_SP3 atomically...", None, None)
+        _transactional_replace_bundle(
+            [
+                ("file", dll_path, os.path.join(target_dir, "UnitXP_SP3.dll")),
+                (
+                    "dir",
+                    addon_dir,
+                    os.path.join(target_dir, "Interface", "AddOns", "UnitXP_SP3_Addon"),
+                ),
+            ],
+            label="UnitXP_SP3",
         )
     finally:
         try:
@@ -836,34 +1006,33 @@ def install_superwow(target_dir, progress=None):
         release,
         predicate=lambda name: name.lower().startswith("superwow") and name.lower().endswith(".zip"),
     )
-    zip_path = _download_asset(asset, progress=progress, label="Downloading SuperWoW package")
-    extract_root = tempfile.mkdtemp(prefix="modernization_superwow_")
-    try:
-        _emit_progress(progress, "Extracting SuperWoW...", None, None)
-        _safe_extract(zip_path, extract_root)
-        dll_path = _find_file(extract_root, "SuperWoWhook.dll")
-        _emit_progress(progress, "Installing SuperWoWhook.dll...", None, None)
-        _atomic_replace_file(dll_path, os.path.join(target_dir, "SuperWoWhook.dll"))
-    finally:
-        try:
-            os.remove(zip_path)
-        except OSError:
-            pass
-        shutil.rmtree(extract_root, ignore_errors=True)
 
-    # SuperAPI has no GitHub Releases. Install the current master branch exactly
-    # as its author documents, stripping GitHub's "-master" archive suffix.
-    _emit_progress(progress, "Preparing SuperAPI update...", None, None)
-    superapi_zip = _download(
-        "https://codeload.github.com/balakethelock/SuperAPI/zip/refs/heads/master",
-        suffix=".zip",
-        progress=progress,
-        label="Downloading SuperAPI addon",
-    )
+    wow_zip = None
+    superapi_zip = None
+    wow_root = tempfile.mkdtemp(prefix="modernization_superwow_")
     superapi_root = tempfile.mkdtemp(prefix="modernization_superapi_")
     try:
+        # Prepare the DLL completely.
+        wow_zip = _download_asset(
+            asset,
+            progress=progress,
+            label="Downloading SuperWoW package",
+        )
+        _emit_progress(progress, "Extracting SuperWoW...", None, None)
+        _safe_extract(wow_zip, wow_root)
+        dll_path = _find_file(wow_root, "SuperWoWhook.dll")
+
+        # Prepare SuperAPI completely before changing the installed DLL.
+        _emit_progress(progress, "Preparing SuperAPI update...", None, None)
+        superapi_zip = _download(
+            "https://codeload.github.com/balakethelock/SuperAPI/zip/refs/heads/master",
+            suffix=".zip",
+            progress=progress,
+            label="Downloading SuperAPI addon",
+        )
         _emit_progress(progress, "Extracting SuperAPI...", None, None)
         _safe_extract(superapi_zip, superapi_root)
+
         addon_root = None
         for current_root, _, files in os.walk(superapi_root):
             if "SuperAPI.toc" in files:
@@ -872,16 +1041,30 @@ def install_superwow(target_dir, progress=None):
         if addon_root is None:
             raise RemotePackageError("SuperAPI.toc was not found in the SuperAPI archive.")
 
-        _emit_progress(progress, "Installing SuperAPI addon...", None, None)
-        _replace_directory(
-            addon_root,
-            os.path.join(target_dir, "Interface", "AddOns", "SuperAPI"),
+        _emit_progress(progress, "Installing SuperWoW + SuperAPI atomically...", None, None)
+        _transactional_replace_bundle(
+            [
+                (
+                    "file",
+                    dll_path,
+                    os.path.join(target_dir, "SuperWoWhook.dll"),
+                ),
+                (
+                    "dir",
+                    addon_root,
+                    os.path.join(target_dir, "Interface", "AddOns", "SuperAPI"),
+                ),
+            ],
+            label="SuperWoW + SuperAPI",
         )
     finally:
-        try:
-            os.remove(superapi_zip)
-        except OSError:
-            pass
+        for path in (wow_zip, superapi_zip):
+            if path:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        shutil.rmtree(wow_root, ignore_errors=True)
         shutil.rmtree(superapi_root, ignore_errors=True)
 
     return release.get("name") or release.get("tag_name", "latest")
