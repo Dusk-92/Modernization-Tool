@@ -169,7 +169,19 @@ class ModernWowSetupTool(WowSetupTool):
             text=attribution,
             font=("Segoe UI", 7, "italic"),
         )
-        byline.pack(side="right", pa    def build_plugins_tab(self, parent):
+        byline.pack(side="right", padx=(6, 0))
+
+        return cb
+
+    def _select_no1600(self):
+        if self.optional_plugins["no1600x1200.dll"].get():
+            self.vmmfix_enabled.set(False)
+
+    def _select_vmmfix(self):
+        if self.vmmfix_enabled.get():
+            self.optional_plugins["no1600x1200.dll"].set(False)
+
+    def build_plugins_tab(self, parent):
         container = ttk.Frame(parent)
         container.pack(fill="both", expand=True, padx=10, pady=10)
 
