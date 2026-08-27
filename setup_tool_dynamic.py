@@ -11,19 +11,24 @@ class ModernWowSetupTool(WowSetupTool):
     """Feature-branch entry point adding live GitHub package updates."""
 
     def __init__(self, root):
-        # Define this before WowSetupTool.__init__ because the parent constructor
+        # Define these before WowSetupTool.__init__ because the parent constructor
         # calls self.build_ui(), which dispatches to our overridden Plugins tab.
-        self.client_tweak = tk.StringVar(master=root, value="none")
+        self.classicapi_enabled = tk.BooleanVar(master=root, value=False)
+        self.auction_throttle_enabled = tk.BooleanVar(master=root, value=False)
         super().__init__(root)
+
+    def _enforce_live_core_exclusivity(self, selected):
+        """Keep ClassicAPI and AuctionQueryThrottle mutually exclusive."""
+        if selected == "classicapi" and self.classicapi_enabled.get():
+            self.auction_throttle_enabled.set(False)
+        elif selected == "auction" and self.auction_throttle_enabled.get():
+            self.classicapi_enabled.set(False)
 
     def build_plugins_tab(self, parent):
         container = ttk.Frame(parent)
         container.pack(fill="both", expand=True, padx=10, pady=10)
 
-        top = ttk.Frame(container)
-        top.pack(fill="both", expand=True)
-
-        left_frame = ttk.LabelFrame(top, text="Recommended Core")
+        left_frame = ttk.LabelFrame(container, text="Recommended Core")
         left_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
 
         ttk.Label(
@@ -37,7 +42,35 @@ class ModernWowSetupTool(WowSetupTool):
             cb.pack(anchor="w", padx=10, pady=4)
             ToolTip(cb, self.descriptions.get(dll, ""))
 
-        right_frame = ttk.LabelFrame(top, text="Optional WeirdUtils")
+        cb_classicapi = ttk.Checkbutton(
+            left_frame,
+            text="ClassicAPI.dll",
+            variable=self.classicapi_enabled,
+            command=lambda: self._enforce_live_core_exclusivity("classicapi"),
+        )
+        cb_classicapi.pack(anchor="w", padx=10, pady=4)
+        ToolTip(
+            cb_classicapi,
+            "Downloads and installs the latest stable ClassicAPI.dll release from "
+            "brues-code/ClassicAPI when setup is applied. Mutually exclusive with "
+            "AuctionQueryThrottle.dll.",
+        )
+
+        cb_auction = ttk.Checkbutton(
+            left_frame,
+            text="AuctionQueryThrottle.dll",
+            variable=self.auction_throttle_enabled,
+            command=lambda: self._enforce_live_core_exclusivity("auction"),
+        )
+        cb_auction.pack(anchor="w", padx=10, pady=4)
+        ToolTip(
+            cb_auction,
+            "Downloads and installs the latest stable AuctionQueryThrottle.dll release "
+            "from brues-code/AuctionQueryThrottle when setup is applied. Mutually "
+            "exclusive with ClassicAPI.dll.",
+        )
+
+        right_frame = ttk.LabelFrame(container, text="Optional WeirdUtils")
         right_frame.pack(side="right", fill="both", expand=True, padx=(5, 0))
 
         ttk.Label(
@@ -51,63 +84,26 @@ class ModernWowSetupTool(WowSetupTool):
             cb.pack(anchor="w", padx=10, pady=4)
             ToolTip(cb, self.descriptions.get(dll, ""))
 
-        tweaks_frame = ttk.LabelFrame(container, text="Tweaks")
-        tweaks_frame.pack(fill="x", pady=(10, 0))
-
-        ttk.Label(
-            tweaks_frame,
-            text="Choose one. ClassicAPI and Auction Query Throttle are mutually exclusive.",
-            font=("", 8, "italic"),
-        ).pack(anchor="w", padx=10, pady=(7, 3))
-
-        choices = ttk.Frame(tweaks_frame)
-        choices.pack(fill="x", padx=10, pady=(0, 8))
-
-        rb_none = ttk.Radiobutton(
-            choices, text="None", variable=self.client_tweak, value="none"
-        )
-        rb_none.pack(side="left", padx=(0, 16))
-
-        rb_classicapi = ttk.Radiobutton(
-            choices,
-            text="ClassicAPI",
-            variable=self.client_tweak,
-            value="classicapi",
-        )
-        rb_classicapi.pack(side="left", padx=(0, 16))
-        ToolTip(
-            rb_classicapi,
-            "Downloads and installs the latest stable ClassicAPI.dll release from "
-            "brues-code/ClassicAPI when setup is applied.",
-        )
-
-        rb_auction = ttk.Radiobutton(
-            choices,
-            text="Auction Query Throttle",
-            variable=self.client_tweak,
-            value="auction",
-        )
-        rb_auction.pack(side="left")
-        ToolTip(
-            rb_auction,
-            "Downloads and installs the latest stable AuctionQueryThrottle.dll release "
-            "from brues-code/AuctionQueryThrottle when setup is applied.",
-        )
+    def _normalize_live_core_selection(self):
+        """Safety net: never allow both mutually-exclusive live core DLLs."""
+        if self.classicapi_enabled.get() and self.auction_throttle_enabled.get():
+            # The UI callback prevents this during normal use. If state is ever
+            # changed programmatically, prefer ClassicAPI and disable Auction.
+            self.auction_throttle_enabled.set(False)
 
     def clean_unselected_files(self, target):
         super().clean_unselected_files(target)
+        self._normalize_live_core_selection()
 
-        choice = self.client_tweak.get()
         managed = {
-            "classicapi": "ClassicAPI.dll",
-            "auction": "AuctionQueryThrottle.dll",
+            "ClassicAPI.dll": self.classicapi_enabled,
+            "AuctionQueryThrottle.dll": self.auction_throttle_enabled,
         }
 
-        # Always remove the non-selected alternative. Selecting None removes both.
-        # A failed removal is fatal: silently leaving both DLLs behind would defeat
-        # the mutual-exclusion guarantee.
-        for key, filename in managed.items():
-            if choice != key:
+        # Remove whichever live core DLL is not selected. This also guarantees
+        # that switching from one to the other never leaves both in the WoW root.
+        for filename, var in managed.items():
+            if not var.get():
                 path = os.path.join(target, filename)
                 if os.path.exists(path):
                     try:
@@ -152,6 +148,8 @@ class ModernWowSetupTool(WowSetupTool):
         payload_base = os.path.join(get_base_path(), "Payload")
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
 
+        self._normalize_live_core_selection()
+
         dlls_text_lines = []
         if self.gpu_type.get() != "AMD":
             dlls_text_lines.append("dxvk")
@@ -182,6 +180,22 @@ class ModernWowSetupTool(WowSetupTool):
 
             dlls_text_lines.append(dll_name)
 
+        # Live core plugins. They are displayed in Recommended Core like the
+        # bundled core DLLs, but are downloaded from their upstream releases.
+        if self.classicapi_enabled.get():
+            try:
+                remote_packages.install_classicapi(target)
+            except Exception as exc:
+                raise RuntimeError(f"ClassicAPI update failed:\n{exc}") from exc
+            dlls_text_lines.append("ClassicAPI.dll")
+
+        elif self.auction_throttle_enabled.get():
+            try:
+                remote_packages.install_auction_query_throttle(target)
+            except Exception as exc:
+                raise RuntimeError(f"Auction Query Throttle update failed:\n{exc}") from exc
+            dlls_text_lines.append("AuctionQueryThrottle.dll")
+
         # Clean dependent addons when the matching core DLL is disabled.
         for dll_name, addon_folder in self.addon_dependencies.items():
             core_var = self.core_plugins.get(dll_name)
@@ -197,22 +211,6 @@ class ModernWowSetupTool(WowSetupTool):
                 if os.path.exists(source_dll):
                     shutil.copy2(source_dll, target)
                 dlls_text_lines.append(dll_name)
-
-        # Mutually-exclusive live Tweaks.
-        choice = self.client_tweak.get()
-        if choice == "classicapi":
-            try:
-                remote_packages.install_classicapi(target)
-            except Exception as exc:
-                raise RuntimeError(f"ClassicAPI update failed:\n{exc}") from exc
-            dlls_text_lines.append("ClassicAPI.dll")
-
-        elif choice == "auction":
-            try:
-                remote_packages.install_auction_query_throttle(target)
-            except Exception as exc:
-                raise RuntimeError(f"Auction Query Throttle update failed:\n{exc}") from exc
-            dlls_text_lines.append("AuctionQueryThrottle.dll")
 
         with open(os.path.join(target, "dlls.txt"), "w") as f:
             f.write("\n".join(dlls_text_lines))
