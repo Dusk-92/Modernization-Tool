@@ -1,4 +1,5 @@
 import os
+import hashlib
 import sys
 import json
 import shutil
@@ -1979,6 +1980,42 @@ oLink.Save
         # Update only entries owned by this tool. Unknown/manual lines are kept.
         self._write_dlls_file(target, dlls_text_lines)
 
+    def _file_sha256(self, path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _vanilla_tweaks_signature(self):
+        """Return only settings that change WoW_Modernized.exe patch output."""
+        superwow_active = self._superwow_enabled()
+        return {
+            "superwow_active": bool(superwow_active),
+            "fov": None if superwow_active else round(float(self.vt_fov.get()), 4),
+            "farclip": int(self.vt_farclip.get()),
+            "frill": int(self.vt_frill.get()),
+            "nameplate": int(self.vt_nameplate.get()),
+            "sound_channels": (
+                None if superwow_active else int(self.vt_soundchan.get())
+            ),
+            "max_camera": int(self.vt_maxcam.get()),
+            "quickloot": (
+                None if superwow_active else bool(self.vt_quickloot.get())
+            ),
+            "background_sound": (
+                None if superwow_active else bool(self.vt_bg_sound.get())
+            ),
+            "large_address_aware": bool(self.vt_laa.get()),
+            "camera_fix": bool(self.vt_cam_fix.get()),
+            "crossfaction_res": bool(self.vt_crossfaction_res.get()),
+            "custom_glues": bool(self.vt_custom_glues.get()),
+            "bluemoon": bool(self.vt_bluemoon.get()),
+        }
+
     def run_vanilla_tweaks(self, target, tweaks_exe=None, modern_cli=False):
         """Patch a copy of WoW.exe while preserving the original executable."""
         wow_exe = os.path.join(target, "WoW.exe")
@@ -2085,9 +2122,45 @@ oLink.Save
             if not self.vt_cam_fix.get():
                 args.append("--no-cameraskipfix")
 
-        args.extend(["-o", os.path.join(target, "WoW_Modernized.exe")])
+        output_exe = os.path.join(target, "WoW_Modernized.exe")
+        staged_output = output_exe + ".modernization-new"
+
+        # Never let a failed patcher invocation damage a working modernized
+        # executable. Build to a temporary path, validate it, then commit.
+        if os.path.exists(staged_output):
+            try:
+                os.remove(staged_output)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Could not prepare temporary vanilla-tweaks output: {exc}"
+                ) from exc
+
+        args.extend(["-o", staged_output])
         args.append(wow_exe)
-        subprocess.run(args, check=True)
+
+        try:
+            subprocess.run(args, check=True)
+
+            valid_pe, reason = self._inspect_wow_executable(staged_output)
+            if not valid_pe:
+                raise RuntimeError(
+                    "vanilla-tweaks produced an invalid WoW executable. "
+                    f"{reason}"
+                )
+
+            if os.path.getsize(staged_output) < 1024 * 1024:
+                raise RuntimeError(
+                    "vanilla-tweaks produced an unexpectedly small WoW executable."
+                )
+
+            os.replace(staged_output, output_exe)
+            return output_exe
+        finally:
+            if os.path.exists(staged_output):
+                try:
+                    os.remove(staged_output)
+                except OSError:
+                    pass
 
 if __name__ == "__main__":
     root = tk.Tk()
