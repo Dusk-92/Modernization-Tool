@@ -1,0 +1,11 @@
+DXVK bundled component
+
+Version: 2.6.1
+Architecture: x86 / 32-bit
+Component: x32/d3d9.dll
+Source: https://github.com/doitsujin/dxvk/releases/tag/v2.6.1
+SHA-256: 0349923a6618f2383451c170a0f24d9c8f328392179aca71826a853655982405
+Size: 4452366 bytes
+
+Identification was verified by byte-for-byte comparison against the official
+DXVK 2.6.1 release archive.
