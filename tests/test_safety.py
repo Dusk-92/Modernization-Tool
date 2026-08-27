@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 import remote_packages
+import setup_tool
 from setup_tool import WowSetupTool
 
 
@@ -339,6 +340,132 @@ class ManagedPackageTests(unittest.TestCase):
                 self.assertEqual(handle.read(), b"old-b")
             with open(manifest_path, "rb") as handle:
                 self.assertEqual(handle.read(), old_manifest)
+
+
+class AutoLoginEncryptionTests(unittest.TestCase):
+    class FakeKey:
+        def __init__(self, registry):
+            self.registry = registry
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeWinreg:
+        HKEY_CURRENT_USER = object()
+        KEY_READ = 0x20019
+        KEY_SET_VALUE = 0x0002
+        REG_SZ = 1
+
+        def __init__(self, values=None):
+            self.values = dict(values or {})
+
+        def OpenKey(self, root, path, reserved, access):
+            if path != "Environment":
+                raise FileNotFoundError(path)
+            return AutoLoginEncryptionTests.FakeKey(self)
+
+        def QueryValueEx(self, key, name):
+            if name not in self.values:
+                raise FileNotFoundError(name)
+            return self.values[name], self.REG_SZ
+
+        def CreateKeyEx(self, root, path, reserved, access):
+            self.created_path = path
+            return AutoLoginEncryptionTests.FakeKey(self)
+
+        def SetValueEx(self, key, name, reserved, value_type, value):
+            self.values[name] = value
+
+    def make_tool(self, autologin=True, nampower=True):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool.install_autologin = FakeVar(autologin)
+        tool.core_plugins = {"nampower.dll": FakeVar(nampower)}
+        tool._broadcast_environment_change = mock.Mock()
+        return tool
+
+    def test_skips_key_creation_when_feature_pair_is_not_enabled(self):
+        fake_registry = self.FakeWinreg()
+        tool = self.make_tool(autologin=False, nampower=True)
+
+        with mock.patch.object(setup_tool, "winreg", fake_registry):
+            result = tool.configure_autologin_encryption()
+
+        self.assertEqual(result, "not-needed")
+        self.assertEqual(fake_registry.values, {})
+        tool._broadcast_environment_change.assert_not_called()
+
+    def test_preserves_existing_inherited_key(self):
+        fake_registry = self.FakeWinreg()
+        tool = self.make_tool()
+
+        with mock.patch.object(setup_tool, "winreg", fake_registry), mock.patch.dict(
+            os.environ,
+            {"WOW_ENCRYPTION_KEY": "already-present"},
+            clear=False,
+        ):
+            result = tool.configure_autologin_encryption()
+
+        self.assertEqual(result, "existing")
+        self.assertEqual(fake_registry.values, {})
+        tool._broadcast_environment_change.assert_not_called()
+
+    def test_reuses_existing_registry_key_without_rotating_it(self):
+        fake_registry = self.FakeWinreg(
+            {"WOW_ENCRYPTION_KEY": "persisted-secret"}
+        )
+        tool = self.make_tool()
+
+        original = os.environ.pop("WOW_ENCRYPTION_KEY", None)
+        try:
+            with mock.patch.object(setup_tool, "winreg", fake_registry):
+                result = tool.configure_autologin_encryption()
+
+            self.assertEqual(result, "existing")
+            self.assertEqual(
+                fake_registry.values["WOW_ENCRYPTION_KEY"],
+                "persisted-secret",
+            )
+            self.assertEqual(
+                os.environ["WOW_ENCRYPTION_KEY"],
+                "persisted-secret",
+            )
+            tool._broadcast_environment_change.assert_called_once()
+        finally:
+            if original is None:
+                os.environ.pop("WOW_ENCRYPTION_KEY", None)
+            else:
+                os.environ["WOW_ENCRYPTION_KEY"] = original
+
+    def test_creates_256_bit_user_key_once(self):
+        fake_registry = self.FakeWinreg()
+        tool = self.make_tool()
+        generated = "ab" * 32
+
+        original = os.environ.pop("WOW_ENCRYPTION_KEY", None)
+        try:
+            with mock.patch.object(setup_tool, "winreg", fake_registry), mock.patch.object(
+                setup_tool.secrets,
+                "token_hex",
+                return_value=generated,
+            ) as token_hex:
+                result = tool.configure_autologin_encryption()
+
+            self.assertEqual(result, "created")
+            token_hex.assert_called_once_with(32)
+            self.assertEqual(
+                fake_registry.values["WOW_ENCRYPTION_KEY"],
+                generated,
+            )
+            self.assertEqual(os.environ["WOW_ENCRYPTION_KEY"], generated)
+            tool._broadcast_environment_change.assert_called_once()
+        finally:
+            if original is None:
+                os.environ.pop("WOW_ENCRYPTION_KEY", None)
+            else:
+                os.environ["WOW_ENCRYPTION_KEY"] = original
 
 
 class PeValidationTests(unittest.TestCase):
