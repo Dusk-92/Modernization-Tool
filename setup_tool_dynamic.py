@@ -640,8 +640,9 @@ class ModernWowSetupTool(WowSetupTool):
                         shutil.copy2(source_dll, target)
                     dlls_text_lines.append(dll_name)
 
-            with open(os.path.join(target, "dlls.txt"), "w") as f:
-                f.write("\n".join(dlls_text_lines))
+            # Preserve user-added dlls.txt entries; replace only entries
+            # managed by Modernization Tool.
+            self._write_dlls_file(target, dlls_text_lines)
         finally:
             self._close_download_progress()
 
