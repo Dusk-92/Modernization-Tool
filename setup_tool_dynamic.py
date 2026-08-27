@@ -17,13 +17,6 @@ class ModernWowSetupTool(WowSetupTool):
         self.auction_throttle_enabled = tk.BooleanVar(master=root, value=False)
         super().__init__(root)
 
-    def _enforce_live_core_exclusivity(self, selected):
-        """Keep ClassicAPI and AuctionQueryThrottle mutually exclusive."""
-        if selected == "classicapi" and self.classicapi_enabled.get():
-            self.auction_throttle_enabled.set(False)
-        elif selected == "auction" and self.auction_throttle_enabled.get():
-            self.classicapi_enabled.set(False)
-
     def build_plugins_tab(self, parent):
         container = ttk.Frame(parent)
         container.pack(fill="both", expand=True, padx=10, pady=10)
@@ -46,28 +39,24 @@ class ModernWowSetupTool(WowSetupTool):
             left_frame,
             text="ClassicAPI.dll",
             variable=self.classicapi_enabled,
-            command=lambda: self._enforce_live_core_exclusivity("classicapi"),
         )
         cb_classicapi.pack(anchor="w", padx=10, pady=4)
         ToolTip(
             cb_classicapi,
             "Downloads and installs the latest stable ClassicAPI.dll release from "
-            "brues-code/ClassicAPI when setup is applied. Mutually exclusive with "
-            "AuctionQueryThrottle.dll.",
+            "brues-code/ClassicAPI when setup is applied.",
         )
 
         cb_auction = ttk.Checkbutton(
             left_frame,
             text="AuctionQueryThrottle.dll",
             variable=self.auction_throttle_enabled,
-            command=lambda: self._enforce_live_core_exclusivity("auction"),
         )
         cb_auction.pack(anchor="w", padx=10, pady=4)
         ToolTip(
             cb_auction,
             "Downloads and installs the latest stable AuctionQueryThrottle.dll release "
-            "from brues-code/AuctionQueryThrottle when setup is applied. Mutually "
-            "exclusive with ClassicAPI.dll.",
+            "from brues-code/AuctionQueryThrottle when setup is applied.",
         )
 
         right_frame = ttk.LabelFrame(container, text="Optional WeirdUtils")
@@ -84,24 +73,15 @@ class ModernWowSetupTool(WowSetupTool):
             cb.pack(anchor="w", padx=10, pady=4)
             ToolTip(cb, self.descriptions.get(dll, ""))
 
-    def _normalize_live_core_selection(self):
-        """Safety net: never allow both mutually-exclusive live core DLLs."""
-        if self.classicapi_enabled.get() and self.auction_throttle_enabled.get():
-            # The UI callback prevents this during normal use. If state is ever
-            # changed programmatically, prefer ClassicAPI and disable Auction.
-            self.auction_throttle_enabled.set(False)
-
     def clean_unselected_files(self, target):
         super().clean_unselected_files(target)
-        self._normalize_live_core_selection()
 
         managed = {
             "ClassicAPI.dll": self.classicapi_enabled,
             "AuctionQueryThrottle.dll": self.auction_throttle_enabled,
         }
 
-        # Remove whichever live core DLL is not selected. This also guarantees
-        # that switching from one to the other never leaves both in the WoW root.
+        # Remove each live core DLL independently when its checkbox is off.
         for filename, var in managed.items():
             if not var.get():
                 path = os.path.join(target, filename)
@@ -148,7 +128,6 @@ class ModernWowSetupTool(WowSetupTool):
         payload_base = os.path.join(get_base_path(), "Payload")
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
 
-        self._normalize_live_core_selection()
 
         dlls_text_lines = []
         if self.gpu_type.get() != "AMD":
@@ -189,7 +168,7 @@ class ModernWowSetupTool(WowSetupTool):
                 raise RuntimeError(f"ClassicAPI update failed:\n{exc}") from exc
             dlls_text_lines.append("ClassicAPI.dll")
 
-        elif self.auction_throttle_enabled.get():
+        if self.auction_throttle_enabled.get():
             try:
                 remote_packages.install_auction_query_throttle(target)
             except Exception as exc:
