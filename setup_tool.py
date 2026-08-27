@@ -106,8 +106,11 @@ class WowSetupTool:
             "bg_sound": "Allows game sounds to continue playing while the game is minimized or in the background.",
             "laa": "Patches the executable to be Large Address Aware, allowing the 32-bit client to utilize up to 4GB of RAM (Essential for HD Mods).",
             "cam_fix": "Fixes a bug where right-clicking and dragging to rotate the camera occasionally snaps your view in a random direction.",
-            "dep_fix": "Disables Data Execution Prevention (DEP) and EmulateAtlThunks for WoW_Tweaked.exe. Prevents Windows from force-closing the game due to memory hooks. (Prompts for Admin Privileges).",
-            "script_memory": "Sets WoW's AddOn Script Memory to 0 (unlimited). When disabled, the tool leaves your existing Config.wtf value unchanged."
+            "dep_fix": "Disables Data Execution Prevention (DEP) and EmulateAtlThunks for WoW_Modernized.exe. Prevents Windows from force-closing the game due to memory hooks. (Prompts for Admin Privileges).",
+            "script_memory": "Sets WoW's AddOn Script Memory to 0 (unlimited). When disabled, the tool leaves your existing Config.wtf value unchanged.",
+            "crossfaction_res": "Allows the client to attempt resurrection of released cross-faction players.",
+            "custom_glues": "Enables custom GlueXML frames and XML on the login and character-selection screens.",
+            "bluemoon": "Restores the rare blue moon visual effect that appears around 1 AM on some nights."
         }
 
         # Basic Setup Variables
@@ -128,20 +131,20 @@ class WowSetupTool:
             "32:9 (Super Ultrawide)": 32.0/9.0
         }
 
-        # Core Plugins (These files must be in the base Payload/ folder)
+        # Recommended core plugins, kept in the same order as the UI.
         self.core_plugins = {
             "nampower.dll": tk.BooleanVar(value=True),
-            "no1600x1200.dll": tk.BooleanVar(value=True),
-            "perf_boost.dll": tk.BooleanVar(value=True),
-            "SuperWoWhook.dll": tk.BooleanVar(value=True), 
-            "transmogfix.dll": tk.BooleanVar(value=True),
             "UnitXP_SP3.dll": tk.BooleanVar(value=True),
-            "VanillaHelpers.dll": tk.BooleanVar(value=True),
-            "weirdperformance.dll": tk.BooleanVar(value=True)
+            "SuperWoWhook.dll": tk.BooleanVar(value=True),
+            "transmogfix.dll": tk.BooleanVar(value=True),
+            "perf_boost.dll": tk.BooleanVar(value=True),
+            "weirdperformance.dll": tk.BooleanVar(value=True),
+            "VanillaHelpers.dll": tk.BooleanVar(value=True)
         }
 
-        # Optional WeirdUtils (These files must be in the Payload/WeirdUtils/ folder)
+        # Optional client fixes and WeirdUtils.
         self.optional_plugins = {
+            "no1600x1200.dll": tk.BooleanVar(value=False),
             "bigcursor.dll": tk.BooleanVar(value=False),
             "customassets.dll": tk.BooleanVar(value=False),
             "logsessions.dll": tk.BooleanVar(value=False),
@@ -173,6 +176,9 @@ class WowSetupTool:
         self.vt_cam_fix = tk.BooleanVar(value=True)
         self.vt_dep_fix = tk.BooleanVar(value=True)
         self.vt_script_memory = tk.BooleanVar(value=True)
+        self.vt_crossfaction_res = tk.BooleanVar(value=False)
+        self.vt_custom_glues = tk.BooleanVar(value=True)
+        self.vt_bluemoon = tk.BooleanVar(value=True)
         
         # Safety Limit Toggle
         self.safety_override = tk.BooleanVar(value=False)
@@ -363,6 +369,30 @@ class WowSetupTool:
         cb_script_memory.grid(row=2, column=1, sticky='w', padx=10, pady=2)
         ToolTip(cb_script_memory, self.descriptions["script_memory"])
 
+        cb_crossfaction = ttk.Checkbutton(
+            toggles_frame,
+            text="Cross-faction Res Fix",
+            variable=self.vt_crossfaction_res
+        )
+        cb_crossfaction.grid(row=3, column=0, sticky='w', padx=10, pady=2)
+        ToolTip(cb_crossfaction, self.descriptions["crossfaction_res"])
+
+        cb_custom_glues = ttk.Checkbutton(
+            toggles_frame,
+            text="Custom Glues Patch",
+            variable=self.vt_custom_glues
+        )
+        cb_custom_glues.grid(row=3, column=1, sticky='w', padx=10, pady=2)
+        ToolTip(cb_custom_glues, self.descriptions["custom_glues"])
+
+        cb_bluemoon = ttk.Checkbutton(
+            toggles_frame,
+            text="Bluemoon Patch",
+            variable=self.vt_bluemoon
+        )
+        cb_bluemoon.grid(row=4, column=0, sticky='w', padx=10, pady=2)
+        ToolTip(cb_bluemoon, self.descriptions["bluemoon"])
+
 
     def build_credits_tab(self, parent):
         # Create a frame with a scrollbar
@@ -419,7 +449,7 @@ class WowSetupTool:
         insert_link("Source Repository", "https://github.com/doitsujin/dxvk")
 
         text_area.insert("end", "\n• Vanilla Tweaks: ", "bold")
-        insert_link("Source Repository", "https://github.com/brndd/vanilla-tweaks")
+        insert_link("Source Repository", "https://github.com/tubtubs/vanilla-tweaks")
 
         # Core engine & API plugins
         text_area.insert("end", "\n\nCore Engine & API Plugins\n", "header")
@@ -626,7 +656,7 @@ class WowSetupTool:
         if not self.vt_dep_fix.get():
             return
             
-        ps_cmd = "Set-ProcessMitigation -Name WoW_Tweaked.exe -Disable DEP, EmulateAtlThunks"
+        ps_cmd = "Set-ProcessMitigation -Name WoW_Modernized.exe -Disable DEP, EmulateAtlThunks"
         
         # Start-Process with '-Verb RunAs' triggers the Windows Administrator UAC prompt automatically
         full_cmd = f"Start-Process powershell -WindowStyle Hidden -Verb RunAs -ArgumentList \"-Command {ps_cmd}\""
@@ -673,7 +703,7 @@ class WowSetupTool:
             messagebox.showerror("Installation Error", str(e))
 
     def create_launcher_shortcut(self, target_dir):
-        """Automates creating the VanillaFixes shortcut targeting WoW_Tweaked.exe"""
+        """Automates creating the VanillaFixes shortcut targeting WoW_Modernized.exe"""
         shortcut_path = os.path.join(target_dir, "Play Modernized WoW.lnk")
         vanilla_fixes_exe = os.path.join(target_dir, "VanillaFixes.exe")
         
@@ -695,7 +725,7 @@ Set oWS = WScript.CreateObject("WScript.Shell")
 sLinkFile = "{shortcut_path}"
 Set oLink = oWS.CreateShortcut(sLinkFile)
 oLink.TargetPath = "{vanilla_fixes_exe}"
-oLink.Arguments = "WoW_Tweaked.exe"
+oLink.Arguments = "WoW_Modernized.exe"
 oLink.WorkingDirectory = "{target_dir}"
 oLink.Description = "Launch Vanilla WoW with VanillaFixes and Tweaks"
 {icon_vbs_line}
@@ -768,11 +798,12 @@ oLink.Save
                 if os.path.exists(addon_path):
                     shutil.rmtree(addon_path, ignore_errors=True)
 
-        # Process Optional Plugins (WeirdUtils) - Now installed to ROOT folder
+        # Process Optional Plugins - installed to the game root.
         for dll_name, var in self.optional_plugins.items():
             if var.get():
-                source_dll = os.path.join(payload_weirdu, dll_name)
-                if os.path.exists(source_dll): 
+                source_base = payload_base if dll_name == "no1600x1200.dll" else payload_weirdu
+                source_dll = os.path.join(source_base, dll_name)
+                if os.path.exists(source_dll):
                     shutil.copy2(source_dll, target)
                 dlls_text_lines.append(dll_name)
 
@@ -780,60 +811,102 @@ oLink.Save
         with open(os.path.join(target, "dlls.txt"), "w") as f:
             f.write("\n".join(dlls_text_lines))
 
-    def run_vanilla_tweaks(self, target):
+    def run_vanilla_tweaks(self, target, tweaks_exe=None, modern_cli=False):
+        """Patch a copy of WoW.exe while preserving the original executable."""
         wow_exe = os.path.join(target, "WoW.exe")
-        tweaks_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
+        if tweaks_exe is None:
+            tweaks_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
 
         if not os.path.exists(tweaks_exe):
-            raise FileNotFoundError("vanilla-tweaks.exe not found alongside this setup tool.")
+            raise FileNotFoundError("vanilla-tweaks.exe was not found.")
 
         args = [tweaks_exe]
 
-        # --- SMART BYPASS LOGIC ---
-        # If a slider is set to the base Vanilla value, explicitly pass the --no flag.
-        # This prevents Vanilla Tweaks from injecting unnecessary code caves that corrupt WMO rendering.
+        if modern_cli:
+            # tubtubs/vanilla-tweaks: several patches are opt-in rather than
+            # enabled-by-default, so use its current CLI explicitly.
+            if abs(self.vt_fov.get() - 1.5708) >= 0.0001:
+                args.extend(["--fov", str(self.vt_fov.get()), "--fov-patch"])
 
-        # Field of View (Vanilla: ~1.5708)
-        if abs(self.vt_fov.get() - 1.5708) < 0.0001:
-            args.append("--no-fov")
+            if self.vt_farclip.get() == 777:
+                args.append("--no-farclip")
+            else:
+                args.extend(["--farclip", str(self.vt_farclip.get())])
+
+            if self.vt_frill.get() == 70:
+                args.append("--no-frilldistance")
+            else:
+                args.extend(["--frilldistance", str(self.vt_frill.get())])
+
+            if self.vt_nameplate.get() == 20:
+                args.append("--no-nameplatedistance")
+            else:
+                args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
+
+            if self.vt_soundchan.get() != 12:
+                args.extend([
+                    "--soundchannels",
+                    str(self.vt_soundchan.get()),
+                    "--soundchannels-patch",
+                ])
+
+            if self.vt_maxcam.get() != 50:
+                args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
+
+            if self.vt_quickloot.get():
+                args.append("--quickloot")
+            if self.vt_bg_sound.get():
+                args.append("--sound-in-background")
+            if not self.vt_laa.get():
+                args.append("--no-largeaddressaware")
+            if not self.vt_cam_fix.get():
+                args.append("--no-cameraskipfix")
+            if self.vt_crossfaction_res.get():
+                args.append("--crossfactionresfix")
+            if not self.vt_custom_glues.get():
+                args.append("--no-customgluespatch")
+            if not self.vt_bluemoon.get():
+                args.append("--no-bluemoonpatch")
         else:
-            args.extend(["--fov", str(self.vt_fov.get())])
+            # Legacy bundled brndd patcher kept only as an offline fallback.
+            if abs(self.vt_fov.get() - 1.5708) < 0.0001:
+                args.append("--no-fov")
+            else:
+                args.extend(["--fov", str(self.vt_fov.get())])
 
-        # Farclip (Vanilla: 777)
-        if self.vt_farclip.get() == 777:
-            args.append("--no-farclip")
-        else:
-            args.extend(["--farclip", str(self.vt_farclip.get())])
+            if self.vt_farclip.get() == 777:
+                args.append("--no-farclip")
+            else:
+                args.extend(["--farclip", str(self.vt_farclip.get())])
 
-        # Frilldistance (Vanilla: 70)
-        if self.vt_frill.get() == 70:
-            args.append("--no-frilldistance")
-        else:
-            args.extend(["--frilldistance", str(self.vt_frill.get())])
+            if self.vt_frill.get() == 70:
+                args.append("--no-frilldistance")
+            else:
+                args.extend(["--frilldistance", str(self.vt_frill.get())])
 
-        # Nameplate Distance (Vanilla: 20)
-        if self.vt_nameplate.get() == 20:
-            args.append("--no-nameplatedistance")
-        else:
-            args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
+            if self.vt_nameplate.get() == 20:
+                args.append("--no-nameplatedistance")
+            else:
+                args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
 
-        # Sound Channels (Vanilla: 12)
-        if self.vt_soundchan.get() == 12:
-            args.append("--no-soundchannels")
-        else:
-            args.extend(["--soundchannels", str(self.vt_soundchan.get())])
+            if self.vt_soundchan.get() == 12:
+                args.append("--no-soundchannels")
+            else:
+                args.extend(["--soundchannels", str(self.vt_soundchan.get())])
 
-        # Max Camera Distance (Vanilla: 50 - Unchanged by default in Tweaks)
-        if self.vt_maxcam.get() != 50:
-            args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
+            if self.vt_maxcam.get() != 50:
+                args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
 
-        # --- BOOLEAN TOGGLES ---
-        if not self.vt_quickloot.get(): args.append("--no-quickloot")
-        if not self.vt_bg_sound.get(): args.append("--no-sound-in-background")
-        if not self.vt_laa.get(): args.append("--no-largeaddressaware")
-        if not self.vt_cam_fix.get(): args.append("--no-cameraskipfix")
+            if not self.vt_quickloot.get():
+                args.append("--no-quickloot")
+            if not self.vt_bg_sound.get():
+                args.append("--no-sound-in-background")
+            if not self.vt_laa.get():
+                args.append("--no-largeaddressaware")
+            if not self.vt_cam_fix.get():
+                args.append("--no-cameraskipfix")
 
-        args.extend(["-o", os.path.join(target, "WoW_Tweaked.exe")])
+        args.extend(["-o", os.path.join(target, "WoW_Modernized.exe")])
         args.append(wow_exe)
         subprocess.run(args, check=True)
 
