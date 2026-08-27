@@ -170,7 +170,7 @@ class DxvkOwnershipTests(unittest.TestCase):
         with open(os.path.join(payload, "dxvk.conf"), "wb") as handle:
             handle.write(b"bundled-conf")
 
-    def test_enable_then_disable_restores_preexisting_renderer_files(self):
+    def test_enable_then_disable_parks_preexisting_renderer_files(self):
         tool = self.make_tool("dxvk")
         with tempfile.TemporaryDirectory() as bundle, tempfile.TemporaryDirectory() as target:
             self.make_payload(bundle)
@@ -191,12 +191,15 @@ class DxvkOwnershipTests(unittest.TestCase):
                 tool.rendering_mode.set("directx9")
                 tool.configure_dxvk(target)
 
-            with open(d3d9, "rb") as handle:
+            self.assertFalse(os.path.exists(d3d9))
+            self.assertFalse(os.path.exists(conf))
+            backup = tool._external_renderer_backup_dir(target)
+            with open(os.path.join(backup, "d3d9.dll"), "rb") as handle:
                 self.assertEqual(handle.read(), b"user-d3d9")
-            with open(conf, "rb") as handle:
+            with open(os.path.join(backup, "dxvk.conf"), "rb") as handle:
                 self.assertEqual(handle.read(), b"user-conf")
 
-    def test_directx9_preserves_unowned_renderer_files(self):
+    def test_directx9_parks_unowned_renderer_files(self):
         tool = self.make_tool("directx9")
         with tempfile.TemporaryDirectory() as target:
             d3d9 = os.path.join(target, "d3d9.dll")
@@ -208,9 +211,12 @@ class DxvkOwnershipTests(unittest.TestCase):
 
             tool.configure_dxvk(target)
 
-            with open(d3d9, "rb") as handle:
+            self.assertFalse(os.path.exists(d3d9))
+            self.assertFalse(os.path.exists(conf))
+            backup = tool._external_renderer_backup_dir(target)
+            with open(os.path.join(backup, "d3d9.dll"), "rb") as handle:
                 self.assertEqual(handle.read(), b"manual-d3d9")
-            with open(conf, "rb") as handle:
+            with open(os.path.join(backup, "dxvk.conf"), "rb") as handle:
                 self.assertEqual(handle.read(), b"manual-conf")
 
 

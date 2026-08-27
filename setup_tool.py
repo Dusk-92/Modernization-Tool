@@ -79,7 +79,7 @@ class WowSetupTool:
         self.descriptions = {
             # Setup & General
             "autologin": "Adds Turtle AutoLogin account/character shortcuts on the login screen. IMPORTANT: saved passwords are stored locally by AutoLogin. They are encrypted only when Nampower encryption is available, WOW_ENCRYPTION_KEY is configured and encryption remains enabled; otherwise AutoLogin may store them in plaintext. Modernization Tool itself does not save your account name or password in its settings.",
-            "render_directx9": "Uses VanillaFixes with the game's native DirectX 9 renderer. Choose this if you do not want DXVK/Vulkan.",
+            "render_directx9": "Uses VanillaFixes with the game's native DirectX 9 renderer. Existing d3d9.dll/dxvk.conf proxy files are moved to a Modernization Tool backup so they cannot keep DXVK or another D3D9 wrapper active.",
             "render_dxvk": "Uses VanillaFixes with DXVK, translating DirectX 9 to Vulkan for smoother frame pacing on many modern systems.",
 
             # Core DLLs
@@ -2038,8 +2038,63 @@ oLink.Save
             and saved.get("rendering_mode") == "dxvk"
         )
 
+    def _external_renderer_backup_dir(self, target):
+        return os.path.join(
+            target,
+            ".modernization_tool",
+            "backups",
+            "external_renderer",
+        )
+
+    def _park_external_renderer_file(self, target, filename):
+        """Move an unowned D3D9 wrapper out of the game root without deleting it."""
+        source = os.path.join(target, filename)
+        if not os.path.lexists(source):
+            return
+
+        if os.path.islink(source) or not os.path.isfile(source):
+            raise RuntimeError(
+                f"Cannot safely disable the existing {filename}: it is not a regular file."
+            )
+
+        backup_dir = self._external_renderer_backup_dir(target)
+        backup = os.path.join(backup_dir, filename)
+        os.makedirs(backup_dir, exist_ok=True)
+
+        if os.path.isfile(backup):
+            try:
+                same_file = (
+                    self._file_sha256(source) == self._file_sha256(backup)
+                )
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Could not compare the existing {filename} with its saved backup."
+                ) from exc
+
+            if not same_file:
+                raise RuntimeError(
+                    f"Cannot safely disable {filename}: a different saved renderer backup already exists at "
+                    f"{backup}. Move or rename that backup manually, then try again."
+                )
+
+            try:
+                os.remove(source)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Could not move {filename} out of the game root. Close WoW and any program using it, then try again."
+                ) from exc
+            return
+
+        try:
+            os.replace(source, backup)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not back up {filename} before disabling the external renderer. "
+                "Close WoW and any program using it, then try again."
+            ) from exc
+
     def configure_dxvk(self, target):
-        """Manage DXVK transactionally and never delete unowned renderer files."""
+        """Apply the selected renderer while preserving pre-existing wrapper files."""
         payload_dir = os.path.join(get_base_path(), "Payload")
         d3d9_src = os.path.join(payload_dir, "DXVK_Standard", "d3d9.dll")
         conf_src = os.path.join(payload_dir, "dxvk.conf")
@@ -2060,9 +2115,6 @@ oLink.Save
                     + ", ".join(os.path.basename(path) for path in missing)
                 )
 
-            # Migrate installations created before renderer ownership manifests
-            # existed. A saved DXVK selection is explicit evidence that these
-            # two paths were managed by this tool on the previous Apply.
             if not managed_files and self._previous_settings_used_dxvk(target):
                 for path in (conf_target, d3d9_target):
                     if os.path.lexists(path):
@@ -2085,15 +2137,9 @@ oLink.Save
             )
             return
 
-        # New managed installs restore any files that existed before DXVK was
-        # enabled. This means a user's own d3d9.dll/dxvk.conf is never lost.
         if managed_files:
             remote_packages.remove_managed_mod(target, managed_id)
-            return
-
-        # Legacy cleanup is allowed only with explicit previous settings proof.
-        # Unknown/manual renderer files are deliberately preserved.
-        if self._previous_settings_used_dxvk(target):
+        elif self._previous_settings_used_dxvk(target):
             for path in (conf_target, d3d9_target):
                 if os.path.lexists(path):
                     try:
@@ -2103,6 +2149,9 @@ oLink.Save
                             f"Could not remove the previous managed DXVK file {os.path.basename(path)}. "
                             "Close WoW and any program using it, then try again."
                         ) from exc
+
+        for filename in ("d3d9.dll", "dxvk.conf"):
+            self._park_external_renderer_file(target, filename)
 
 
     def _managed_dll_entries(self):
