@@ -15,7 +15,93 @@ class ModernWowSetupTool(WowSetupTool):
         # calls self.build_ui(), which dispatches to our overridden Plugins tab.
         self.classicapi_enabled = tk.BooleanVar(master=root, value=False)
         self.auction_throttle_enabled = tk.BooleanVar(master=root, value=False)
+        self._download_window = None
+        self._download_label = None
+        self._download_bar = None
+        self._download_indeterminate = False
         super().__init__(root)
+
+    def _show_download_progress(self):
+        if self._download_window is not None and self._download_window.winfo_exists():
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Downloading updates")
+        win.resizable(False, False)
+        win.transient(self.root)
+        win.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        frame = ttk.Frame(win, padding=14)
+        frame.pack(fill="both", expand=True)
+
+        self._download_label = ttk.Label(
+            frame,
+            text="Preparing updates...",
+            anchor="w",
+            width=54,
+        )
+        self._download_label.pack(fill="x", pady=(0, 10))
+
+        self._download_bar = ttk.Progressbar(
+            frame,
+            orient="horizontal",
+            mode="indeterminate",
+            length=390,
+        )
+        self._download_bar.pack(fill="x")
+
+        win.update_idletasks()
+        width = max(win.winfo_width(), 430)
+        height = max(win.winfo_height(), 105)
+        x = self.root.winfo_rootx() + max((self.root.winfo_width() - width) // 2, 0)
+        y = self.root.winfo_rooty() + max((self.root.winfo_height() - height) // 2, 0)
+        win.geometry(f"{width}x{height}+{x}+{y}")
+
+        self._download_window = win
+
+    def _report_download_progress(self, message, current=None, total=None):
+        self._show_download_progress()
+
+        if self._download_window is None or not self._download_window.winfo_exists():
+            return
+
+        if total is not None and total > 0 and current is not None:
+            if self._download_indeterminate:
+                self._download_bar.stop()
+                self._download_indeterminate = False
+
+            self._download_bar.configure(mode="determinate", maximum=total)
+            self._download_bar["value"] = min(current, total)
+            percent = int(min(current, total) * 100 / total)
+            self._download_label.configure(text=f"{message} — {percent}%")
+        else:
+            self._download_label.configure(text=message)
+            if not self._download_indeterminate:
+                self._download_bar.configure(mode="indeterminate")
+                self._download_bar.start(12)
+                self._download_indeterminate = True
+
+        self._download_window.update_idletasks()
+        self.root.update_idletasks()
+
+    def _close_download_progress(self):
+        if self._download_bar is not None and self._download_indeterminate:
+            try:
+                self._download_bar.stop()
+            except tk.TclError:
+                pass
+
+        if self._download_window is not None:
+            try:
+                if self._download_window.winfo_exists():
+                    self._download_window.destroy()
+            except tk.TclError:
+                pass
+
+        self._download_window = None
+        self._download_label = None
+        self._download_bar = None
+        self._download_indeterminate = False
 
     def build_plugins_tab(self, parent):
         container = ttk.Frame(parent)
@@ -118,6 +204,7 @@ class ModernWowSetupTool(WowSetupTool):
                 os.path.join(target, "Interface", "AddOns", addon_folder),
             )
 
+        self._close_download_progress()
         messagebox.showwarning(
             "Online update unavailable",
             f"Could not download the latest {dll_name}.\n\n"
@@ -128,71 +215,85 @@ class ModernWowSetupTool(WowSetupTool):
         payload_base = os.path.join(get_base_path(), "Payload")
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
 
-
         dlls_text_lines = []
         if self.gpu_type.get() != "AMD":
             dlls_text_lines.append("dxvk")
 
-        # Core plugins. UnitXP and SuperWoW are refreshed from their upstream
-        # sources every time setup is applied. Their bundled copies remain an
-        # offline fallback so this feature does not reduce current reliability.
-        for dll_name, var in self.core_plugins.items():
-            if not var.get():
-                continue
+        try:
+            # Core plugins. UnitXP and SuperWoW are refreshed from their upstream
+            # sources every time setup is applied. Their bundled copies remain an
+            # offline fallback so this feature does not reduce current reliability.
+            for dll_name, var in self.core_plugins.items():
+                if not var.get():
+                    continue
 
-            if dll_name == "UnitXP_SP3.dll":
-                try:
-                    remote_packages.install_unitxp(target)
-                except Exception as exc:
-                    self._fallback_core_dll(payload_base, target, dll_name, exc)
+                if dll_name == "UnitXP_SP3.dll":
+                    try:
+                        remote_packages.install_unitxp(
+                            target,
+                            progress=self._report_download_progress,
+                        )
+                    except Exception as exc:
+                        self._fallback_core_dll(payload_base, target, dll_name, exc)
 
-            elif dll_name == "SuperWoWhook.dll":
-                try:
-                    remote_packages.install_superwow(target)
-                except Exception as exc:
-                    self._fallback_core_dll(payload_base, target, dll_name, exc)
+                elif dll_name == "SuperWoWhook.dll":
+                    try:
+                        remote_packages.install_superwow(
+                            target,
+                            progress=self._report_download_progress,
+                        )
+                    except Exception as exc:
+                        self._fallback_core_dll(payload_base, target, dll_name, exc)
 
-            else:
-                source_dll = os.path.join(payload_base, dll_name)
-                if os.path.exists(source_dll):
-                    shutil.copy2(source_dll, target)
+                else:
+                    source_dll = os.path.join(payload_base, dll_name)
+                    if os.path.exists(source_dll):
+                        shutil.copy2(source_dll, target)
 
-            dlls_text_lines.append(dll_name)
-
-        # Live core plugins. They are displayed in Recommended Core like the
-        # bundled core DLLs, but are downloaded from their upstream releases.
-        if self.classicapi_enabled.get():
-            try:
-                remote_packages.install_classicapi(target)
-            except Exception as exc:
-                raise RuntimeError(f"ClassicAPI update failed:\n{exc}") from exc
-            dlls_text_lines.append("ClassicAPI.dll")
-
-        if self.auction_throttle_enabled.get():
-            try:
-                remote_packages.install_auction_query_throttle(target)
-            except Exception as exc:
-                raise RuntimeError(f"Auction Query Throttle update failed:\n{exc}") from exc
-            dlls_text_lines.append("AuctionQueryThrottle.dll")
-
-        # Clean dependent addons when the matching core DLL is disabled.
-        for dll_name, addon_folder in self.addon_dependencies.items():
-            core_var = self.core_plugins.get(dll_name)
-            if core_var is not None and not core_var.get():
-                addon_path = os.path.join(target, "Interface", "AddOns", addon_folder)
-                if os.path.exists(addon_path):
-                    shutil.rmtree(addon_path, ignore_errors=True)
-
-        # Optional WeirdUtils.
-        for dll_name, var in self.optional_plugins.items():
-            if var.get():
-                source_dll = os.path.join(payload_weirdu, dll_name)
-                if os.path.exists(source_dll):
-                    shutil.copy2(source_dll, target)
                 dlls_text_lines.append(dll_name)
 
-        with open(os.path.join(target, "dlls.txt"), "w") as f:
-            f.write("\n".join(dlls_text_lines))
+            # Live core plugins. Both checkboxes are independent and can be
+            # installed together.
+            if self.classicapi_enabled.get():
+                try:
+                    remote_packages.install_classicapi(
+                        target,
+                        progress=self._report_download_progress,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(f"ClassicAPI update failed:\n{exc}") from exc
+                dlls_text_lines.append("ClassicAPI.dll")
+
+            if self.auction_throttle_enabled.get():
+                try:
+                    remote_packages.install_auction_query_throttle(
+                        target,
+                        progress=self._report_download_progress,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(f"Auction Query Throttle update failed:\n{exc}") from exc
+                dlls_text_lines.append("AuctionQueryThrottle.dll")
+
+            # Clean dependent addons when the matching core DLL is disabled.
+            for dll_name, addon_folder in self.addon_dependencies.items():
+                core_var = self.core_plugins.get(dll_name)
+                if core_var is not None and not core_var.get():
+                    addon_path = os.path.join(target, "Interface", "AddOns", addon_folder)
+                    if os.path.exists(addon_path):
+                        shutil.rmtree(addon_path, ignore_errors=True)
+
+            # Optional WeirdUtils.
+            for dll_name, var in self.optional_plugins.items():
+                if var.get():
+                    source_dll = os.path.join(payload_weirdu, dll_name)
+                    if os.path.exists(source_dll):
+                        shutil.copy2(source_dll, target)
+                    dlls_text_lines.append(dll_name)
+
+            with open(os.path.join(target, "dlls.txt"), "w") as f:
+                f.write("\n".join(dlls_text_lines))
+        finally:
+            self._close_download_progress()
 
 
 if __name__ == "__main__":
