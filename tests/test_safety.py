@@ -1,0 +1,317 @@
+import json
+import os
+import struct
+import tempfile
+import unittest
+from unittest import mock
+
+import remote_packages
+from setup_tool import WowSetupTool
+
+
+class FakeVar:
+    def __init__(self, value=None):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+class DllsTxtTests(unittest.TestCase):
+    def make_tool(self):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool.core_plugins = {
+            "CorePlugin.dll": FakeVar(True),
+        }
+        tool.optional_plugins = {
+            "OptionalPlugin.dll": FakeVar(False),
+            "no1600x1200.dll": FakeVar(False),
+        }
+        return tool
+
+    def test_preserves_manual_entries_comments_and_replaces_managed_entries(self):
+        tool = self.make_tool()
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "dlls.txt")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "# user comment\n"
+                    "CorePlugin.dll\n"
+                    "MyCustomPlugin.dll\n"
+                    "mycustomplugin.dll\n"
+                    "; another comment\n"
+                    "dxvk\n"
+                )
+
+            tool._write_dlls_file(
+                root,
+                ["dxvk", "CorePlugin.dll", "COREPLUGIN.DLL"],
+            )
+
+            with open(path, "r", encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+
+            self.assertEqual(
+                lines,
+                [
+                    "dxvk",
+                    "CorePlugin.dll",
+                    "",
+                    "# user comment",
+                    "MyCustomPlugin.dll",
+                    "; another comment",
+                ],
+            )
+
+    def test_removes_unchecked_tool_owned_entry_without_removing_manual_dll(self):
+        tool = self.make_tool()
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "dlls.txt")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("OptionalPlugin.dll\nManual.dll\n")
+
+            tool._write_dlls_file(root, [])
+
+            with open(path, "r", encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "Manual.dll\n")
+
+
+class PluginConflictTests(unittest.TestCase):
+    def test_vmmfix_wins_over_no1600_during_normalization(self):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        no1600 = FakeVar(True)
+        tool.optional_plugins = {"no1600x1200.dll": no1600}
+        tool.vmmfix_enabled = FakeVar(True)
+
+        changed = tool._normalize_plugin_conflicts()
+
+        self.assertTrue(changed)
+        self.assertFalse(no1600.get())
+        self.assertTrue(tool.vmmfix_enabled.get())
+
+
+class WdbBlockerTests(unittest.TestCase):
+    def make_tool(self, enabled):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool.vt_clear_wdb = FakeVar(enabled)
+        return tool
+
+    def test_enabled_replaces_cache_directory_with_owned_empty_blocker(self):
+        tool = self.make_tool(True)
+        with tempfile.TemporaryDirectory() as root:
+            wdb = os.path.join(root, "WDB")
+            os.makedirs(wdb)
+            with open(os.path.join(wdb, "cache.bin"), "wb") as handle:
+                handle.write(b"cache")
+
+            tool.configure_wdb_cache(root)
+
+            self.assertTrue(os.path.isfile(wdb))
+            self.assertEqual(os.path.getsize(wdb), 0)
+            marker = tool._wdb_marker_path(root)
+            self.assertTrue(os.path.isfile(marker))
+            with open(marker, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(data["type"], "empty_file_blocker")
+
+    def test_disabled_preserves_unowned_empty_wdb_file(self):
+        tool = self.make_tool(False)
+        with tempfile.TemporaryDirectory() as root:
+            wdb = os.path.join(root, "WDB")
+            open(wdb, "wb").close()
+
+            with mock.patch("setup_tool.messagebox.showwarning") as warning:
+                tool.configure_wdb_cache(root)
+
+            self.assertTrue(os.path.isfile(wdb))
+            warning.assert_called_once()
+
+    def test_disabled_removes_owned_empty_blocker(self):
+        tool = self.make_tool(False)
+        with tempfile.TemporaryDirectory() as root:
+            wdb = os.path.join(root, "WDB")
+            open(wdb, "wb").close()
+            tool._write_wdb_marker(root)
+
+            tool.configure_wdb_cache(root)
+
+            self.assertFalse(os.path.exists(wdb))
+            self.assertFalse(os.path.exists(tool._wdb_marker_path(root)))
+
+    def test_enabled_refuses_non_empty_foreign_wdb_file(self):
+        tool = self.make_tool(True)
+        with tempfile.TemporaryDirectory() as root:
+            wdb = os.path.join(root, "WDB")
+            with open(wdb, "wb") as handle:
+                handle.write(b"foreign")
+
+            with self.assertRaises(RuntimeError):
+                tool.configure_wdb_cache(root)
+
+            with open(wdb, "rb") as handle:
+                self.assertEqual(handle.read(), b"foreign")
+
+
+class ManagedPackageTests(unittest.TestCase):
+    def test_mpq_revision_and_magic_are_both_checked(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = os.path.join(root, "Data", "patch-N.mpq")
+            os.makedirs(os.path.dirname(target))
+            with open(target, "wb") as handle:
+                handle.write(b"MPQ test payload")
+
+            remote_packages._write_managed_manifest(
+                root,
+                "visual_darker_nights",
+                [os.path.join("Data", "patch-N.mpq")],
+                revision="1",
+            )
+
+            self.assertTrue(
+                remote_packages.managed_mpq_is_current(
+                    root,
+                    "visual_darker_nights",
+                    "1",
+                )
+            )
+            self.assertFalse(
+                remote_packages.managed_mpq_is_current(
+                    root,
+                    "visual_darker_nights",
+                    "2",
+                )
+            )
+
+            with open(target, "wb") as handle:
+                handle.write(b"BAD")
+            self.assertFalse(
+                remote_packages.managed_mpq_is_current(
+                    root,
+                    "visual_darker_nights",
+                    "1",
+                )
+            )
+
+    def test_transactional_sound_pack_rolls_back_all_files_and_manifest(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as src:
+            mod_id = "audio_test"
+            target_a = os.path.join(root, "Sound", "a.wav")
+            target_b = os.path.join(root, "Sound", "b.wav")
+            os.makedirs(os.path.dirname(target_a))
+            with open(target_a, "wb") as handle:
+                handle.write(b"old-a")
+            with open(target_b, "wb") as handle:
+                handle.write(b"old-b")
+
+            remote_packages._write_managed_manifest(
+                root,
+                mod_id,
+                [os.path.join("Sound", "a.wav"), os.path.join("Sound", "b.wav")],
+            )
+            _, manifest_path, _ = remote_packages._managed_locations(root, mod_id)
+            with open(manifest_path, "rb") as handle:
+                old_manifest = handle.read()
+
+            source_a = os.path.join(src, "a.wav")
+            source_b = os.path.join(src, "b.wav")
+            with open(source_a, "wb") as handle:
+                handle.write(b"new-a")
+            with open(source_b, "wb") as handle:
+                handle.write(b"new-b")
+
+            original_replace = remote_packages._atomic_replace_file
+            failure_triggered = False
+
+            def fail_once(source, target):
+                nonlocal failure_triggered
+                if (
+                    not failure_triggered
+                    and os.path.abspath(source) == os.path.abspath(source_b)
+                    and os.path.abspath(target) == os.path.abspath(target_b)
+                ):
+                    failure_triggered = True
+                    raise OSError("simulated locked file")
+                return original_replace(source, target)
+
+            with mock.patch(
+                "remote_packages._atomic_replace_file",
+                side_effect=fail_once,
+            ):
+                with self.assertRaises(remote_packages.RemotePackageError):
+                    remote_packages._install_managed_files_transactional(
+                        root,
+                        mod_id,
+                        [
+                            (source_a, os.path.join("Sound", "a.wav")),
+                            (source_b, os.path.join("Sound", "b.wav")),
+                        ],
+                    )
+
+            with open(target_a, "rb") as handle:
+                self.assertEqual(handle.read(), b"old-a")
+            with open(target_b, "rb") as handle:
+                self.assertEqual(handle.read(), b"old-b")
+            with open(manifest_path, "rb") as handle:
+                self.assertEqual(handle.read(), old_manifest)
+
+
+class PeValidationTests(unittest.TestCase):
+    def write_minimal_x86_pe(self, path):
+        data = bytearray(2048)
+        data[0:2] = b"MZ"
+        struct.pack_into("<I", data, 0x3C, 0x80)
+        data[0x80:0x84] = b"PE\0\0"
+        struct.pack_into("<H", data, 0x84, 0x014C)
+        struct.pack_into("<H", data, 0x84 + 16, 0xE0)
+        struct.pack_into("<H", data, 0x84 + 20, 0x010B)
+        with open(path, "wb") as handle:
+            handle.write(data)
+
+    def test_accepts_x86_pe_and_rejects_non_pe_download(self):
+        with tempfile.TemporaryDirectory() as root:
+            good = os.path.join(root, "good.dll")
+            bad = os.path.join(root, "bad.dll")
+            self.write_minimal_x86_pe(good)
+            with open(bad, "wb") as handle:
+                handle.write(b"<html>not a dll</html>" * 100)
+
+            remote_packages._verify_x86_pe(good, "good.dll")
+            with self.assertRaises(remote_packages.RemotePackageError):
+                remote_packages._verify_x86_pe(bad, "bad.dll")
+
+
+class SettingsRecoveryTests(unittest.TestCase):
+    def test_corrupt_settings_are_left_untouched_and_legacy_state_is_recovered(self):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool._loading_settings = False
+        tool._reset_settings_to_defaults = mock.Mock()
+        tool._load_legacy_install_state = mock.Mock()
+        tool._normalize_plugin_conflicts = mock.Mock(return_value=False)
+        tool.toggle_safety_limits = mock.Mock()
+        tool.update_superwow_managed_controls = mock.Mock()
+
+        with tempfile.TemporaryDirectory() as root:
+            settings_path = tool._settings_path(root)
+            os.makedirs(os.path.dirname(settings_path))
+            damaged = b"{ this is not valid json"
+            with open(settings_path, "wb") as handle:
+                handle.write(damaged)
+
+            with mock.patch("setup_tool.messagebox.showwarning") as warning:
+                loaded = tool.load_settings(root)
+
+            self.assertFalse(loaded)
+            self.assertFalse(tool._loading_settings)
+            self.assertEqual(tool._reset_settings_to_defaults.call_count, 2)
+            tool._load_legacy_install_state.assert_called_once_with(root)
+            warning.assert_called_once()
+
+            with open(settings_path, "rb") as handle:
+                self.assertEqual(handle.read(), damaged)
+
+
+if __name__ == "__main__":
+    unittest.main()
