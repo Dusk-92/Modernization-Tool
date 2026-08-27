@@ -355,19 +355,32 @@ class WowSetupTool:
         # Create a frame with a scrollbar
         frame = ttk.Frame(parent)
         frame.pack(fill='both', expand=True, padx=10, pady=10)
-        
+
         scrollbar = ttk.Scrollbar(frame)
         scrollbar.pack(side='right', fill='y')
-        
+
         bg_color = self.root.cget('bg')
-        text_area = tk.Text(frame, wrap='word', yscrollcommand=scrollbar.set, bg=bg_color, relief='flat', font=("Segoe UI", 9))
+        text_area = tk.Text(
+            frame,
+            wrap='word',
+            yscrollcommand=scrollbar.set,
+            bg=bg_color,
+            relief='flat',
+            font=("Segoe UI", 9)
+        )
         text_area.pack(side='left', fill='both', expand=True)
         scrollbar.config(command=text_area.yview)
 
         # Configure Text Tags for formatting
-        text_area.tag_configure("header", font=("Segoe UI", 10, "bold"), spacing1=10, spacing3=5, foreground="#333333")
+        text_area.tag_configure(
+            "header",
+            font=("Segoe UI", 10, "bold"),
+            spacing1=10,
+            spacing3=5,
+            foreground="#333333"
+        )
         text_area.tag_configure("bold", font=("Segoe UI", 9, "bold"))
-        
+
         # Helper function to create clickable links
         def insert_link(text, url):
             tag_name = f"link_{url}"
@@ -377,49 +390,87 @@ class WowSetupTool:
             text_area.tag_bind(tag_name, "<Leave>", lambda e: text_area.config(cursor="arrow"))
             text_area.insert("end", text, tag_name)
 
-        # Content Insertion
-        text_area.insert("end", "This modernization tool packages the incredible work of several open-source developers. If you wish to manually compile these tools or learn more about how they work, please visit their respective repositories below.\n", "")
-        
-        # Core Engine & Performance Modifications
-        text_area.insert("end", "\nCore Engine & Performance Modifications\n", "header")
+        text_area.insert(
+            "end",
+            "This modernization tool brings together work from several community projects and developers. "
+            "Use the links below to view the original sources, documentation and releases.\n",
+            ""
+        )
+
+        # Rendering & executable patching
+        text_area.insert("end", "\nRendering & Client Patching\n", "header")
         text_area.insert("end", "• VanillaFixes: ", "bold")
         insert_link("Source Repository", "https://github.com/hannesmann/vanillafixes")
-        text_area.insert("end", "\n• VanillaHelpers: ", "bold")
+
+        text_area.insert("end", "\n• DXVK: ", "bold")
+        insert_link("Source Repository", "https://github.com/doitsujin/dxvk")
+
+        text_area.insert("end", "\n• Vanilla Tweaks: ", "bold")
+        insert_link("Source Repository", "https://github.com/brndd/vanilla-tweaks")
+
+        # Core engine & API plugins
+        text_area.insert("end", "\n\nCore Engine & API Plugins\n", "header")
+        text_area.insert("end", "• VanillaHelpers: ", "bold")
         insert_link("Source Repository", "https://github.com/isfir/VanillaHelpers")
+
         text_area.insert("end", "\n• PerfBoost: ", "bold")
         insert_link("Mod Source", "https://github.com/Dusk-92/perf_boost")
         text_area.insert("end", " | ")
         insert_link("Addon Source", "https://gitea.com/avitasia/PerfBoostSettings")
-        text_area.insert("end", "\n• UnitXP_SP3: ", "bold")
-        insert_link("Mod Source", "https://codeberg.org/konaka/UnitXP_SP3")
-        text_area.insert("end", " | ")
-        insert_link("Addon Source", "https://codeberg.org/konaka/UnitXP_SP3_Addon")
-        text_area.insert("end", "\n• no1600x1200: ", "bold")
-        text_area.insert("end", "Legacy File\n")
 
-        # Gameplay & Interface Enhancements
-        text_area.insert("end", "\nGameplay & Interface Enhancements\n", "header")
-        text_area.insert("end", "• Nampower v4.6.2: ", "bold")
-        insert_link("Mod Source", "https://github.com/Emyrk/nampower")
-        text_area.insert("end", " | ")
-        insert_link("Addon Source", "https://github.com/Emyrk/NampowerSettings")
+        text_area.insert("end", "\n• UnitXP_SP3: ", "bold")
+        insert_link("Source Repository", "https://github.com/brues-code/UnitXP_SP3")
+        text_area.insert("end", "  (DLL + UnitXP_SP3_Addon are distributed together in releases)")
+
         text_area.insert("end", "\n• SuperWoW: ", "bold")
         insert_link("Mod Source", "https://github.com/balakethelock/SuperWoW")
         text_area.insert("end", " | ")
-        insert_link("Addon Source", "https://github.com/balakethelock/SuperAPI")
-        text_area.insert("end", "\n• Vanilla-Autologin: ", "bold")
+        insert_link("SuperAPI Addon", "https://github.com/balakethelock/SuperAPI")
+
+        text_area.insert("end", "\n• ClassicAPI: ", "bold")
+        insert_link("Source Repository", "https://github.com/brues-code/ClassicAPI")
+
+        text_area.insert("end", "\n• AuctionQueryThrottle: ", "bold")
+        insert_link("Source Repository", "https://github.com/brues-code/AuctionQueryThrottle")
+
+        text_area.insert("end", "\n• Nampower v4.6.2: ", "bold")
+        insert_link("Mod Source", "https://github.com/Emyrk/nampower")
+        text_area.insert("end", " | ")
+        insert_link("Addon Source", "https://github.com/Emyrk/NampowerSettings")
+
+        text_area.insert("end", "\n• no1600x1200.dll: ", "bold")
+        text_area.insert("end", "Legacy file (no upstream repository currently referenced by this tool)")
+
+        # Other bundled enhancements
+        text_area.insert("end", "\n\nOther Bundled Enhancements\n", "header")
+        text_area.insert("end", "• Vanilla-Autologin: ", "bold")
         insert_link("Source Repository", "https://github.com/MarcelineVQ/turtle-autologin")
 
-        # WeirdUtils Module Breakdown
+        # WeirdUtils
         text_area.insert("end", "\n\nWeirdUtils Suite\n", "header")
-        text_area.insert("end", "A modular suite of advanced quality-of-life scripts handling World Markers, Minimap Icons, PNG Screenshots, Transmog Fixing, and deep-engine optimizations. Due to the deeply rooted memory hooks used in these files, they are distributed as pre-compiled, closed-source binaries to prevent trivial exploitation by bad actors.\n\n")
+        text_area.insert(
+            "end",
+            "The tool bundles or exposes these WeirdUtils modules: "
+            "weirdperformance.dll, transmogfix.dll, bigcursor.dll, customassets.dll, "
+            "logsessions.dll, minimapicons.dll, pngscreenshots.dll and worldmarkers.dll.\n"
+        )
+        text_area.insert(
+            "end",
+            "Some WeirdUtils components are distributed as pre-compiled binaries; see the project page "
+            "for documentation and releases.\n\n"
+        )
         text_area.insert("end", "• WeirdUtils Documentation & Releases: ", "bold")
-        insert_link("Source Repository", "https://codeberg.org/MarcelineVQ/WeirdUtils")
+        insert_link("Project Repository", "https://codeberg.org/MarcelineVQ/WeirdUtils")
+
+        # This tool
+        text_area.insert("end", "\n\nModernization Tool\n", "header")
+        text_area.insert("end", "• WoW Modernization Tool: ", "bold")
+        insert_link("Project Repository", "https://github.com/Dusk-92/Modernization-Tool")
         text_area.insert("end", "\n")
 
-        # Lock text area to prevent the user from typing in it
+        # Lock text area to prevent editing
         text_area.config(state='disabled')
-    
+
 
     def validate_installation_dir(self, target_dir):
         """Checks if the directory exists and contains necessary WoW components."""
