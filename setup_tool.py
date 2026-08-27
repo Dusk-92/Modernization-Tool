@@ -1450,6 +1450,86 @@ oLink.Save
                 if os.path.exists(path):
                     os.remove(path)
 
+    def _managed_dll_entries(self):
+        """Return every dlls.txt entry owned by this tool."""
+        managed = {"dxvk"}
+        managed.update(name.casefold() for name in self.core_plugins)
+        managed.update(name.casefold() for name in self.optional_plugins)
+        managed.update(
+            name.casefold()
+            for name in (
+                "ClassicAPI.dll",
+                "AuctionQueryThrottle.dll",
+                "VanillaMultiMonitorFix.dll",
+                "Interact.dll",
+            )
+        )
+        return managed
+
+    def _write_dlls_file(self, target, active_managed_lines):
+        """Rewrite only tool-owned dlls.txt entries and preserve user entries."""
+        dlls_path = os.path.join(target, "dlls.txt")
+        managed_names = self._managed_dll_entries()
+        preserved = []
+        seen_preserved = set()
+
+        if os.path.isfile(dlls_path):
+            try:
+                with open(dlls_path, "r", encoding="utf-8", errors="ignore") as handle:
+                    existing_lines = handle.read().splitlines()
+            except OSError as exc:
+                raise RuntimeError(f"Could not read existing dlls.txt: {exc}") from exc
+
+            for raw_line in existing_lines:
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+
+                # Preserve comments exactly; they may document manual plugins.
+                if stripped.startswith(("#", ";")):
+                    preserved.append(raw_line.rstrip())
+                    continue
+
+                if stripped.casefold() in managed_names:
+                    continue
+
+                # Preserve unknown/manual entries once, case-insensitively.
+                key = stripped.casefold()
+                if key not in seen_preserved:
+                    preserved.append(raw_line.rstrip())
+                    seen_preserved.add(key)
+
+        active = []
+        seen_active = set()
+        for line in active_managed_lines:
+            stripped = str(line).strip()
+            if not stripped:
+                continue
+            key = stripped.casefold()
+            if key not in seen_active:
+                active.append(stripped)
+                seen_active.add(key)
+
+        output_lines = list(active)
+        if output_lines and preserved:
+            output_lines.append("")
+        output_lines.extend(preserved)
+
+        staged = dlls_path + ".modernization-new"
+        try:
+            with open(staged, "w", encoding="utf-8", newline="\n") as handle:
+                if output_lines:
+                    handle.write("\n".join(output_lines) + "\n")
+            os.replace(staged, dlls_path)
+        except OSError as exc:
+            raise RuntimeError(f"Could not update dlls.txt: {exc}") from exc
+        finally:
+            if os.path.exists(staged):
+                try:
+                    os.remove(staged)
+                except OSError:
+                    pass
+
     def configure_plugins(self, target):
         payload_base = os.path.join(get_base_path(), "Payload")
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
@@ -1482,9 +1562,8 @@ oLink.Save
                     shutil.copy2(source_dll, target)
                 dlls_text_lines.append(dll_name)
 
-        # Write active dlls to dlls.txt
-        with open(os.path.join(target, "dlls.txt"), "w") as f:
-            f.write("\n".join(dlls_text_lines))
+        # Update only entries owned by this tool. Unknown/manual lines are kept.
+        self._write_dlls_file(target, dlls_text_lines)
 
     def run_vanilla_tweaks(self, target, tweaks_exe=None, modern_cli=False):
         """Patch a copy of WoW.exe while preserving the original executable."""
