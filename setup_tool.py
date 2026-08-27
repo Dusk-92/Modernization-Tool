@@ -217,6 +217,11 @@ class WowSetupTool:
         self.on_ratio_change() 
         self.build_ui()
 
+        # Snapshot the clean application defaults after every variable and
+        # subclass-provided option exists. Each WoW folder is loaded from this
+        # baseline so settings from one installation cannot leak into another.
+        self._default_settings = self._collect_settings()
+
         # Settings are stored per WoW installation. Loading on path selection
         # means a newer copy of the tool can immediately restore the choices
         # made by an older copy.
@@ -422,81 +427,140 @@ class WowSetupTool:
         elif os.path.isdir(wdb_path):
             self.vt_clear_wdb.set(False)
 
+    def _apply_settings_dict(self, saved):
+        if not isinstance(saved, dict):
+            raise ValueError("settings root must be a JSON object")
+
+        rendering = saved.get("rendering_mode")
+        if rendering in ("directx9", "dxvk"):
+            self.rendering_mode.set(rendering)
+
+        if isinstance(saved.get("install_autologin"), bool):
+            self.install_autologin.set(saved["install_autologin"])
+
+        self._set_bool_mapping(saved.get("core_plugins"), self.core_plugins)
+        self._set_bool_mapping(saved.get("optional_plugins"), self.optional_plugins)
+        self._set_bool_mapping(saved.get("visual_mods"), self.visual_mods)
+        self._set_bool_mapping(saved.get("audio_mods"), self.audio_mods)
+
+        live = saved.get("live_plugins")
+        if isinstance(live, dict):
+            for name, value in live.items():
+                var = getattr(self, name, None)
+                if var is not None and isinstance(value, bool):
+                    var.set(value)
+
+        tweaks = saved.get("vanilla_tweaks")
+        if isinstance(tweaks, dict):
+            ratio = tweaks.get("ratio")
+            if isinstance(ratio, str) and ratio in self.ratio_options:
+                self.ratio_var.set(ratio)
+
+            numeric = (
+                ("fov", self.vt_fov, float),
+                ("farclip", self.vt_farclip, int),
+                ("frill", self.vt_frill, int),
+                ("nameplate", self.vt_nameplate, int),
+                ("sound_channels", self.vt_soundchan, int),
+                ("max_camera", self.vt_maxcam, int),
+            )
+            for key, var, converter in numeric:
+                value = tweaks.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    var.set(converter(value))
+
+            boolean = (
+                ("quickloot", self.vt_quickloot),
+                ("background_sound", self.vt_bg_sound),
+                ("laa", self.vt_laa),
+                ("camera_fix", self.vt_cam_fix),
+                ("dep_fix", self.vt_dep_fix),
+                ("script_memory", self.vt_script_memory),
+                ("crossfaction_res", self.vt_crossfaction_res),
+                ("custom_glues", self.vt_custom_glues),
+                ("bluemoon", self.vt_bluemoon),
+                ("clear_wdb", self.vt_clear_wdb),
+                ("safety_override", self.safety_override),
+            )
+            for key, var in boolean:
+                value = tweaks.get(key)
+                if isinstance(value, bool):
+                    var.set(value)
+
+    def _reset_settings_to_defaults(self):
+        defaults = getattr(self, "_default_settings", None)
+        if isinstance(defaults, dict):
+            self._apply_settings_dict(defaults)
+
+    def _normalize_plugin_conflicts(self):
+        """Resolve impossible states created by old/corrupt settings files."""
+        no1600 = self.optional_plugins.get("no1600x1200.dll")
+        vmmfix = getattr(self, "vmmfix_enabled", None)
+        if no1600 is not None and vmmfix is not None and no1600.get() and vmmfix.get():
+            # VMMFix is the more complete monitor/resolution fix. Prefer it when
+            # legacy state incorrectly claims both mutually exclusive options.
+            no1600.set(False)
+            return True
+        return False
+
+    def validate_plugin_conflicts(self):
+        """Last-line safety check independent of checkbox callbacks/settings."""
+        no1600 = self.optional_plugins.get("no1600x1200.dll")
+        vmmfix = getattr(self, "vmmfix_enabled", None)
+        if no1600 is not None and vmmfix is not None and no1600.get() and vmmfix.get():
+            messagebox.showerror(
+                "Plugin conflict",
+                "no1600x1200 and VanillaMultiMonitorFix cannot be enabled together.\n\n"
+                "Disable one of them before applying the setup.",
+            )
+            return False
+        return True
+
     def load_settings(self, target_dir):
         settings_path = self._settings_path(target_dir)
         self._loading_settings = True
+        recovered_from_damage = False
+
         try:
+            # Always start from clean defaults. This prevents values from a
+            # previously selected WoW directory leaking into this installation.
+            self._reset_settings_to_defaults()
+
             if not os.path.isfile(settings_path):
                 self._load_legacy_install_state(target_dir)
+                self._normalize_plugin_conflicts()
+                self.toggle_safety_limits()
+                self.update_superwow_managed_controls()
                 return False
 
-            with open(settings_path, "r", encoding="utf-8") as handle:
-                saved = json.load(handle)
-            if not isinstance(saved, dict):
-                return False
+            try:
+                with open(settings_path, "r", encoding="utf-8") as handle:
+                    saved = json.load(handle)
+                if not isinstance(saved, dict):
+                    raise ValueError("settings root must be a JSON object")
+                self._apply_settings_dict(saved)
+            except (OSError, json.JSONDecodeError, ValueError, TypeError, tk.TclError):
+                # Keep the damaged file untouched for manual recovery/debugging.
+                # Recover only what can safely be inferred from the WoW folder.
+                self._reset_settings_to_defaults()
+                self._load_legacy_install_state(target_dir)
+                recovered_from_damage = True
 
-            rendering = saved.get("rendering_mode")
-            if rendering in ("directx9", "dxvk"):
-                self.rendering_mode.set(rendering)
-
-            if isinstance(saved.get("install_autologin"), bool):
-                self.install_autologin.set(saved["install_autologin"])
-
-            self._set_bool_mapping(saved.get("core_plugins"), self.core_plugins)
-            self._set_bool_mapping(saved.get("optional_plugins"), self.optional_plugins)
-            self._set_bool_mapping(saved.get("visual_mods"), self.visual_mods)
-            self._set_bool_mapping(saved.get("audio_mods"), self.audio_mods)
-
-            live = saved.get("live_plugins")
-            if isinstance(live, dict):
-                for name, value in live.items():
-                    var = getattr(self, name, None)
-                    if var is not None and isinstance(value, bool):
-                        var.set(value)
-
-            tweaks = saved.get("vanilla_tweaks")
-            if isinstance(tweaks, dict):
-                ratio = tweaks.get("ratio")
-                if isinstance(ratio, str) and ratio in self.ratio_options:
-                    self.ratio_var.set(ratio)
-
-                numeric = (
-                    ("fov", self.vt_fov, float),
-                    ("farclip", self.vt_farclip, int),
-                    ("frill", self.vt_frill, int),
-                    ("nameplate", self.vt_nameplate, int),
-                    ("sound_channels", self.vt_soundchan, int),
-                    ("max_camera", self.vt_maxcam, int),
-                )
-                for key, var, converter in numeric:
-                    value = tweaks.get(key)
-                    if isinstance(value, (int, float)) and not isinstance(value, bool):
-                        var.set(converter(value))
-
-                boolean = (
-                    ("quickloot", self.vt_quickloot),
-                    ("background_sound", self.vt_bg_sound),
-                    ("laa", self.vt_laa),
-                    ("camera_fix", self.vt_cam_fix),
-                    ("dep_fix", self.vt_dep_fix),
-                    ("script_memory", self.vt_script_memory),
-                    ("crossfaction_res", self.vt_crossfaction_res),
-                    ("custom_glues", self.vt_custom_glues),
-                    ("bluemoon", self.vt_bluemoon),
-                    ("clear_wdb", self.vt_clear_wdb),
-                    ("safety_override", self.safety_override),
-                )
-                for key, var in boolean:
-                    value = tweaks.get(key)
-                    if isinstance(value, bool):
-                        var.set(value)
-
+            self._normalize_plugin_conflicts()
             self.toggle_safety_limits()
             self.update_superwow_managed_controls()
+
+            if recovered_from_damage:
+                messagebox.showwarning(
+                    "Settings recovery",
+                    "The saved Modernization Tool settings for this WoW folder could not be read.\n\n"
+                    "The file was left untouched. Installed components were detected where possible, "
+                    "and defaults were used for options that cannot be inferred. Review the choices "
+                    "before clicking Apply.",
+                )
+                return False
+
             return True
-        except (OSError, json.JSONDecodeError, ValueError, tk.TclError):
-            # A damaged settings file must never stop the tool from opening.
-            return False
         finally:
             self._loading_settings = False
 
@@ -1296,6 +1360,10 @@ class WowSetupTool:
 
         # 2. Validate Bounds
         if not self.validate_limits():
+            return
+
+        # 3. Validate plugin combinations independently of UI callbacks.
+        if not self.validate_plugin_conflicts():
             return
 
         try:
