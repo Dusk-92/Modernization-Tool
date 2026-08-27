@@ -178,7 +178,7 @@ class WowSetupTool:
         self.vt_script_memory = tk.BooleanVar(value=True)
         self.vt_crossfaction_res = tk.BooleanVar(value=False)
         self.vt_custom_glues = tk.BooleanVar(value=True)
-        self.vt_bluemoon = tk.BooleanVar(value=True)
+        self.vt_bluemoon = tk.BooleanVar(value=False)
         
         # Safety Limit Toggle
         self.safety_override = tk.BooleanVar(value=False)
@@ -218,12 +218,25 @@ class WowSetupTool:
                           command=lambda s, v=var: v.set(int(float(s))))
         scale.grid(row=row, column=1, sticky='ew', padx=15, pady=5)
         
-        ttk.Entry(parent, textvariable=var, width=8).grid(row=row, column=2, sticky='e', pady=5)
+        entry = ttk.Entry(parent, textvariable=var, width=8)
+        entry.grid(row=row, column=2, sticky='e', pady=5)
 
         self.slider_widgets.append((scale, safe_max, extreme_max, var))
+        return lbl, scale, entry
 
     def build_ui(self):
-        ttk.Label(self.root, text="💡 Hover your mouse over any setting or plugin for a detailed explanation.", foreground="#005A9E", font=("Segoe UI", 9, "bold")).pack(pady=(8, 0))
+        help_banner = tk.Label(
+            self.root,
+            text="💡  HOVER FOR HELP — Move your mouse over any setting or plugin to see what it does.",
+            background="#EAF4FF",
+            foreground="#005A9E",
+            font=("Segoe UI", 10, "bold"),
+            relief="solid",
+            borderwidth=1,
+            padx=10,
+            pady=6,
+        )
+        help_banner.pack(fill="x", padx=10, pady=(8, 2))
 
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill='both', expand=True, padx=10, pady=(5, 10))
@@ -302,23 +315,78 @@ class WowSetupTool:
             cb.pack(anchor='w', padx=10, pady=4)
             ToolTip(cb, self.descriptions.get(dll, "")) 
 
+    def _superwow_enabled(self):
+        var = self.core_plugins.get("SuperWoWhook.dll")
+        return bool(var is not None and var.get())
+
+    def update_superwow_managed_controls(self):
+        """Disable vanilla-tweaks controls that SuperWoW already handles."""
+        active = self._superwow_enabled()
+
+        if hasattr(self, "superwow_notice"):
+            if active:
+                self.superwow_notice.configure(
+                    text="✓ SuperWoW enabled — FoV, Sound Channels, Auto-loot and Background sounds are handled by SuperWoW. Their vanilla-tweaks patches are skipped.",
+                    background="#EAF4FF",
+                    foreground="#005A9E",
+                )
+            else:
+                self.superwow_notice.configure(
+                    text="SuperWoW disabled — FoV, Sound Channels, Auto-loot and Background sounds are controlled by vanilla-tweaks.",
+                    background="#F4F4F4",
+                    foreground="#444444",
+                )
+
+        if hasattr(self, "fov_ratio_combo"):
+            self.fov_ratio_combo.configure(state="disabled" if active else "readonly")
+        if hasattr(self, "fov_entry"):
+            self.fov_entry.configure(state="disabled" if active else "normal")
+        if hasattr(self, "sound_scale"):
+            self.sound_scale.configure(state="disabled" if active else "normal")
+        if hasattr(self, "sound_entry"):
+            self.sound_entry.configure(state="disabled" if active else "normal")
+        if hasattr(self, "cb_loot"):
+            self.cb_loot.configure(state="disabled" if active else "normal")
+        if hasattr(self, "cb_bg"):
+            self.cb_bg.configure(state="disabled" if active else "normal")
+
     def build_tweaks_tab(self, parent):
+        self.superwow_notice = tk.Label(
+            parent,
+            text="",
+            background="#EAF4FF",
+            foreground="#005A9E",
+            font=("Segoe UI", 9, "bold"),
+            relief="solid",
+            borderwidth=1,
+            padx=8,
+            pady=4,
+            anchor="w",
+            justify="left",
+            wraplength=620,
+        )
+        self.superwow_notice.pack(fill="x", padx=10, pady=(5, 2))
+
         fov_frame = ttk.LabelFrame(parent, text="Field of View (FoV) Calculator")
         fov_frame.pack(fill='x', padx=10, pady=5)
 
         ttk.Label(fov_frame, text="Screen Aspect Ratio:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
-        ratio_combo = ttk.Combobox(fov_frame, textvariable=self.ratio_var, values=list(self.ratio_options.keys()), state="readonly", width=28)
-        ratio_combo.grid(row=0, column=1, padx=5, pady=5, sticky='w')
-        ratio_combo.bind("<<ComboboxSelected>>", self.on_ratio_change)
+        self.fov_ratio_combo = ttk.Combobox(
+            fov_frame,
+            textvariable=self.ratio_var,
+            values=list(self.ratio_options.keys()),
+            state="readonly",
+            width=28
+        )
+        self.fov_ratio_combo.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+        self.fov_ratio_combo.bind("<<ComboboxSelected>>", self.on_ratio_change)
 
         fov_lbl = ttk.Label(fov_frame, text="Calculated FoV (Radians) [Safe Max: 2.268]:")
         fov_lbl.grid(row=1, column=0, padx=5, pady=5, sticky='w')
         ToolTip(fov_lbl, self.descriptions["fov"])
         
-        ttk.Entry(fov_frame, textvariable=self.vt_fov, width=15).grid(row=1, column=1, padx=5, pady=5, sticky='w')
-
-        warn_text = "* Note: If SuperWoW is active, it natively overrides FoV scaling. This setting is a backup for Vanilla Tweaks."
-        ttk.Label(fov_frame, text=warn_text, font=("", 8, "italic"), wraplength=520).grid(row=2, column=0, columnspan=2, padx=5, pady=(0, 5), sticky='w')
+        self.fov_entry = ttk.Entry(fov_frame, textvariable=self.vt_fov, width=15)
+        self.fov_entry.grid(row=1, column=1, padx=5, pady=5, sticky='w')
 
         style = ttk.Style()
         style.configure("Warning.TCheckbutton", foreground="red")
@@ -334,20 +402,23 @@ class WowSetupTool:
         self.create_slider_row(frame_nums, 1, "Ground clutter (Frilldistance) [Safe Max: 300]:", self.vt_frill, 70, 300, 1000, "frill")
         self.create_slider_row(frame_nums, 2, "Nameplate range [Safe Max: 41]:", self.vt_nameplate, 20, 41, 150, "nameplate")
         self.create_slider_row(frame_nums, 3, "Camera distance [Safe Max: 100]:", self.vt_maxcam, 50, 100, 250, "cam")
-        self.create_slider_row(frame_nums, 4, "Sound Channels [Safe Max: 64]:", self.vt_soundchan, 12, 64, 128, "sound")
+        _, self.sound_scale, self.sound_entry = self.create_slider_row(
+            frame_nums, 4, "Sound Channels [Safe Max: 64]:",
+            self.vt_soundchan, 12, 64, 128, "sound"
+        )
 
         ttk.Label(parent, text="Patch Toggles:").pack(anchor='w', pady=(5,0), padx=10)
         
         toggles_frame = ttk.Frame(parent)
         toggles_frame.pack(fill='x', padx=10)
         
-        cb_loot = ttk.Checkbutton(toggles_frame, text="Always auto-loot", variable=self.vt_quickloot)
-        cb_loot.grid(row=0, column=0, sticky='w', padx=10, pady=2)
-        ToolTip(cb_loot, self.descriptions["loot"])
+        self.cb_loot = ttk.Checkbutton(toggles_frame, text="Always auto-loot", variable=self.vt_quickloot)
+        self.cb_loot.grid(row=0, column=0, sticky='w', padx=10, pady=2)
+        ToolTip(self.cb_loot, self.descriptions["loot"])
 
-        cb_bg = ttk.Checkbutton(toggles_frame, text="Background sounds", variable=self.vt_bg_sound)
-        cb_bg.grid(row=0, column=1, sticky='w', padx=10, pady=2)
-        ToolTip(cb_bg, self.descriptions["bg_sound"])
+        self.cb_bg = ttk.Checkbutton(toggles_frame, text="Background sounds", variable=self.vt_bg_sound)
+        self.cb_bg.grid(row=0, column=1, sticky='w', padx=10, pady=2)
+        ToolTip(self.cb_bg, self.descriptions["bg_sound"])
         
         cb_laa = ttk.Checkbutton(toggles_frame, text="Large Address Aware (LAA)", variable=self.vt_laa)
         cb_laa.grid(row=1, column=0, sticky='w', padx=10, pady=2)
@@ -363,7 +434,7 @@ class WowSetupTool:
 
         cb_script_memory = ttk.Checkbutton(
             toggles_frame,
-            text="Unlimited AddOn Script Memory (0)",
+            text="Unlimited AddOn Script Memory",
             variable=self.vt_script_memory
         )
         cb_script_memory.grid(row=2, column=1, sticky='w', padx=10, pady=2)
@@ -392,6 +463,8 @@ class WowSetupTool:
         )
         cb_bluemoon.grid(row=4, column=0, sticky='w', padx=10, pady=2)
         ToolTip(cb_bluemoon, self.descriptions["bluemoon"])
+
+        self.update_superwow_managed_controls()
 
 
     def build_credits_tab(self, parent):
@@ -695,6 +768,7 @@ class WowSetupTool:
             
             # Generate the seamless launcher shortcut
             self.create_launcher_shortcut(target_dir)
+            self.cleanup_legacy_outputs(target_dir)
             
             messagebox.showinfo("Success", "Installation and patching complete!\n\nUse the new 'Play Modernized WoW' shortcut in your directory to launch the game.")
         except PermissionError as e:
@@ -707,6 +781,21 @@ class WowSetupTool:
             )
         except Exception as e:
             messagebox.showerror("Installation Error", str(e))
+
+    def cleanup_legacy_outputs(self, target_dir):
+        """Remove executable names produced by older Modernization Tool builds."""
+        modernized = os.path.join(target_dir, "WoW_Modernized.exe")
+        if not os.path.exists(modernized):
+            return
+
+        old_path = os.path.join(target_dir, "WoW_Tweaked.exe")
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                # A stale executable being locked should not make an otherwise
+                # successful modernization fail.
+                pass
 
     def create_launcher_shortcut(self, target_dir):
         """Automates creating the VanillaFixes shortcut targeting WoW_Modernized.exe"""
@@ -827,11 +916,12 @@ oLink.Save
             raise FileNotFoundError("vanilla-tweaks.exe was not found.")
 
         args = [tweaks_exe]
+        superwow_active = self._superwow_enabled()
 
         if modern_cli:
-            # tubtubs/vanilla-tweaks: several patches are opt-in rather than
-            # enabled-by-default, so use its current CLI explicitly.
-            if abs(self.vt_fov.get() - 1.5708) >= 0.0001:
+            # tubtubs/vanilla-tweaks keeps these four patches opt-in. When
+            # SuperWoW is active, deliberately leave them unpatched.
+            if not superwow_active and abs(self.vt_fov.get() - 1.5708) >= 0.0001:
                 args.extend(["--fov", str(self.vt_fov.get()), "--fov-patch"])
 
             if self.vt_farclip.get() == 777:
@@ -849,7 +939,7 @@ oLink.Save
             else:
                 args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
 
-            if self.vt_soundchan.get() != 12:
+            if not superwow_active and self.vt_soundchan.get() != 12:
                 args.extend([
                     "--soundchannels",
                     str(self.vt_soundchan.get()),
@@ -859,9 +949,9 @@ oLink.Save
             if self.vt_maxcam.get() != 50:
                 args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
 
-            if self.vt_quickloot.get():
+            if not superwow_active and self.vt_quickloot.get():
                 args.append("--quickloot")
-            if self.vt_bg_sound.get():
+            if not superwow_active and self.vt_bg_sound.get():
                 args.append("--sound-in-background")
             if not self.vt_laa.get():
                 args.append("--no-largeaddressaware")
@@ -874,11 +964,30 @@ oLink.Save
             if not self.vt_bluemoon.get():
                 args.append("--no-bluemoonpatch")
         else:
-            # Legacy bundled brndd patcher kept only as an offline fallback.
-            if abs(self.vt_fov.get() - 1.5708) < 0.0001:
-                args.append("--no-fov")
+            # Legacy bundled brndd patcher enables these older patches by
+            # default, so explicitly disable all four when SuperWoW handles them.
+            if superwow_active:
+                args.extend([
+                    "--no-fov",
+                    "--no-soundchannels",
+                    "--no-quickloot",
+                    "--no-sound-in-background",
+                ])
             else:
-                args.extend(["--fov", str(self.vt_fov.get())])
+                if abs(self.vt_fov.get() - 1.5708) < 0.0001:
+                    args.append("--no-fov")
+                else:
+                    args.extend(["--fov", str(self.vt_fov.get())])
+
+                if self.vt_soundchan.get() == 12:
+                    args.append("--no-soundchannels")
+                else:
+                    args.extend(["--soundchannels", str(self.vt_soundchan.get())])
+
+                if not self.vt_quickloot.get():
+                    args.append("--no-quickloot")
+                if not self.vt_bg_sound.get():
+                    args.append("--no-sound-in-background")
 
             if self.vt_farclip.get() == 777:
                 args.append("--no-farclip")
@@ -895,18 +1004,9 @@ oLink.Save
             else:
                 args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
 
-            if self.vt_soundchan.get() == 12:
-                args.append("--no-soundchannels")
-            else:
-                args.extend(["--soundchannels", str(self.vt_soundchan.get())])
-
             if self.vt_maxcam.get() != 50:
                 args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
 
-            if not self.vt_quickloot.get():
-                args.append("--no-quickloot")
-            if not self.vt_bg_sound.get():
-                args.append("--no-sound-in-background")
             if not self.vt_laa.get():
                 args.append("--no-largeaddressaware")
             if not self.vt_cam_fix.get():
