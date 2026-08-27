@@ -180,8 +180,7 @@ class ModernWowSetupTool(WowSetupTool):
         cb_classicapi.pack(anchor="w", padx=10, pady=4)
         ToolTip(
             cb_classicapi,
-            "Downloads and installs the latest stable ClassicAPI.dll release from "
-            "brues-code/ClassicAPI when setup is applied.",
+            "Adds newer WoW API functions to the Vanilla client so more modern addons can work.",
         )
 
         cb_auction = ttk.Checkbutton(
@@ -192,8 +191,7 @@ class ModernWowSetupTool(WowSetupTool):
         cb_auction.pack(anchor="w", padx=10, pady=4)
         ToolTip(
             cb_auction,
-            "Downloads and installs the latest stable AuctionQueryThrottle.dll release "
-            "from brues-code/AuctionQueryThrottle when setup is applied.",
+            "Makes Auction House searches much faster by removing the fixed 5-second wait between queries.",
         )
 
         right_frame = ttk.LabelFrame(container, text="Optional WeirdUtils")
@@ -267,7 +265,7 @@ class ModernWowSetupTool(WowSetupTool):
         payload_weirdu = os.path.join(payload_base, "WeirdUtils")
 
         dlls_text_lines = []
-        if self.gpu_type.get() != "AMD":
+        if self.rendering_mode.get() == "dxvk":
             dlls_text_lines.append("dxvk")
 
         try:
@@ -278,7 +276,34 @@ class ModernWowSetupTool(WowSetupTool):
                 if not var.get():
                     continue
 
-                if dll_name == "UnitXP_SP3.dll":
+                if dll_name == "nampower.dll":
+                    try:
+                        remote_packages.install_nampower(
+                            target,
+                            progress=self._report_download_progress,
+                        )
+                    except Exception as exc:
+                        self._fallback_core_dll(payload_base, target, dll_name, exc)
+
+                elif dll_name == "no1600x1200.dll":
+                    try:
+                        remote_packages.install_no1600x1200(
+                            target,
+                            progress=self._report_download_progress,
+                        )
+                    except Exception as exc:
+                        self._fallback_core_dll(payload_base, target, dll_name, exc)
+
+                elif dll_name == "VanillaHelpers.dll":
+                    try:
+                        remote_packages.install_vanillahelpers(
+                            target,
+                            progress=self._report_download_progress,
+                        )
+                    except Exception as exc:
+                        self._fallback_core_dll(payload_base, target, dll_name, exc)
+
+                elif dll_name == "UnitXP_SP3.dll":
                     try:
                         remote_packages.install_unitxp(
                             target,
