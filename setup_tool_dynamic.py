@@ -17,6 +17,8 @@ class ModernWowSetupTool(WowSetupTool):
         self.auction_throttle_enabled = tk.BooleanVar(master=root, value=False)
         self._download_window = None
         self._download_label = None
+        self._download_detail = None
+        self._download_percent = None
         self._download_bar = None
         self._download_indeterminate = False
         super().__init__(root)
@@ -26,44 +28,78 @@ class ModernWowSetupTool(WowSetupTool):
             return
 
         win = tk.Toplevel(self.root)
-        win.title("Downloading updates")
+        win.title("Updating components")
         win.resizable(False, False)
         win.transient(self.root)
         win.protocol("WM_DELETE_WINDOW", lambda: None)
 
-        frame = ttk.Frame(win, padding=14)
+        frame = ttk.Frame(win, padding=18)
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(0, weight=1)
+
+        title = ttk.Label(
+            frame,
+            text="Updating selected components",
+            font=("Segoe UI", 11, "bold"),
+            anchor="w",
+        )
+        title.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
 
         self._download_label = ttk.Label(
             frame,
             text="Preparing updates...",
+            font=("Segoe UI", 9, "bold"),
             anchor="w",
-            width=54,
         )
-        self._download_label.pack(fill="x", pady=(0, 10))
+        self._download_label.grid(row=1, column=0, sticky="w", pady=(0, 4))
+
+        self._download_percent = ttk.Label(
+            frame,
+            text="",
+            font=("Segoe UI", 9, "bold"),
+            anchor="e",
+            width=6,
+        )
+        self._download_percent.grid(row=1, column=1, sticky="e", pady=(0, 4))
+
+        self._download_detail = ttk.Label(
+            frame,
+            text="Please wait while files are downloaded and installed.",
+            anchor="w",
+            foreground="#666666",
+        )
+        self._download_detail.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         self._download_bar = ttk.Progressbar(
             frame,
             orient="horizontal",
             mode="indeterminate",
-            length=390,
+            length=460,
         )
-        self._download_bar.pack(fill="x")
+        self._download_bar.grid(row=3, column=0, columnspan=2, sticky="ew")
+
+        self._download_window = win
 
         win.update_idletasks()
-        width = max(win.winfo_width(), 430)
-        height = max(win.winfo_height(), 105)
+        width = max(win.winfo_reqwidth(), 520)
+        height = max(win.winfo_reqheight(), 155)
         x = self.root.winfo_rootx() + max((self.root.winfo_width() - width) // 2, 0)
         y = self.root.winfo_rooty() + max((self.root.winfo_height() - height) // 2, 0)
         win.geometry(f"{width}x{height}+{x}+{y}")
+        win.lift()
 
-        self._download_window = win
+        # update(), not only update_idletasks(), is intentional here: downloads
+        # run synchronously on the main thread, so Windows otherwise paints an
+        # empty Toplevel until the operation completes.
+        win.update()
 
     def _report_download_progress(self, message, current=None, total=None):
         self._show_download_progress()
 
         if self._download_window is None or not self._download_window.winfo_exists():
             return
+
+        self._download_label.configure(text=message)
 
         if total is not None and total > 0 and current is not None:
             if self._download_indeterminate:
@@ -73,16 +109,29 @@ class ModernWowSetupTool(WowSetupTool):
             self._download_bar.configure(mode="determinate", maximum=total)
             self._download_bar["value"] = min(current, total)
             percent = int(min(current, total) * 100 / total)
-            self._download_label.configure(text=f"{message} — {percent}%")
+            self._download_percent.configure(text=f"{percent}%")
+
+            downloaded_mb = current / (1024 * 1024)
+            total_mb = total / (1024 * 1024)
+            self._download_detail.configure(
+                text=f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB"
+            )
         else:
-            self._download_label.configure(text=message)
+            self._download_percent.configure(text="")
+            self._download_detail.configure(
+                text="Checking, extracting or installing..."
+            )
             if not self._download_indeterminate:
                 self._download_bar.configure(mode="indeterminate")
                 self._download_bar.start(12)
                 self._download_indeterminate = True
 
-        self._download_window.update_idletasks()
-        self.root.update_idletasks()
+        # Process paint/timer events while the synchronous network operation is
+        # running so the status text and progress bar remain visible.
+        try:
+            self._download_window.update()
+        except tk.TclError:
+            pass
 
     def _close_download_progress(self):
         if self._download_bar is not None and self._download_indeterminate:
@@ -100,6 +149,8 @@ class ModernWowSetupTool(WowSetupTool):
 
         self._download_window = None
         self._download_label = None
+        self._download_detail = None
+        self._download_percent = None
         self._download_bar = None
         self._download_indeterminate = False
 
