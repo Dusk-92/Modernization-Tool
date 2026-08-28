@@ -3,13 +3,17 @@ name: Build Windows EXE
 on:
   push:
     branches:
+      - 'main'
       - 'feature/client-tweaks'
     tags:
       - 'v*'
   pull_request:
     branches:
-      - 'feature/client-tweaks'
+      - 'main'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
   group: modernization-${{ github.workflow }}-${{ github.ref }}
@@ -69,10 +73,29 @@ jobs:
           path: dist/WoW_Modernization_Tool.exe
           if-no-files-found: error
 
+      # One-time production promotion for v2.0. The exact commit message keeps
+      # normal main pushes from publishing or modifying the v2.0 release.
+      - name: Create GitHub Release v2.0
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release: prepare v2.0' }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v2.0
+          target_commitish: ${{ github.sha }}
+          files: dist/WoW_Modernization_Tool.exe
+          fail_on_unmatched_files: true
+          name: "WoW Modernization Tool v2.0"
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+          previous_tag: v1.1
+          make_latest: true
+
       - name: Create GitHub Release
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/WoW_Modernization_Tool.exe
+          fail_on_unmatched_files: true
           name: "WoW Modernization Tool ${{ github.ref_name }}"
-          body: "Release automatique générée par GitHub Actions."
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+          make_latest: true
