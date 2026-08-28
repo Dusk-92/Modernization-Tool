@@ -75,7 +75,7 @@ The tool can install and configure several recommended client extensions:
 - **SuperWoW** — expands the Vanilla Lua API and improves addon compatibility.
 - **TransmogFix** — prevents performance drops caused by rapid appearance updates.
 - **PerfBoost** — provides additional unit rendering/performance controls.
-- **WeirdPerformance** — client/runtime optimizations aimed at improving smoothness.
+- **WeirdPerformance** — lightweight client optimizations aimed at improving FPS and reducing UI memory leaks for smoother gameplay.
 - **VanillaHelpers** — extends several Vanilla client limits.
 - **ClassicAPI** — adds newer WoW API functions for compatible addons.
 - **AuctionQueryThrottle** — removes the fixed delay between Auction House queries.
@@ -86,13 +86,13 @@ Optional client-side improvements include:
 
 - **VanillaMultiMonitorFix** — improved resolution, refresh-rate and monitor detection.
 - **Interact** — adds a modern Interact key for NPCs, objects, gathering nodes and loot.
-- **No1600x1200**
-- **BigCursor**
-- **CustomAssets**
-- **LogSessions**
-- **MinimapIcons**
-- **PNG Screenshots**
-- **WorldMarkers**
+- **No1600x1200** — fixes the old Vanilla resolution limitation on some systems.
+- **BigCursor** — upscales the hardware cursor for better visibility on modern high-resolution displays without sacrificing sharpness.
+- **CustomAssets** — allows loose game files to be loaded directly from the `Data/` folder and supports custom multi-character patch names without repacking MPQ archives.
+- **LogSessions** — automatically organizes combat and chat logs into clean per-character, per-day files when you log in.
+- **MinimapIcons** — adds TBC/WotLK-style minimap tracking icons for NPCs and game objects, with a combined tracking menu and saved preferences.
+- **PNG Screenshots** — saves screenshots as compressed PNG files instead of the default uncompressed TGA format, using background processing to minimize frame-time impact.
+- **WorldMarkers** — lets party or raid leaders place up to five animated, Cataclysm-style colored world markers for positioning and tactical planning.
 
 ---
 
@@ -286,7 +286,7 @@ Modernization Tool brings together work from several community projects and deve
 ## Other Bundled Enhancements
 
 - [Vanilla AutoLogin](https://github.com/MarcelineVQ/turtle-autologin)
-- [WeirdUtils](https://codeberg.org/MarcelineVQ/WeirdUtils)
+- [WeirdUtils](https://codeberg.org/Dusk92/WeirdUtils)
 
 Additional attribution and source links are available directly in the **Credits** tab of Modernization Tool.
 
