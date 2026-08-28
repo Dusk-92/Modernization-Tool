@@ -65,12 +65,23 @@ jobs:
           if (-not (Test-Path "dist/WoW_Modernization_Tool.exe")) { throw "Build output missing" }
           Get-Item "dist/WoW_Modernization_Tool.exe" | Format-List Name,Length,LastWriteTime
 
+      - name: Create ZIP package
+        shell: pwsh
+        run: |
+          $zip = "dist/WoW_Modernization_Tool.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "dist/WoW_Modernization_Tool.exe" -DestinationPath $zip -CompressionLevel Optimal
+          if (-not (Test-Path $zip)) { throw "ZIP package missing" }
+          Get-Item $zip | Format-List Name,Length,LastWriteTime
+
       - name: Upload test artifact
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
           name: WoW_Modernization_Tool-test
-          path: dist/WoW_Modernization_Tool.exe
+          path: |
+            dist/WoW_Modernization_Tool.exe
+            dist/WoW_Modernization_Tool.zip
           if-no-files-found: error
 
       # One-time production promotion for v2.0. The exact commit message keeps
@@ -81,7 +92,9 @@ jobs:
         with:
           tag_name: v2.0
           target_commitish: ${{ github.sha }}
-          files: dist/WoW_Modernization_Tool.exe
+          files: |
+            dist/WoW_Modernization_Tool.exe
+            dist/WoW_Modernization_Tool.zip
           fail_on_unmatched_files: true
           name: "WoW Modernization Tool v2.0"
           body_path: RELEASE_NOTES.md
@@ -93,7 +106,9 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/WoW_Modernization_Tool.exe
+          files: |
+            dist/WoW_Modernization_Tool.exe
+            dist/WoW_Modernization_Tool.zip
           fail_on_unmatched_files: true
           name: "WoW Modernization Tool ${{ github.ref_name }}"
           body_path: RELEASE_NOTES.md
