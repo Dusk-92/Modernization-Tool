@@ -76,7 +76,7 @@ jobs:
       # One-time production promotion for v2.0. The exact commit message keeps
       # normal main pushes from publishing or modifying the v2.0 release.
       - name: Create GitHub Release v2.0
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release: prepare v2.0' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.0' }}
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v2.0
