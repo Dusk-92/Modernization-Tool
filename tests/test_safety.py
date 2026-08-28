@@ -468,6 +468,59 @@ class AutoLoginEncryptionTests(unittest.TestCase):
                 os.environ["WOW_ENCRYPTION_KEY"] = original
 
 
+class DepElevationTests(unittest.TestCase):
+    def test_quotes_script_path_when_game_folder_contains_spaces(self):
+        tool = WowSetupTool.__new__(WowSetupTool)
+
+        with tempfile.TemporaryDirectory(prefix="01 OctoWoW ") as root:
+            captured = {}
+
+            def fake_run(args, **kwargs):
+                captured["args"] = args
+                script_path = os.path.join(
+                    root,
+                    ".modernization_tool",
+                    "process_mitigation.ps1",
+                )
+                self.assertIn(" ", script_path)
+                self.assertTrue(os.path.isfile(script_path))
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            with mock.patch("setup_tool.subprocess.run", side_effect=fake_run):
+                tool._run_elevated_powershell(
+                    root,
+                    "Set-ProcessMitigation -Name 'WoW_Modernized.exe' "
+                    "-Disable DEP, EmulateAtlThunks",
+                    "Disabling DEP for WoW_Modernized.exe",
+                )
+
+            launcher = captured["args"][-1]
+            escaped_script = os.path.join(
+                root,
+                ".modernization_tool",
+                "process_mitigation.ps1",
+            ).replace("'", "''")
+
+            self.assertIn(
+                f"$scriptPath = '{escaped_script}';",
+                launcher,
+            )
+            self.assertIn(
+                "'-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"' "
+                "+ $scriptPath + '\"'",
+                launcher,
+            )
+            self.assertFalse(
+                os.path.exists(
+                    os.path.join(
+                        root,
+                        ".modernization_tool",
+                        "process_mitigation.ps1",
+                    )
+                )
+            )
+
+
 class PeValidationTests(unittest.TestCase):
     def write_minimal_x86_pe(self, path):
         data = bytearray(2048)

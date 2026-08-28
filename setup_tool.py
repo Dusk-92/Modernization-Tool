@@ -1792,12 +1792,12 @@ class WowSetupTool:
         escaped_script = script_path.replace("'", "''")
         launcher = (
             "$ErrorActionPreference='Stop'; "
+            f"$scriptPath = '{escaped_script}'; "
+            "$argumentLine = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"' "
+            "+ $scriptPath + '\"'; "
             "try { "
             "$p = Start-Process -FilePath 'powershell.exe' -Verb RunAs "
-            "-Wait -PassThru -ArgumentList @("
-            "'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',"
-            f"'-File','{escaped_script}'"
-            "); "
+            "-Wait -PassThru -ArgumentList $argumentLine; "
             "exit $p.ExitCode "
             "} catch { Write-Error $_; exit 1 }"
         )
