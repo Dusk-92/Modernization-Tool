@@ -21,6 +21,7 @@
 #define PIPE_COUNT 10
 #define IPC_OPCODE_HANDSHAKE 0u
 #define IPC_OPCODE_FRAME 1u
+#define DEFAULT_DISCORD_APPLICATION_ID "1544072796098011176"
 
 typedef struct {
     char name[32];
@@ -124,17 +125,35 @@ static void trim_ascii(char *text) {
     *end = 0;
 }
 
-static int load_application_id(char *out, size_t out_size) {
-    char path[MAX_PATH];
+static int valid_application_id(const char *text) {
     size_t i, n;
-    if (!support_file(path, sizeof(path), "discord_application_id")) return 0;
-    if (!read_text_file(path, out, out_size)) return 0;
-    trim_ascii(out);
-    n = strlen(out);
+    if (!text) return 0;
+    n = strlen(text);
     if (n < 15 || n > 24) return 0;
     for (i = 0; i < n; ++i)
-        if (out[i] < '0' || out[i] > '9') return 0;
+        if (text[i] < '0' || text[i] > '9') return 0;
     return 1;
+}
+
+static int load_application_id(char *out, size_t out_size) {
+    char path[MAX_PATH];
+    char override_id[64] = {0};
+
+    if (!out || out_size <= strlen(DEFAULT_DISCORD_APPLICATION_ID)) return 0;
+    lstrcpynA(out, DEFAULT_DISCORD_APPLICATION_ID, (int)out_size);
+
+    /* Optional advanced override. Normal users never need this file. */
+    if (support_file(path, sizeof(path), "discord_application_id") &&
+        read_text_file(path, override_id, sizeof(override_id))) {
+        trim_ascii(override_id);
+        if (valid_application_id(override_id)) {
+            lstrcpynA(out, override_id, (int)out_size);
+        } else if (override_id[0]) {
+            log_line("Ignoring invalid discord_application_id override; using built-in OctoWoW ID.");
+        }
+    }
+
+    return valid_application_id(out);
 }
 
 static DWORD find_process(const char *exe_name) {
@@ -428,7 +447,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
 
     have_id = load_application_id(application_id, sizeof(application_id));
     if (!have_id) {
-        log_line("discord_application_id is missing or invalid; game will still launch.");
+        log_line("Built-in Discord Application ID is invalid; game will still launch.");
     }
 
     pid = find_process("WoW_Modernized.exe");
