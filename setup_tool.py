@@ -2028,18 +2028,13 @@ class WowSetupTool:
         staged_shortcut = shortcut_path + ".modernization-new.lnk"
         vanilla_fixes_exe = os.path.join(target_dir, "VanillaFixes.exe")
         modernized_exe = os.path.join(target_dir, "WoW_Modernized.exe")
-        discord_presence_exe = os.path.join(target_dir, "DiscordPresence.exe")
-        discord_presence_var = self.optional_plugins.get("DiscordPresence.dll")
-        discord_presence_enabled = bool(
-            discord_presence_var is not None and discord_presence_var.get()
-        )
-        launcher_exe = discord_presence_exe if discord_presence_enabled else vanilla_fixes_exe
-        launcher_arguments = "" if discord_presence_enabled else "WoW_Modernized.exe"
-        launcher_description = (
-            "Launch Modernized WoW with Discord Presence"
-            if discord_presence_enabled
-            else "Launch Vanilla WoW with VanillaFixes and Tweaks"
-        )
+
+        # Keep the launcher path identical to the pre-Discord-Presence setup.
+        # When enabled, DiscordPresence.dll starts DiscordPresence.exe from its
+        # worker thread after WoW is already running.
+        launcher_exe = vanilla_fixes_exe
+        launcher_arguments = "WoW_Modernized.exe"
+        launcher_description = "Launch Vanilla WoW with VanillaFixes and Tweaks"
 
         if not os.path.isfile(vanilla_fixes_exe):
             raise RuntimeError(
@@ -2048,10 +2043,6 @@ class WowSetupTool:
         if not os.path.isfile(modernized_exe):
             raise RuntimeError(
                 "WoW_Modernized.exe is missing, so the launcher shortcuts cannot be created."
-            )
-        if discord_presence_enabled and not os.path.isfile(discord_presence_exe):
-            raise RuntimeError(
-                "DiscordPresence.exe is missing, so the Discord-enabled launcher shortcut cannot be created."
             )
 
         support_dir = os.path.join(target_dir, ".modernization_tool")
