@@ -1,0 +1,467 @@
+/*
+ * DiscordPresence.exe
+ * Invisible companion launcher for Modernization Tool.
+ *
+ * - launches VanillaFixes.exe WoW_Modernized.exe
+ * - reads .modernization_tool\DiscordPresence\discord_wow_status.json
+ * - publishes Discord Rich Presence over the local Discord IPC named pipe
+ * - exits when WoW_Modernized.exe exits
+ */
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <tlhelp32.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define STATUS_MAX_AGE 30
+#define TICK_MS 2000
+#define PIPE_COUNT 10
+#define IPC_OPCODE_HANDSHAKE 0u
+#define IPC_OPCODE_FRAME 1u
+
+typedef struct {
+    char name[32];
+    char zone[80];
+    char guild[64];
+    char faction[24];
+    char class_name[32];
+    int level;
+    long long ts;
+    int ok;
+    int in_world;
+} Status;
+
+typedef struct {
+    HANDLE pipe;
+    char last_activity[768];
+    unsigned long nonce;
+} DiscordRpc;
+
+static int own_directory(char *out, size_t out_size) {
+    char path[MAX_PATH];
+    char *slash;
+    if (!GetModuleFileNameA(NULL, path, MAX_PATH)) return 0;
+    slash = strrchr(path, '\\');
+    if (!slash) slash = strrchr(path, '/');
+    if (!slash) return 0;
+    *slash = 0;
+    if (strlen(path) + 1 > out_size) return 0;
+    lstrcpynA(out, path, (int)out_size);
+    return 1;
+}
+
+static int support_directory(char *out, size_t out_size) {
+    char root[MAX_PATH], first[MAX_PATH];
+    if (!own_directory(root, sizeof(root))) return 0;
+    if (strlen(root) + strlen("\\.modernization_tool") + 1 >= sizeof(first)) return 0;
+    _snprintf(first, sizeof(first), "%s\\.modernization_tool", root);
+    first[sizeof(first) - 1] = 0;
+    CreateDirectoryA(first, NULL);
+    if (strlen(first) + strlen("\\DiscordPresence") + 1 >= out_size) return 0;
+    _snprintf(out, out_size, "%s\\DiscordPresence", first);
+    out[out_size - 1] = 0;
+    CreateDirectoryA(out, NULL);
+    return 1;
+}
+
+static int support_file(char *out, size_t out_size, const char *name) {
+    char dir[MAX_PATH];
+    if (!support_directory(dir, sizeof(dir))) return 0;
+    if (strlen(dir) + 1 + strlen(name) + 1 > out_size) return 0;
+    _snprintf(out, out_size, "%s\\%s", dir, name);
+    out[out_size - 1] = 0;
+    return 1;
+}
+
+static void log_line(const char *text) {
+    char path[MAX_PATH];
+    HANDLE file;
+    DWORD written;
+    SYSTEMTIME st;
+    char line[1200];
+    if (!support_file(path, sizeof(path), "DiscordPresence.log")) return;
+    file = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                       NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return;
+    GetLocalTime(&st);
+    _snprintf(line, sizeof(line), "%04u-%02u-%02u %02u:%02u:%02u %s\r\n",
+              st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+              text ? text : "");
+    line[sizeof(line) - 1] = 0;
+    WriteFile(file, line, (DWORD)strlen(line), &written, NULL);
+    CloseHandle(file);
+}
+
+static int read_text_file(const char *path, char *out, size_t out_size) {
+    HANDLE file;
+    DWORD got = 0;
+    if (!out || out_size < 2) return 0;
+    out[0] = 0;
+    file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                       NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return 0;
+    if (!ReadFile(file, out, (DWORD)(out_size - 1), &got, NULL)) {
+        CloseHandle(file);
+        return 0;
+    }
+    CloseHandle(file);
+    out[got] = 0;
+    return 1;
+}
+
+static void trim_ascii(char *text) {
+    char *start, *end;
+    if (!text) return;
+    start = text;
+    while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') ++start;
+    if (start != text) memmove(text, start, strlen(start) + 1);
+    end = text + strlen(text);
+    while (end > text && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n'))
+        --end;
+    *end = 0;
+}
+
+static int load_application_id(char *out, size_t out_size) {
+    char path[MAX_PATH];
+    size_t i, n;
+    if (!support_file(path, sizeof(path), "discord_application_id")) return 0;
+    if (!read_text_file(path, out, out_size)) return 0;
+    trim_ascii(out);
+    n = strlen(out);
+    if (n < 15 || n > 24) return 0;
+    for (i = 0; i < n; ++i)
+        if (out[i] < '0' || out[i] > '9') return 0;
+    return 1;
+}
+
+static DWORD find_process(const char *exe_name) {
+    HANDLE snapshot;
+    PROCESSENTRY32A entry;
+    DWORD pid = 0;
+    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return 0;
+    memset(&entry, 0, sizeof(entry));
+    entry.dwSize = sizeof(entry);
+    if (Process32FirstA(snapshot, &entry)) {
+        do {
+            if (_stricmp(entry.szExeFile, exe_name) == 0) {
+                pid = entry.th32ProcessID;
+                break;
+            }
+        } while (Process32NextA(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    return pid;
+}
+
+static int launch_game(void) {
+    char root[MAX_PATH], loader[MAX_PATH], modern[MAX_PATH], command[MAX_PATH * 2];
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    if (!own_directory(root, sizeof(root))) return 0;
+    _snprintf(loader, sizeof(loader), "%s\\VanillaFixes.exe", root);
+    _snprintf(modern, sizeof(modern), "%s\\WoW_Modernized.exe", root);
+    loader[sizeof(loader) - 1] = 0;
+    modern[sizeof(modern) - 1] = 0;
+    if (GetFileAttributesA(loader) == INVALID_FILE_ATTRIBUTES ||
+        GetFileAttributesA(modern) == INVALID_FILE_ATTRIBUTES) {
+        MessageBoxA(NULL,
+                    "VanillaFixes.exe or WoW_Modernized.exe is missing.",
+                    "DiscordPresence", MB_OK | MB_ICONERROR);
+        return 0;
+    }
+    _snprintf(command, sizeof(command), "\"%s\" WoW_Modernized.exe", loader);
+    command[sizeof(command) - 1] = 0;
+    memset(&si, 0, sizeof(si));
+    memset(&pi, 0, sizeof(pi));
+    si.cb = sizeof(si);
+    if (!CreateProcessA(NULL, command, NULL, NULL, FALSE, 0, NULL, root, &si, &pi)) {
+        char message[256];
+        _snprintf(message, sizeof(message),
+                  "Could not launch VanillaFixes.exe (Windows error %lu).",
+                  GetLastError());
+        MessageBoxA(NULL, message, "DiscordPresence", MB_OK | MB_ICONERROR);
+        return 0;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return 1;
+}
+
+static const char *find_key(const char *json, const char *key) {
+    static char pattern[80];
+    const char *p;
+    _snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    pattern[sizeof(pattern) - 1] = 0;
+    p = strstr(json, pattern);
+    return p ? p + strlen(pattern) : NULL;
+}
+
+static int json_bool(const char *json, const char *key, int *value) {
+    const char *p = find_key(json, key);
+    if (!p || !value) return 0;
+    while (*p == ' ' || *p == '\t') ++p;
+    if (strncmp(p, "true", 4) == 0) { *value = 1; return 1; }
+    if (strncmp(p, "false", 5) == 0) { *value = 0; return 1; }
+    return 0;
+}
+
+static int json_int64(const char *json, const char *key, long long *value) {
+    const char *p = find_key(json, key);
+    char *end = NULL;
+    long long v;
+    if (!p || !value) return 0;
+    v = _strtoi64(p, &end, 10);
+    if (end == p) return 0;
+    *value = v;
+    return 1;
+}
+
+static int json_int(const char *json, const char *key, int *value) {
+    long long v = 0;
+    if (!json_int64(json, key, &v)) return 0;
+    *value = (int)v;
+    return 1;
+}
+
+static int json_string(const char *json, const char *key, char *out, size_t out_size) {
+    const char *p = find_key(json, key);
+    size_t w = 0;
+    if (!p || !out || out_size < 2) return 0;
+    while (*p == ' ' || *p == '\t') ++p;
+    if (*p++ != '"') return 0;
+    while (*p && *p != '"' && w + 1 < out_size) {
+        if (*p == '\\') {
+            ++p;
+            if (!*p) break;
+            if (*p == '"' || *p == '\\' || *p == '/') out[w++] = *p++;
+            else if (*p == 'n') { out[w++] = '\n'; ++p; }
+            else if (*p == 'r') { out[w++] = '\r'; ++p; }
+            else if (*p == 't') { out[w++] = '\t'; ++p; }
+            else return 0;
+        } else {
+            out[w++] = *p++;
+        }
+    }
+    out[w] = 0;
+    return *p == '"';
+}
+
+static int load_status(Status *status) {
+    char path[MAX_PATH], json[2048];
+    time_t now;
+    memset(status, 0, sizeof(*status));
+    if (!support_file(path, sizeof(path), "discord_wow_status.json")) return 0;
+    if (!read_text_file(path, json, sizeof(json))) return 0;
+    if (!json_bool(json, "ok", &status->ok) ||
+        !json_bool(json, "in_world", &status->in_world) ||
+        !json_int64(json, "ts", &status->ts))
+        return 0;
+    now = time(NULL);
+    if (!status->ok || !status->in_world ||
+        status->ts <= 0 || (long long)now - status->ts > STATUS_MAX_AGE ||
+        status->ts - (long long)now > 5)
+        return 0;
+    json_string(json, "name", status->name, sizeof(status->name));
+    json_string(json, "zone", status->zone, sizeof(status->zone));
+    json_string(json, "guild", status->guild, sizeof(status->guild));
+    json_string(json, "faction", status->faction, sizeof(status->faction));
+    json_string(json, "class", status->class_name, sizeof(status->class_name));
+    json_int(json, "level", &status->level);
+    return status->name[0] || status->zone[0] || status->level > 0;
+}
+
+static int rpc_read_packet(HANDLE pipe, char *payload, size_t payload_size) {
+    uint32_t header[2];
+    DWORD got = 0, total = 0;
+    if (!ReadFile(pipe, header, sizeof(header), &got, NULL) || got != sizeof(header)) return 0;
+    if (header[1] >= payload_size) return 0;
+    while (total < header[1]) {
+        DWORD chunk = 0;
+        if (!ReadFile(pipe, payload + total, header[1] - total, &chunk, NULL) || chunk == 0)
+            return 0;
+        total += chunk;
+    }
+    payload[total] = 0;
+    return 1;
+}
+
+static int rpc_write_packet(HANDLE pipe, uint32_t opcode, const char *json) {
+    unsigned char buffer[2048];
+    uint32_t *header = (uint32_t *)buffer;
+    DWORD written = 0;
+    size_t len = strlen(json);
+    if (len + 8 > sizeof(buffer)) return 0;
+    header[0] = opcode;
+    header[1] = (uint32_t)len;
+    memcpy(buffer + 8, json, len);
+    return WriteFile(pipe, buffer, (DWORD)(len + 8), &written, NULL) &&
+           written == (DWORD)(len + 8);
+}
+
+static void rpc_close(DiscordRpc *rpc) {
+    if (rpc->pipe && rpc->pipe != INVALID_HANDLE_VALUE) CloseHandle(rpc->pipe);
+    rpc->pipe = INVALID_HANDLE_VALUE;
+    rpc->last_activity[0] = 0;
+}
+
+static int rpc_connect(DiscordRpc *rpc, const char *application_id) {
+    int i;
+    char pipe_name[64], handshake[160], response[2048];
+    rpc_close(rpc);
+    for (i = 0; i < PIPE_COUNT; ++i) {
+        _snprintf(pipe_name, sizeof(pipe_name), "\\\\.\\pipe\\discord-ipc-%d", i);
+        rpc->pipe = CreateFileA(pipe_name, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+                                OPEN_EXISTING, 0, NULL);
+        if (rpc->pipe != INVALID_HANDLE_VALUE) break;
+    }
+    if (rpc->pipe == INVALID_HANDLE_VALUE) return 0;
+    _snprintf(handshake, sizeof(handshake), "{\"v\":1,\"client_id\":\"%s\"}", application_id);
+    if (!rpc_write_packet(rpc->pipe, IPC_OPCODE_HANDSHAKE, handshake) ||
+        !rpc_read_packet(rpc->pipe, response, sizeof(response)) ||
+        (!strstr(response, "\"READY\"") && !strstr(response, "\"evt\":\"READY\""))) {
+        rpc_close(rpc);
+        return 0;
+    }
+    log_line("Connected to Discord IPC.");
+    return 1;
+}
+
+static void title_case_faction(char *text) {
+    if (text && text[0] >= 'a' && text[0] <= 'z') text[0] = (char)(text[0] - 'a' + 'A');
+}
+
+static void format_activity(const Status *s, char *out, size_t out_size) {
+    char details[384] = {0};
+    char extra[192] = {0};
+    char faction[24] = {0};
+    if (s->faction[0]) {
+        lstrcpynA(faction, s->faction, sizeof(faction));
+        title_case_faction(faction);
+    }
+
+    if (s->name[0] && s->guild[0])
+        _snprintf(details, sizeof(details), "%s <%s>", s->name, s->guild);
+    else if (s->name[0])
+        _snprintf(details, sizeof(details), "%s", s->name);
+    else if (s->guild[0])
+        _snprintf(details, sizeof(details), "<%s>", s->guild);
+
+    if (s->level > 0 && s->class_name[0] && faction[0])
+        _snprintf(extra, sizeof(extra), "Lvl %d %s \\u00b7 %s", s->level, s->class_name, faction);
+    else if (s->level > 0 && s->class_name[0])
+        _snprintf(extra, sizeof(extra), "Lvl %d %s", s->level, s->class_name);
+    else if (s->level > 0 && faction[0])
+        _snprintf(extra, sizeof(extra), "Lvl %d \\u00b7 %s", s->level, faction);
+    else if (s->level > 0)
+        _snprintf(extra, sizeof(extra), "Lvl %d", s->level);
+    else if (s->class_name[0] && faction[0])
+        _snprintf(extra, sizeof(extra), "%s \\u00b7 %s", s->class_name, faction);
+    else if (s->class_name[0])
+        _snprintf(extra, sizeof(extra), "%s", s->class_name);
+    else if (faction[0])
+        _snprintf(extra, sizeof(extra), "%s", faction);
+
+    if (details[0] && extra[0]) {
+        size_t used = strlen(details);
+        _snprintf(details + used, sizeof(details) - used, " \\u00b7 %s", extra);
+    } else if (!details[0] && extra[0]) {
+        lstrcpynA(details, extra, sizeof(details));
+    }
+
+    _snprintf(out, out_size,
+              "{\"details\":\"%s\",\"state\":\"%s\"}",
+              details, s->zone);
+    out[out_size - 1] = 0;
+}
+
+static int rpc_set_activity(DiscordRpc *rpc, DWORD pid, const char *activity_json) {
+    char command[1400], response[2048];
+    if (!rpc || rpc->pipe == INVALID_HANDLE_VALUE) return 0;
+    if (strcmp(rpc->last_activity, activity_json) == 0) return 1;
+    ++rpc->nonce;
+    _snprintf(command, sizeof(command),
+              "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":%s},"
+              "\"nonce\":\"%lu\"}",
+              (unsigned long)pid, activity_json, rpc->nonce);
+    command[sizeof(command) - 1] = 0;
+    if (!rpc_write_packet(rpc->pipe, IPC_OPCODE_FRAME, command) ||
+        !rpc_read_packet(rpc->pipe, response, sizeof(response))) {
+        rpc_close(rpc);
+        return 0;
+    }
+    if (strstr(response, "\"ERROR\"")) {
+        log_line(response);
+        return 0;
+    }
+    lstrcpynA(rpc->last_activity, activity_json, sizeof(rpc->last_activity));
+    return 1;
+}
+
+static void rpc_clear(DiscordRpc *rpc, DWORD pid) {
+    char command[256], response[1024];
+    if (!rpc || rpc->pipe == INVALID_HANDLE_VALUE) return;
+    ++rpc->nonce;
+    _snprintf(command, sizeof(command),
+              "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":null},"
+              "\"nonce\":\"%lu\"}",
+              (unsigned long)pid, rpc->nonce);
+    rpc_write_packet(rpc->pipe, IPC_OPCODE_FRAME, command);
+    rpc_read_packet(rpc->pipe, response, sizeof(response));
+}
+
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) {
+    char application_id[64] = {0};
+    DiscordRpc rpc;
+    DWORD pid = 0;
+    int have_id;
+    int wait_loops = 0;
+    (void)instance; (void)prev; (void)cmdline; (void)show;
+
+    memset(&rpc, 0, sizeof(rpc));
+    rpc.pipe = INVALID_HANDLE_VALUE;
+    rpc.nonce = (unsigned long)GetTickCount();
+
+    have_id = load_application_id(application_id, sizeof(application_id));
+    if (!have_id) {
+        log_line("discord_application_id is missing or invalid; game will still launch.");
+    }
+
+    pid = find_process("WoW_Modernized.exe");
+    if (!pid && !launch_game()) return 1;
+
+    while (!pid && wait_loops++ < 150) {
+        Sleep(200);
+        pid = find_process("WoW_Modernized.exe");
+    }
+    if (!pid) {
+        log_line("WoW_Modernized.exe did not start.");
+        return 2;
+    }
+
+    log_line("WoW_Modernized.exe detected.");
+
+    while ((pid = find_process("WoW_Modernized.exe")) != 0) {
+        Status status;
+        char activity[768];
+
+        if (have_id && rpc.pipe == INVALID_HANDLE_VALUE)
+            rpc_connect(&rpc, application_id);
+
+        if (have_id && rpc.pipe != INVALID_HANDLE_VALUE && load_status(&status)) {
+            format_activity(&status, activity, sizeof(activity));
+            rpc_set_activity(&rpc, pid, activity);
+        }
+        Sleep(TICK_MS);
+    }
+
+    if (rpc.pipe != INVALID_HANDLE_VALUE) {
+        rpc_clear(&rpc, pid);
+        rpc_close(&rpc);
+    }
+    log_line("WoW stopped; DiscordPresence exiting.");
+    return 0;
+}
