@@ -2046,6 +2046,18 @@ class WowSetupTool:
         staged_shortcut = shortcut_path + ".modernization-new.lnk"
         vanilla_fixes_exe = os.path.join(target_dir, "VanillaFixes.exe")
         modernized_exe = os.path.join(target_dir, "WoW_Modernized.exe")
+        discord_presence_exe = os.path.join(target_dir, "DiscordPresence.exe")
+        discord_presence_var = self.optional_plugins.get("DiscordPresence.dll")
+        discord_presence_enabled = bool(
+            discord_presence_var is not None and discord_presence_var.get()
+        )
+        launcher_exe = discord_presence_exe if discord_presence_enabled else vanilla_fixes_exe
+        launcher_arguments = "" if discord_presence_enabled else "WoW_Modernized.exe"
+        launcher_description = (
+            "Launch Modernized WoW with Discord Presence"
+            if discord_presence_enabled
+            else "Launch Vanilla WoW with VanillaFixes and Tweaks"
+        )
 
         if not os.path.isfile(vanilla_fixes_exe):
             raise RuntimeError(
@@ -2054,6 +2066,10 @@ class WowSetupTool:
         if not os.path.isfile(modernized_exe):
             raise RuntimeError(
                 "WoW_Modernized.exe is missing, so the launcher shortcuts cannot be created."
+            )
+        if discord_presence_enabled and not os.path.isfile(discord_presence_exe):
+            raise RuntimeError(
+                "DiscordPresence.exe is missing, so the Discord-enabled launcher shortcut cannot be created."
             )
 
         support_dir = os.path.join(target_dir, ".modernization_tool")
@@ -2082,10 +2098,10 @@ class WowSetupTool:
 Set oWS = WScript.CreateObject("WScript.Shell")
 sLinkFile = "{vbs_escape(staged_shortcut)}"
 Set oLink = oWS.CreateShortcut(sLinkFile)
-oLink.TargetPath = "{vbs_escape(vanilla_fixes_exe)}"
-oLink.Arguments = "WoW_Modernized.exe"
+oLink.TargetPath = "{vbs_escape(launcher_exe)}"
+oLink.Arguments = "{vbs_escape(launcher_arguments)}"
 oLink.WorkingDirectory = "{vbs_escape(target_dir)}"
-oLink.Description = "Launch Vanilla WoW with VanillaFixes and Tweaks"
+oLink.Description = "{vbs_escape(launcher_description)}"
 {icon_vbs_line}
 oLink.Save
 WScript.Echo oWS.SpecialFolders("Desktop")
