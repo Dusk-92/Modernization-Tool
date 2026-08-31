@@ -156,6 +156,23 @@ static int load_application_id(char *out, size_t out_size) {
     return valid_application_id(out);
 }
 
+static DWORD parse_target_pid(const char *cmdline) {
+    const char *p;
+    char *end = NULL;
+    unsigned long value;
+
+    if (!cmdline) return 0;
+    p = strstr(cmdline, "--pid");
+    if (!p) return 0;
+    p += 5;
+    while (*p == ' ' || *p == '\t') ++p;
+    if (!*p) return 0;
+
+    value = strtoul(p, &end, 10);
+    if (end == p || value == 0 || value > 0xFFFFFFFFul) return 0;
+    return (DWORD)value;
+}
+
 static DWORD find_process(const char *exe_name) {
     HANDLE snapshot;
     PROCESSENTRY32 entry;
@@ -401,11 +418,12 @@ static void rpc_clear(DiscordRpc *rpc, DWORD pid) {
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) {
     char application_id[64] = {0};
     DiscordRpc rpc;
+    HANDLE wow_process = NULL;
     DWORD pid = 0;
-    DWORD last_pid = 0;
+    DWORD requested_pid = 0;
     int have_id;
     int wait_loops = 0;
-    (void)instance; (void)prev; (void)cmdline; (void)show;
+    (void)instance; (void)prev; (void)show;
 
     memset(&rpc, 0, sizeof(rpc));
     rpc.pipe = INVALID_HANDLE_VALUE;
@@ -416,27 +434,31 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
         log_line("Built-in Discord Application ID is invalid; presence is disabled.");
     }
 
-    /* The companion no longer launches WoW. DiscordPresence.dll starts this
-     * process only after WoW is already running. Keep a short grace period for
-     * process enumeration races, then exit quietly if WoW is not present. */
-    pid = find_process("WoW_Modernized.exe");
+    /* Normal path: DiscordPresence.dll passes the exact WoW process id.
+     * The name scan remains only as a harmless manual/debug fallback. */
+    requested_pid = parse_target_pid(cmdline);
+    pid = requested_pid;
+
     while (!pid && wait_loops++ < 25) {
-        Sleep(200);
         pid = find_process("WoW_Modernized.exe");
+        if (!pid) Sleep(200);
     }
     if (!pid) {
         log_line("No running WoW_Modernized.exe found; DiscordPresence exiting.");
         return 0;
     }
 
-    log_line("WoW_Modernized.exe detected.");
-    last_pid = pid;
+    wow_process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!wow_process) {
+        log_line("Could not open the target WoW process; DiscordPresence exiting.");
+        return 0;
+    }
 
-    while ((pid = find_process("WoW_Modernized.exe")) != 0) {
+    log_line("WoW_Modernized.exe detected.");
+
+    while (WaitForSingleObject(wow_process, 0) == WAIT_TIMEOUT) {
         Status status;
         char activity[768];
-
-        last_pid = pid;
 
         if (have_id && rpc.pipe == INVALID_HANDLE_VALUE)
             rpc_connect(&rpc, application_id);
@@ -456,9 +478,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
     }
 
     if (rpc.pipe != INVALID_HANDLE_VALUE) {
-        rpc_clear(&rpc, last_pid ? last_pid : GetCurrentProcessId());
+        rpc_clear(&rpc, pid);
         rpc_close(&rpc);
     }
+    CloseHandle(wow_process);
     log_line("WoW stopped; DiscordPresence exiting.");
     return 0;
 }
