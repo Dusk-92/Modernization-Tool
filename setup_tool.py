@@ -107,6 +107,7 @@ class WowSetupTool:
             "minimapicons.dll": "Adds TBC/WotLK-style minimap tracking icons for NPCs and objects, combined into a new native tracking dropdown.",
             "pngscreenshots.dll": "Saves screenshots as compressed PNG files on a background thread to completely eliminate frame drops when taking pictures.",
             "worldmarkers.dll": "Place up to 5 animated colored markers (Cataclysm style) in the world for raid positioning. Syncs automatically with other users.",
+            "DiscordPresence.dll": "Shows your WoW character activity on Discord. A read-only helper DLL writes character status under .modernization_tool\\DiscordPresence, while DiscordPresence.exe handles Discord IPC outside the WoW process.",
 
             # Tweaks Tab
             "fov": "Calculates horizontal Field of View mathematically scaled to maintain vertical aspect space based on your screen ratio.",
@@ -139,6 +140,7 @@ class WowSetupTool:
         self.wow_dir = tk.StringVar()
         self.rendering_mode = tk.StringVar(value="directx9")
         self.install_autologin = tk.BooleanVar(value=True)
+        self.discord_application_id = tk.StringVar(value="")
 
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
@@ -172,7 +174,8 @@ class WowSetupTool:
             "logsessions.dll": tk.BooleanVar(value=False),
             "minimapicons.dll": tk.BooleanVar(value=False),
             "pngscreenshots.dll": tk.BooleanVar(value=False),
-            "worldmarkers.dll": tk.BooleanVar(value=False)
+            "worldmarkers.dll": tk.BooleanVar(value=False),
+            "DiscordPresence.dll": tk.BooleanVar(value=False)
         }
 
         self.addon_dependencies = {
@@ -321,6 +324,7 @@ class WowSetupTool:
             "version": 1,
             "rendering_mode": self.rendering_mode.get(),
             "install_autologin": bool(self.install_autologin.get()),
+            "discord_application_id": self.discord_application_id.get().strip(),
             "core_plugins": {
                 name: bool(var.get()) for name, var in self.core_plugins.items()
             },
@@ -410,6 +414,19 @@ class WowSetupTool:
         )
         self.install_autologin.set(os.path.isfile(autologin_lua))
 
+        discord_id_path = os.path.join(
+            target_dir,
+            ".modernization_tool",
+            "DiscordPresence",
+            "discord_application_id",
+        )
+        if os.path.isfile(discord_id_path):
+            try:
+                with open(discord_id_path, "r", encoding="ascii", errors="ignore") as handle:
+                    self.discord_application_id.set(handle.read().strip())
+            except OSError:
+                pass
+
         managed_ids = {
             "darker_nights": "visual_darker_nights",
             "pretty_night_sky": "visual_pretty_night_sky",
@@ -448,6 +465,10 @@ class WowSetupTool:
 
         if isinstance(saved.get("install_autologin"), bool):
             self.install_autologin.set(saved["install_autologin"])
+
+        discord_application_id = saved.get("discord_application_id")
+        if isinstance(discord_application_id, str):
+            self.discord_application_id.set(discord_application_id.strip())
 
         self._set_bool_mapping(saved.get("core_plugins"), self.core_plugins)
         self._set_bool_mapping(saved.get("optional_plugins"), self.optional_plugins)
@@ -1306,6 +1327,11 @@ class WowSetupTool:
                     os.path.join(target, dll_name),
                     f"managed plugin {dll_name}",
                 )
+                if dll_name == "DiscordPresence.dll":
+                    remove_managed_file(
+                        os.path.join(target, "DiscordPresence.exe"),
+                        "managed Discord Presence companion",
+                    )
 
 
     @staticmethod
