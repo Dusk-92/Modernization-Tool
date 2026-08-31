@@ -140,7 +140,6 @@ class WowSetupTool:
         self.wow_dir = tk.StringVar()
         self.rendering_mode = tk.StringVar(value="directx9")
         self.install_autologin = tk.BooleanVar(value=True)
-        self.discord_application_id = tk.StringVar(value="")
 
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
@@ -324,7 +323,6 @@ class WowSetupTool:
             "version": 1,
             "rendering_mode": self.rendering_mode.get(),
             "install_autologin": bool(self.install_autologin.get()),
-            "discord_application_id": self.discord_application_id.get().strip(),
             "core_plugins": {
                 name: bool(var.get()) for name, var in self.core_plugins.items()
             },
@@ -414,19 +412,6 @@ class WowSetupTool:
         )
         self.install_autologin.set(os.path.isfile(autologin_lua))
 
-        discord_id_path = os.path.join(
-            target_dir,
-            ".modernization_tool",
-            "DiscordPresence",
-            "discord_application_id",
-        )
-        if os.path.isfile(discord_id_path):
-            try:
-                with open(discord_id_path, "r", encoding="ascii", errors="ignore") as handle:
-                    self.discord_application_id.set(handle.read().strip())
-            except OSError:
-                pass
-
         managed_ids = {
             "darker_nights": "visual_darker_nights",
             "pretty_night_sky": "visual_pretty_night_sky",
@@ -465,10 +450,6 @@ class WowSetupTool:
 
         if isinstance(saved.get("install_autologin"), bool):
             self.install_autologin.set(saved["install_autologin"])
-
-        discord_application_id = saved.get("discord_application_id")
-        if isinstance(discord_application_id, str):
-            self.discord_application_id.set(discord_application_id.strip())
 
         self._set_bool_mapping(saved.get("core_plugins"), self.core_plugins)
         self._set_bool_mapping(saved.get("optional_plugins"), self.optional_plugins)
@@ -547,16 +528,6 @@ class WowSetupTool:
             )
             return False
 
-        discord_var = self.optional_plugins.get("DiscordPresence.dll")
-        if discord_var is not None and discord_var.get():
-            app_id = self.discord_application_id.get().strip()
-            if not (15 <= len(app_id) <= 24 and app_id.isdigit()):
-                messagebox.showerror(
-                    "Discord Application ID required",
-                    "Discord Presence is enabled, but the Discord Application ID is missing or invalid.\n\n"
-                    "Create an application in the Discord Developer Portal and paste its numeric Application ID in the Plugins tab.",
-                )
-                return False
         return True
 
     def load_settings(self, target_dir):
