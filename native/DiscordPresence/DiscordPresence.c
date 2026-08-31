@@ -7,6 +7,8 @@
  *   <game>\.modernization_tool\DiscordPresence\discord_broadcast_flags
  *
  * No Discord IPC is performed in-process. DiscordPresence.exe owns Discord IPC.
+ * The companion is started from the DLL worker thread after WoW startup; it is
+ * never launched from DllMain.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -339,6 +341,66 @@ static int read_player_fields(uint64_t wanted_guid, uint32_t *level, uint32_t *r
     return 0;
 }
 
+static int game_directory(char *out, size_t out_size) {
+    char exe[MAX_PATH];
+    char *slash;
+
+    if (!out || out_size < 4) return 0;
+    if (!GetModuleFileNameA(NULL, exe, MAX_PATH)) return 0;
+    slash = strrchr(exe, '\\');
+    if (!slash) slash = strrchr(exe, '/');
+    if (!slash) return 0;
+    *slash = 0;
+    if (strlen(exe) + 1 > out_size) return 0;
+    lstrcpynA(out, exe, (int)out_size);
+    return 1;
+}
+
+static int start_discord_companion(void) {
+    char root[MAX_PATH];
+    char exe[MAX_PATH];
+    char command[MAX_PATH * 2];
+    DWORD attrs;
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+
+    if (!game_directory(root, sizeof(root))) return 0;
+    if (strlen(root) + strlen("\\DiscordPresence.exe") + 1 >= sizeof(exe)) return 0;
+
+    _snprintf(exe, sizeof(exe), "%s\\DiscordPresence.exe", root);
+    exe[sizeof(exe) - 1] = 0;
+
+    attrs = GetFileAttributesA(exe);
+    if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) return 0;
+
+    _snprintf(command, sizeof(command), "\"%s\"", exe);
+    command[sizeof(command) - 1] = 0;
+
+    memset(&si, 0, sizeof(si));
+    memset(&pi, 0, sizeof(pi));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    if (!CreateProcessA(
+            exe,
+            command,
+            NULL,
+            NULL,
+            FALSE,
+            CREATE_NO_WINDOW,
+            NULL,
+            root,
+            &si,
+            &pi)) {
+        return 0;
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return 1;
+}
+
 static int data_dir(char *out, size_t out_size) {
     char exe[MAX_PATH], root[MAX_PATH], support[MAX_PATH];
     char *slash;
@@ -497,8 +559,11 @@ static void publish_snapshot(void) {
 }
 
 static DWORD WINAPI worker_thread(LPVOID unused) {
+    int companion_started = 0;
     (void)unused;
+
     if (WaitForSingleObject(g_stop, STARTUP_DELAY_MS) != WAIT_TIMEOUT) return 0;
+
     do {
 #ifdef _MSC_VER
         __try {
@@ -511,7 +576,15 @@ static DWORD WINAPI worker_thread(LPVOID unused) {
 #else
         publish_snapshot();
 #endif
+
+        /* Start the out-of-process Discord client only after WoW has finished
+         * its initial startup delay and after the first status snapshot exists.
+         * A failed start is harmless and will be retried on the next poll. */
+        if (!companion_started) {
+            companion_started = start_discord_companion();
+        }
     } while (WaitForSingleObject(g_stop, POLL_MS) == WAIT_TIMEOUT);
+
     return 0;
 }
 
