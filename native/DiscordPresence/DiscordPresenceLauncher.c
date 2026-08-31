@@ -2,7 +2,7 @@
  * DiscordPresence.exe
  * Invisible companion launcher for Modernization Tool.
  *
- * - launches VanillaFixes.exe WoW_Modernized.exe
+ * - is started automatically by DiscordPresence.dll after WoW is running
  * - reads .modernization_tool\DiscordPresence\discord_wow_status.json
  * - publishes Discord Rich Presence over the local Discord IPC named pipe
  * - exits when WoW_Modernized.exe exits
@@ -174,40 +174,6 @@ static DWORD find_process(const char *exe_name) {
     }
     CloseHandle(snapshot);
     return pid;
-}
-
-static int launch_game(void) {
-    char root[MAX_PATH], loader[MAX_PATH], modern[MAX_PATH], command[MAX_PATH * 2];
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    if (!own_directory(root, sizeof(root))) return 0;
-    _snprintf(loader, sizeof(loader), "%s\\VanillaFixes.exe", root);
-    _snprintf(modern, sizeof(modern), "%s\\WoW_Modernized.exe", root);
-    loader[sizeof(loader) - 1] = 0;
-    modern[sizeof(modern) - 1] = 0;
-    if (GetFileAttributesA(loader) == INVALID_FILE_ATTRIBUTES ||
-        GetFileAttributesA(modern) == INVALID_FILE_ATTRIBUTES) {
-        MessageBoxA(NULL,
-                    "VanillaFixes.exe or WoW_Modernized.exe is missing.",
-                    "DiscordPresence", MB_OK | MB_ICONERROR);
-        return 0;
-    }
-    _snprintf(command, sizeof(command), "\"%s\" WoW_Modernized.exe", loader);
-    command[sizeof(command) - 1] = 0;
-    memset(&si, 0, sizeof(si));
-    memset(&pi, 0, sizeof(pi));
-    si.cb = sizeof(si);
-    if (!CreateProcessA(NULL, command, NULL, NULL, FALSE, 0, NULL, root, &si, &pi)) {
-        char message[256];
-        _snprintf(message, sizeof(message),
-                  "Could not launch VanillaFixes.exe (Windows error %lu).",
-                  GetLastError());
-        MessageBoxA(NULL, message, "DiscordPresence", MB_OK | MB_ICONERROR);
-        return 0;
-    }
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    return 1;
 }
 
 static const char *find_key(const char *json, const char *key) {
@@ -447,19 +413,20 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
 
     have_id = load_application_id(application_id, sizeof(application_id));
     if (!have_id) {
-        log_line("Built-in Discord Application ID is invalid; game will still launch.");
+        log_line("Built-in Discord Application ID is invalid; presence is disabled.");
     }
 
+    /* The companion no longer launches WoW. DiscordPresence.dll starts this
+     * process only after WoW is already running. Keep a short grace period for
+     * process enumeration races, then exit quietly if WoW is not present. */
     pid = find_process("WoW_Modernized.exe");
-    if (!pid && !launch_game()) return 1;
-
-    while (!pid && wait_loops++ < 150) {
+    while (!pid && wait_loops++ < 25) {
         Sleep(200);
         pid = find_process("WoW_Modernized.exe");
     }
     if (!pid) {
-        log_line("WoW_Modernized.exe did not start.");
-        return 2;
+        log_line("No running WoW_Modernized.exe found; DiscordPresence exiting.");
+        return 0;
     }
 
     log_line("WoW_Modernized.exe detected.");
