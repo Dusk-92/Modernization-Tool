@@ -53,7 +53,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "Payload" | Out-Null
           cl /nologo /O2 /MT /W3 /LD "native\DiscordPresence\DiscordPresence.c" /Fe:"Payload\DiscordPresence.dll" /link /INCREMENTAL:NO
           if ($LASTEXITCODE -ne 0) { throw "DiscordPresence.dll build failed" }
-          cl /nologo /O2 /MT /W3 "native\DiscordPresence\DiscordPresenceLauncher.c" /Fe:"Payload\DiscordPresence.exe" /link /SUBSYSTEM:WINDOWS /INCREMENTAL:NO
+          cl /nologo /O2 /MT /W3 "native\DiscordPresence\DiscordPresenceLauncher.c" user32.lib /Fe:"Payload\DiscordPresence.exe" /link /SUBSYSTEM:WINDOWS /INCREMENTAL:NO
           if ($LASTEXITCODE -ne 0) { throw "DiscordPresence.exe build failed" }
           if (-not (Test-Path "Payload\DiscordPresence.dll")) { throw "DiscordPresence.dll missing" }
           if (-not (Test-Path "Payload\DiscordPresence.exe")) { throw "DiscordPresence.exe missing" }
