@@ -672,7 +672,7 @@ VISUAL_MOD_REVISIONS = {
     "visual_pretty_night_sky": "1",
     "visual_epoch_water": "1",
     "visual_fog_pushback": "1",
-    "visual_pink_herbs": "1",
+    "visual_pink_herbs": "2",
 }
 
 
@@ -943,6 +943,64 @@ def _verify_mpq(path):
         raise RemotePackageError("Downloaded file is not a valid MPQ archive.")
 
 
+
+def _files_match_exactly(path_a, path_b):
+    """Compare two files byte-for-byte without loading them fully into memory."""
+    try:
+        if os.path.getsize(path_a) != os.path.getsize(path_b):
+            return False
+        with open(path_a, "rb") as first, open(path_b, "rb") as second:
+            while True:
+                first_chunk = first.read(1024 * 1024)
+                second_chunk = second.read(1024 * 1024)
+                if first_chunk != second_chunk:
+                    return False
+                if not first_chunk:
+                    return True
+    except OSError:
+        return False
+
+
+def _migrate_legacy_pink_herbs_patch(target_dir, downloaded_path, progress=None):
+    """Release legacy patch-H ownership only when doing so is demonstrably safe."""
+    mod_id = "visual_pink_herbs"
+    legacy_rel = _safe_relative_path(os.path.join("Data", "patch-H.mpq"))
+    legacy_key = os.path.normcase(legacy_rel)
+    files = _load_managed_manifest(target_dir, mod_id)
+
+    if not any(os.path.normcase(rel) == legacy_key for rel in files):
+        return
+
+    legacy_target = os.path.join(target_dir, legacy_rel)
+    safe_to_release = not os.path.lexists(legacy_target)
+    if os.path.isfile(legacy_target):
+        safe_to_release = _files_match_exactly(legacy_target, downloaded_path)
+
+    if safe_to_release:
+        _restore_or_remove_managed_file(target_dir, mod_id, legacy_rel)
+        _emit_progress(
+            progress,
+            "Released legacy Pink Herbs patch-H.mpq for migration to patch-V.mpq.",
+            None,
+            None,
+        )
+    else:
+        _emit_progress(
+            progress,
+            "Keeping existing patch-H.mpq because it no longer matches Pink Herbs.",
+            None,
+            None,
+        )
+
+    data = _load_managed_manifest_data(target_dir, mod_id)
+    remaining = [rel for rel in files if os.path.normcase(rel) != legacy_key]
+    _write_managed_manifest(
+        target_dir,
+        mod_id,
+        remaining,
+        revision=data.get("revision"),
+    )
+
 def _install_remote_mpq(
     target_dir,
     mod_id,
@@ -1038,15 +1096,36 @@ def install_fog_pushback(target_dir, progress=None):
 
 
 def install_pink_herbs(target_dir, progress=None):
-    _install_remote_mpq(
-        target_dir,
-        "visual_pink_herbs",
+    mod_id = "visual_pink_herbs"
+    destination = os.path.join("Data", "patch-V.mpq")
+    temp_path = _download(
         "https://raw.githubusercontent.com/seacrabsam/patch-herb/main/patch-H.mpq",
-        os.path.join("Data", "patch-H.mpq"),
+        suffix=".mpq",
         progress=progress,
         label="Downloading Pink Herbs",
-        revision=VISUAL_MOD_REVISIONS["visual_pink_herbs"],
+        timeout=300,
     )
+    try:
+        _verify_mpq(temp_path)
+        _migrate_legacy_pink_herbs_patch(target_dir, temp_path, progress=progress)
+        _emit_progress(
+            progress,
+            f"Installing {os.path.basename(destination)}...",
+            None,
+            None,
+        )
+        _install_managed_files(
+            target_dir,
+            mod_id,
+            [(temp_path, destination)],
+            revision=VISUAL_MOD_REVISIONS[mod_id],
+        )
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+
     return "seacrabsam/patch-herb main"
 
 
