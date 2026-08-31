@@ -139,19 +139,19 @@ static int load_application_id(char *out, size_t out_size) {
 
 static DWORD find_process(const char *exe_name) {
     HANDLE snapshot;
-    PROCESSENTRY32A entry;
+    PROCESSENTRY32 entry;
     DWORD pid = 0;
     snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return 0;
     memset(&entry, 0, sizeof(entry));
     entry.dwSize = sizeof(entry);
-    if (Process32FirstA(snapshot, &entry)) {
+    if (Process32First(snapshot, &entry)) {
         do {
             if (_stricmp(entry.szExeFile, exe_name) == 0) {
                 pid = entry.th32ProcessID;
                 break;
             }
-        } while (Process32NextA(snapshot, &entry));
+        } while (Process32Next(snapshot, &entry));
     }
     CloseHandle(snapshot);
     return pid;
