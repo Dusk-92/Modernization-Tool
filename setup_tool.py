@@ -129,7 +129,7 @@ class WowSetupTool:
             "pretty_night_sky": "Replaces the Vanilla night sky with a more detailed starry sky. Installed file: Data\\patch-Z.mpq. The original hosted patch-9 name is deliberately changed so the official numeric patch-9.mpq is never overwritten.",
             "epoch_water": "Replaces Vanilla water textures with the Epoch Water visual pack. Installed file: Data\\patch-W.mpq.",
             "fog_pushback": "Pushes environmental fog farther back for a clearer long-distance view. Installed file: Data\\patch-Y.mpq. Works best together with an increased Farclip value.",
-            "pink_herbs": "Turns most herb-node textures bright pink/purple to make gathering nodes easier to spot. Installed file: Data\\patch-H.mpq.",
+            "pink_herbs": "Turns most herb-node textures bright pink/purple to make gathering nodes easier to spot. Installed file: Data\\patch-V.mpq. The patch-V name avoids conflicts with other visual packs that use patch-H.mpq.",
             "no_error_sounds": "Installs the complete NoErrorSounds pack: muted spell fizzle sounds plus its included muted interface sounds. Installed as loose WAV files under Sound\\Spells\\Fizzle and Sound\\interface (no MPQ).",
             "fish_ping": "Replaces the fishing bite sound with a much more noticeable ping. Installed file: Sound\\Spells\\Tradeskills\\FishBite.wav (no MPQ). Designed specifically for WoW Vanilla 1.12.1.",
             "warlock_muted_demons": "Mutes the repeated voice lines from Warlock demons using Vanilla-compatible loose sound replacements. Installed as loose WAV files under Data\\Sound\\Creature (no MPQ)."

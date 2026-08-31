@@ -279,6 +279,72 @@ class ManagedPackageTests(unittest.TestCase):
                 )
             )
 
+    def test_pink_herbs_v2_migration_restores_original_patch_h(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as src:
+            mod_id = "visual_pink_herbs"
+            legacy_rel = os.path.join("Data", "patch-H.mpq")
+            new_rel = os.path.join("Data", "patch-V.mpq")
+            legacy_target = os.path.join(root, legacy_rel)
+            source = os.path.join(src, "pink-herbs.mpq")
+
+            os.makedirs(os.path.dirname(legacy_target))
+            with open(source, "wb") as handle:
+                handle.write(b"MPQ pink-herbs")
+            with open(legacy_target, "wb") as handle:
+                handle.write(b"MPQ pink-herbs")
+
+            _, _, backup_root = remote_packages._managed_locations(root, mod_id)
+            backup_h = os.path.join(backup_root, legacy_rel)
+            os.makedirs(os.path.dirname(backup_h))
+            with open(backup_h, "wb") as handle:
+                handle.write(b"MPQ faithful-upscale")
+
+            remote_packages._write_managed_manifest(
+                root, mod_id, [legacy_rel], revision="1"
+            )
+            remote_packages._migrate_legacy_pink_herbs_patch(root, source)
+            remote_packages._install_managed_files(
+                root, mod_id, [(source, new_rel)], revision="2"
+            )
+
+            with open(legacy_target, "rb") as handle:
+                self.assertEqual(handle.read(), b"MPQ faithful-upscale")
+            with open(os.path.join(root, new_rel), "rb") as handle:
+                self.assertEqual(handle.read(), b"MPQ pink-herbs")
+
+    def test_pink_herbs_v2_migration_preserves_replaced_patch_h(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as src:
+            mod_id = "visual_pink_herbs"
+            legacy_rel = os.path.join("Data", "patch-H.mpq")
+            new_rel = os.path.join("Data", "patch-V.mpq")
+            legacy_target = os.path.join(root, legacy_rel)
+            source = os.path.join(src, "pink-herbs.mpq")
+
+            os.makedirs(os.path.dirname(legacy_target))
+            with open(source, "wb") as handle:
+                handle.write(b"MPQ pink-herbs")
+            with open(legacy_target, "wb") as handle:
+                handle.write(b"MPQ replacement-patch-h")
+
+            _, _, backup_root = remote_packages._managed_locations(root, mod_id)
+            backup_h = os.path.join(backup_root, legacy_rel)
+            os.makedirs(os.path.dirname(backup_h))
+            with open(backup_h, "wb") as handle:
+                handle.write(b"MPQ older-original-patch-h")
+
+            remote_packages._write_managed_manifest(
+                root, mod_id, [legacy_rel], revision="1"
+            )
+            remote_packages._migrate_legacy_pink_herbs_patch(root, source)
+            remote_packages._install_managed_files(
+                root, mod_id, [(source, new_rel)], revision="2"
+            )
+
+            with open(legacy_target, "rb") as handle:
+                self.assertEqual(handle.read(), b"MPQ replacement-patch-h")
+            with open(os.path.join(root, new_rel), "rb") as handle:
+                self.assertEqual(handle.read(), b"MPQ pink-herbs")
+
     def test_transactional_sound_pack_rolls_back_all_files_and_manifest(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as src:
             mod_id = "audio_test"
