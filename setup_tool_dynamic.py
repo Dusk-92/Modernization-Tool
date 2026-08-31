@@ -294,6 +294,10 @@ class ModernWowSetupTool(WowSetupTool):
             "minimapicons.dll": "MinimapIcons",
             "pngscreenshots.dll": "PNG Screenshots",
             "worldmarkers.dll": "WorldMarkers",
+            "DiscordPresence.dll": "Discord Presence",
+        }
+        optional_attribution = {
+            "DiscordPresence.dll": "Modernization Tool",
         }
 
         for dll, var in self.optional_plugins.items():
@@ -303,9 +307,27 @@ class ModernWowSetupTool(WowSetupTool):
                 right_frame,
                 optional_display.get(dll, os.path.splitext(dll)[0]),
                 var,
-                "by MarcelineVQ",
+                optional_attribution.get(dll, "by MarcelineVQ"),
                 self.descriptions.get(dll, ""),
             )
+
+        discord_id_row = ttk.Frame(right_frame)
+        discord_id_row.pack(fill="x", padx=10, pady=(0, 4))
+        ttk.Label(
+            discord_id_row,
+            text="Discord App ID:",
+            font=("Segoe UI", 8),
+        ).pack(side="left")
+        discord_id_entry = ttk.Entry(
+            discord_id_row,
+            textvariable=self.discord_application_id,
+            width=22,
+        )
+        discord_id_entry.pack(side="right", fill="x", expand=True, padx=(6, 0))
+        ToolTip(
+            discord_id_entry,
+            "Numeric Application ID from Discord Developer Portal. No Client Secret is needed.",
+        )
 
     def clean_unselected_files(self, target):
         super().clean_unselected_files(target)
@@ -821,15 +843,61 @@ class ModernWowSetupTool(WowSetupTool):
                     self._fallback_interact(target, exc)
                 dlls_text_lines.append("Interact.dll")
 
-            # Optional WeirdUtils.
+            # Optional WeirdUtils and Discord Presence.
             for dll_name, var in self.optional_plugins.items():
                 if dll_name == "no1600x1200.dll":
                     continue
-                if var.get():
+                if not var.get():
+                    continue
+
+                if dll_name == "DiscordPresence.dll":
+                    source_dll = os.path.join(payload_base, "DiscordPresence.dll")
+                    source_exe = os.path.join(payload_base, "DiscordPresence.exe")
+                    if not os.path.isfile(source_dll) or not os.path.isfile(source_exe):
+                        raise RuntimeError(
+                            "Discord Presence payload is incomplete. DiscordPresence.dll and DiscordPresence.exe are both required."
+                        )
+                    remote_packages._verify_x86_pe(
+                        source_dll,
+                        "DiscordPresence.dll",
+                    )
+                    remote_packages._verify_x86_pe(
+                        source_exe,
+                        "DiscordPresence.exe",
+                    )
+                    remote_packages._transactional_replace_bundle(
+                        [
+                            ("file", source_dll, os.path.join(target, "DiscordPresence.dll")),
+                            ("file", source_exe, os.path.join(target, "DiscordPresence.exe")),
+                        ],
+                        label="Discord Presence",
+                    )
+
+                    discord_dir = os.path.join(
+                        target,
+                        ".modernization_tool",
+                        "DiscordPresence",
+                    )
+                    os.makedirs(discord_dir, exist_ok=True)
+
+                    app_id_path = os.path.join(discord_dir, "discord_application_id")
+                    app_id_tmp = app_id_path + ".new"
+                    with open(app_id_tmp, "w", encoding="ascii", newline="\n") as handle:
+                        handle.write(self.discord_application_id.get().strip() + "\n")
+                    os.replace(app_id_tmp, app_id_path)
+
+                    flags_path = os.path.join(discord_dir, "discord_broadcast_flags")
+                    if not os.path.exists(flags_path):
+                        flags_tmp = flags_path + ".new"
+                        with open(flags_tmp, "w", encoding="ascii", newline="\n") as handle:
+                            handle.write("63\n")
+                        os.replace(flags_tmp, flags_path)
+                else:
                     source_dll = os.path.join(payload_weirdu, dll_name)
                     if os.path.exists(source_dll):
                         shutil.copy2(source_dll, target)
-                    dlls_text_lines.append(dll_name)
+
+                dlls_text_lines.append(dll_name)
 
             # Preserve user-added dlls.txt entries; replace only entries
             # managed by Modernization Tool.
