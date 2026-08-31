@@ -311,24 +311,6 @@ class ModernWowSetupTool(WowSetupTool):
                 self.descriptions.get(dll, ""),
             )
 
-        discord_id_row = ttk.Frame(right_frame)
-        discord_id_row.pack(fill="x", padx=10, pady=(0, 4))
-        ttk.Label(
-            discord_id_row,
-            text="Discord App ID:",
-            font=("Segoe UI", 8),
-        ).pack(side="left")
-        discord_id_entry = ttk.Entry(
-            discord_id_row,
-            textvariable=self.discord_application_id,
-            width=22,
-        )
-        discord_id_entry.pack(side="right", fill="x", expand=True, padx=(6, 0))
-        ToolTip(
-            discord_id_entry,
-            "Numeric Application ID from Discord Developer Portal. No Client Secret is needed.",
-        )
-
     def clean_unselected_files(self, target):
         super().clean_unselected_files(target)
 
@@ -879,12 +861,6 @@ class ModernWowSetupTool(WowSetupTool):
                         "DiscordPresence",
                     )
                     os.makedirs(discord_dir, exist_ok=True)
-
-                    app_id_path = os.path.join(discord_dir, "discord_application_id")
-                    app_id_tmp = app_id_path + ".new"
-                    with open(app_id_tmp, "w", encoding="ascii", newline="\n") as handle:
-                        handle.write(self.discord_application_id.get().strip() + "\n")
-                    os.replace(app_id_tmp, app_id_path)
 
                     flags_path = os.path.join(discord_dir, "discord_broadcast_flags")
                     if not os.path.exists(flags_path):
