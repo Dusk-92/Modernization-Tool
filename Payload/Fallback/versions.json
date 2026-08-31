@@ -140,17 +140,6 @@
       "source": "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/refs/heads/main/Archive/DLL%20BACKUP/perf_boost.dll",
       "version": "RetroCro main"
     },
-    "SuperWoW": {
-      "files": [
-        {
-          "path": "Payload/SuperWoWhook.dll",
-          "sha256": "bd214b32c878649e94ce654835946bd05e0ce7710e8f01bae10d8ab50a89351d",
-          "size": 1000448
-        }
-      ],
-      "source": "https://github.com/balakethelock/SuperWoW/releases/download/Release/SuperWoW.release.2.2.zip",
-      "version": "Release"
-    },
     "UnitXP_SP3": {
       "files": [
         {

@@ -704,9 +704,9 @@ class ModernWowSetupTool(WowSetupTool):
             dlls_text_lines.append("dxvk")
 
         try:
-            # Core plugins. UnitXP and SuperWoW are refreshed from their upstream
-            # sources every time setup is applied. Their bundled copies remain an
-            # offline fallback so this feature does not reduce current reliability.
+            # Core plugins are refreshed from their upstream sources where supported.
+            # Bundled fallbacks are used only for components whose redistribution
+            # model allows it. SuperWoW/SuperAPI are upstream-only.
             for dll_name, var in self.core_plugins.items():
                 if not var.get():
                     continue
