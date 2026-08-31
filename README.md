@@ -158,8 +158,12 @@ Modernization Tool is designed to avoid breaking an existing installation if an 
 Depending on the component, the tool can:
 
 - keep an already installed valid version;
-- use a bundled known-good fallback;
+- use a bundled known-good fallback where redistribution terms allow it;
 - avoid re-downloading files that are already current.
+
+**SuperWoW and SuperAPI are upstream-only:** they are downloaded directly from
+their official upstream projects when enabled and are not bundled as offline
+fallbacks. A first-time SuperWoW installation therefore requires network access.
 
 Downloaded DLLs are also validated before installation.
 
@@ -289,6 +293,24 @@ Modernization Tool brings together work from several community projects and deve
 - [WeirdUtils](https://codeberg.org/Dusk92/WeirdUtils)
 
 Additional attribution and source links are available directly in the **Credits** tab of Modernization Tool.
+
+---
+
+## 🧾 Licensing & Provenance
+
+Modernization Tool is an independent community project. Third-party components
+retain their own licenses, permissions, and trademarks.
+
+For detailed redistribution and provenance information, see:
+
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- [PROJECT_IDENTITY.md](PROJECT_IDENTITY.md)
+- [Docs/BINARY_PROVENANCE.md](Docs/BINARY_PROVENANCE.md)
+- [Docs/ASSET_PROVENANCE.md](Docs/ASSET_PROVENANCE.md)
+- [LICENSES/](LICENSES/)
+
+SuperWoW and SuperAPI are downloaded directly from their upstream projects and
+are not bundled as offline fallbacks.
 
 ---
 
