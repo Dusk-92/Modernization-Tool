@@ -546,6 +546,17 @@ class WowSetupTool:
                 "Disable one of them before applying the setup.",
             )
             return False
+
+        discord_var = self.optional_plugins.get("DiscordPresence.dll")
+        if discord_var is not None and discord_var.get():
+            app_id = self.discord_application_id.get().strip()
+            if not (15 <= len(app_id) <= 24 and app_id.isdigit()):
+                messagebox.showerror(
+                    "Discord Application ID required",
+                    "Discord Presence is enabled, but the Discord Application ID is missing or invalid.\n\n"
+                    "Create an application in the Discord Developer Portal and paste its numeric Application ID in the Plugins tab.",
+                )
+                return False
         return True
 
     def load_settings(self, target_dir):
