@@ -373,7 +373,12 @@ static int start_discord_companion(void) {
     attrs = GetFileAttributesA(exe);
     if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) return 0;
 
-    _snprintf(command, sizeof(command), "\"%s\"", exe);
+    _snprintf(
+        command,
+        sizeof(command),
+        "\"%s\" --pid %lu",
+        exe,
+        (unsigned long)GetCurrentProcessId());
     command[sizeof(command) - 1] = 0;
 
     memset(&si, 0, sizeof(si));
