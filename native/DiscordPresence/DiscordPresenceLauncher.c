@@ -417,6 +417,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
     char application_id[64] = {0};
     DiscordRpc rpc;
     DWORD pid = 0;
+    DWORD last_pid = 0;
     int have_id;
     int wait_loops = 0;
     (void)instance; (void)prev; (void)cmdline; (void)show;
@@ -443,23 +444,33 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
     }
 
     log_line("WoW_Modernized.exe detected.");
+    last_pid = pid;
 
     while ((pid = find_process("WoW_Modernized.exe")) != 0) {
         Status status;
         char activity[768];
 
+        last_pid = pid;
+
         if (have_id && rpc.pipe == INVALID_HANDLE_VALUE)
             rpc_connect(&rpc, application_id);
 
-        if (have_id && rpc.pipe != INVALID_HANDLE_VALUE && load_status(&status)) {
-            format_activity(&status, activity, sizeof(activity));
-            rpc_set_activity(&rpc, pid, activity);
+        if (have_id && rpc.pipe != INVALID_HANDLE_VALUE) {
+            if (load_status(&status)) {
+                format_activity(&status, activity, sizeof(activity));
+                rpc_set_activity(&rpc, pid, activity);
+            } else {
+                /* Keep only the Discord application header while the game is
+                 * loading, on character select, or when the snapshot is stale.
+                 * This also prevents old character/zone text from lingering. */
+                rpc_set_activity(&rpc, pid, "{}");
+            }
         }
         Sleep(TICK_MS);
     }
 
     if (rpc.pipe != INVALID_HANDLE_VALUE) {
-        rpc_clear(&rpc, pid);
+        rpc_clear(&rpc, last_pid ? last_pid : GetCurrentProcessId());
         rpc_close(&rpc);
     }
     log_line("WoW stopped; DiscordPresence exiting.");
