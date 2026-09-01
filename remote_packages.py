@@ -566,17 +566,68 @@ def install_wowpresence(target_dir, progress=None):
     _emit_progress(progress, "Checking WowPresence release...", None, None)
     release = _latest_release(WOWPRESENCE_REPO)
     revision = release.get("tag_name", "latest")
+    dll_asset = _find_asset(release, exact_name="WowPresence.dll")
+    exe_asset = _find_asset(release, exact_name="WowPresence.exe")
 
-    # The directory itself is the signal used by WowPresence to select the
-    # Modernization Tool managed data location instead of the standalone one.
+    # Preserve whether dlls.txt already belonged to a standalone/manual
+    # WowPresence install before this tool first takes ownership.
+    existing_manifest = _load_managed_manifest_data(
+        target_dir,
+        WOWPRESENCE_MANAGED_ID,
+    )
+    dlls_entry_preexisting = existing_manifest.get("dlls_entry_preexisting")
+    if not isinstance(dlls_entry_preexisting, bool):
+        if existing_manifest:
+            # Legacy test manifests predate explicit dlls.txt ownership.
+            # A saved DLL backup is the conservative signal that a manual
+            # WowPresence installation existed before the tool took over.
+            dlls_entry_preexisting = _managed_backup_exists(
+                target_dir,
+                WOWPRESENCE_MANAGED_ID,
+                "WowPresence.dll",
+            )
+        else:
+            dlls_entry_preexisting = _dlls_contains_entry(
+                target_dir,
+                "WowPresence.dll",
+            )
+
+    # The directory itself is the signal used by WowPresence v1.2 to select
+    # the Modernization Tool managed data location instead of the standalone
+    # one. User-editable config is created only when missing.
     ensure_wowpresence_config(target_dir)
 
     if managed_mod_is_current(target_dir, WOWPRESENCE_MANAGED_ID, revision):
-        _emit_progress(progress, f"WowPresence {revision} is already current.", None, None)
-        return revision
+        dll_ok = _installed_asset_is_current(
+            os.path.join(target_dir, "WowPresence.dll"),
+            dll_asset,
+            "WowPresence.dll",
+        )
+        exe_ok = _installed_asset_is_current(
+            os.path.join(target_dir, "WowPresence.exe"),
+            exe_asset,
+            "WowPresence.exe",
+        )
+        if dll_ok and exe_ok:
+            _set_managed_manifest_values(
+                target_dir,
+                WOWPRESENCE_MANAGED_ID,
+                dlls_entry_preexisting=bool(dlls_entry_preexisting),
+            )
+            _emit_progress(
+                progress,
+                f"WowPresence {revision} is already current.",
+                None,
+                None,
+            )
+            return revision
+        _emit_progress(
+            progress,
+            f"WowPresence {revision} needs repair; refreshing binaries...",
+            None,
+            None,
+        )
 
-    dll_asset = _find_asset(release, exact_name="WowPresence.dll")
-    exe_asset = _find_asset(release, exact_name="WowPresence.exe")
     dll_path = None
     exe_path = None
     try:
@@ -603,6 +654,11 @@ def install_wowpresence(target_dir, progress=None):
             ],
             revision=revision,
         )
+        _set_managed_manifest_values(
+            target_dir,
+            WOWPRESENCE_MANAGED_ID,
+            dlls_entry_preexisting=bool(dlls_entry_preexisting),
+        )
     finally:
         for temp_path in (dll_path, exe_path):
             if temp_path and os.path.exists(temp_path):
@@ -613,7 +669,6 @@ def install_wowpresence(target_dir, progress=None):
 
     ensure_wowpresence_config(target_dir)
     return revision
-
 
 
 def install_interact(target_dir, progress=None):
@@ -727,6 +782,108 @@ def _load_managed_manifest(target_dir, mod_id):
     if not isinstance(files, list):
         return []
     return [_safe_relative_path(item) for item in files if isinstance(item, str)]
+
+
+def managed_mod_has_manifest(target_dir, mod_id):
+    """Return True when a valid managed manifest claims at least one file."""
+    return bool(_load_managed_manifest(target_dir, mod_id))
+
+
+def managed_mod_manifest_value(target_dir, mod_id, key, default=None):
+    """Read one non-file metadata value from a managed manifest."""
+    data = _load_managed_manifest_data(target_dir, mod_id)
+    return data.get(key, default)
+
+
+def _set_managed_manifest_values(target_dir, mod_id, **values):
+    """Atomically add/update metadata without changing managed file ownership."""
+    _, manifest_path, _ = _managed_locations(target_dir, mod_id)
+    data = _load_managed_manifest_data(target_dir, mod_id)
+    if not data or not isinstance(data.get("files"), list):
+        return
+    data.update(values)
+    os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+    temp_path = manifest_path + ".new"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+        os.replace(temp_path, manifest_path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def _dlls_contains_entry(target_dir, entry):
+    path = os.path.join(target_dir, "dlls.txt")
+    wanted = str(entry).strip().casefold()
+    if not wanted or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            for raw in handle:
+                line = raw.strip()
+                if not line or line.startswith("#") or line.startswith(";"):
+                    continue
+                if line.casefold() == wanted:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def _managed_backup_exists(target_dir, mod_id, relative_path):
+    _, _, backup_root = _managed_locations(target_dir, mod_id)
+    rel = _safe_relative_path(relative_path)
+    return os.path.isfile(os.path.join(backup_root, rel))
+
+
+def _asset_sha256(asset):
+    digest = (asset or {}).get("digest")
+    if isinstance(digest, str) and digest.lower().startswith("sha256:"):
+        value = digest.split(":", 1)[1].strip().lower()
+        if len(value) == 64 and all(ch in "0123456789abcdef" for ch in value):
+            return value
+    return None
+
+
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest().lower()
+
+
+def _installed_asset_is_current(path, asset, label):
+    """Validate an installed release asset without trusting existence alone."""
+    if not os.path.isfile(path):
+        return False
+    expected_size = asset.get("size") if isinstance(asset, dict) else None
+    if isinstance(expected_size, int) and expected_size > 0:
+        try:
+            if os.path.getsize(path) != expected_size:
+                return False
+        except OSError:
+            return False
+
+    expected_sha = _asset_sha256(asset)
+    if expected_sha:
+        try:
+            return _file_sha256(path) == expected_sha
+        except OSError:
+            return False
+
+    try:
+        _verify_x86_pe(path, label)
+        return True
+    except RemotePackageError:
+        return False
 
 
 def _write_managed_manifest(target_dir, mod_id, relative_files, revision=None):
