@@ -17,7 +17,7 @@ Download the latest version from:
 
 **[GitHub Releases](https://github.com/Dusk-92/Modernization-Tool/releases/latest)**
 
-Current major release: **v2.0**
+Current major release: **v2.1**
 
 No installation is required. Download and run:
 
@@ -247,7 +247,7 @@ Always download Modernization Tool from the official GitHub Releases page.
 # 🔗 Useful Links
 
 - **[Latest Release](https://github.com/Dusk-92/Modernization-Tool/releases/latest)**
-- **[v2.0 Release Notes](https://github.com/Dusk-92/Modernization-Tool/releases/tag/v2.0)**
+- **[v2.1 Release Notes](https://github.com/Dusk-92/Modernization-Tool/releases/tag/v2.1)**
 - **[OctoWoW Installation & Modernization Guide](https://octowow.st/forum/viewtopic.php?t=831)**
 
 ---
