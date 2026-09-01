@@ -29,6 +29,7 @@ typedef struct {
     char guild[64];
     char faction[24];
     char class_name[32];
+    char race[32];
     int level;
     long long ts;
     int ok;
@@ -272,6 +273,7 @@ static int load_status(Status *status) {
     json_string(json, "guild", status->guild, sizeof(status->guild));
     json_string(json, "faction", status->faction, sizeof(status->faction));
     json_string(json, "class", status->class_name, sizeof(status->class_name));
+    json_string(json, "race", status->race, sizeof(status->race));
     json_int(json, "level", &status->level);
     return status->name[0] || status->zone[0] || status->level > 0;
 }
@@ -352,20 +354,28 @@ static void format_activity(const Status *s, char *out, size_t out_size) {
     else if (s->guild[0])
         _snprintf(details, sizeof(details), "<%s>", s->guild);
 
-    if (s->level > 0 && s->class_name[0] && faction[0])
-        _snprintf(extra, sizeof(extra), "Lvl %d %s \\u00b7 %s", s->level, s->class_name, faction);
-    else if (s->level > 0 && s->class_name[0])
+    if (s->level > 0 && s->class_name[0])
         _snprintf(extra, sizeof(extra), "Lvl %d %s", s->level, s->class_name);
-    else if (s->level > 0 && faction[0])
-        _snprintf(extra, sizeof(extra), "Lvl %d \\u00b7 %s", s->level, faction);
     else if (s->level > 0)
         _snprintf(extra, sizeof(extra), "Lvl %d", s->level);
-    else if (s->class_name[0] && faction[0])
-        _snprintf(extra, sizeof(extra), "%s \\u00b7 %s", s->class_name, faction);
     else if (s->class_name[0])
         _snprintf(extra, sizeof(extra), "%s", s->class_name);
-    else if (faction[0])
-        _snprintf(extra, sizeof(extra), "%s", faction);
+
+    if (s->race[0]) {
+        size_t used = strlen(extra);
+        if (used)
+            _snprintf(extra + used, sizeof(extra) - used, " \\u00b7 %s", s->race);
+        else
+            _snprintf(extra, sizeof(extra), "%s", s->race);
+    }
+
+    if (faction[0]) {
+        size_t used = strlen(extra);
+        if (used)
+            _snprintf(extra + used, sizeof(extra) - used, " \\u00b7 %s", faction);
+        else
+            _snprintf(extra, sizeof(extra), "%s", faction);
+    }
 
     if (details[0] && extra[0]) {
         size_t used = strlen(details);
