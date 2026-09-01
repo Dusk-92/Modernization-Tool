@@ -107,7 +107,7 @@ class WowSetupTool:
             "minimapicons.dll": "Adds TBC/WotLK-style minimap tracking icons for NPCs and objects, combined into a new native tracking dropdown.",
             "pngscreenshots.dll": "Saves screenshots as compressed PNG files on a background thread to completely eliminate frame drops when taking pictures.",
             "worldmarkers.dll": "Place up to 5 animated colored markers (Cataclysm style) in the world for raid positioning. Syncs automatically with other users.",
-            "DiscordPresence.dll": "Shows your WoW character activity on Discord using the built-in OctoWoW Discord application. WoW still starts normally through VanillaFixes; the read-only helper DLL writes character status under .modernization_tool\\DiscordPresence and automatically starts DiscordPresence.exe in the background for Discord IPC. If Discord runs as administrator, WoW must also run as administrator for Rich Presence to work. Advanced users can override the Application ID with .modernization_tool\\DiscordPresence\\discord_application_id.",
+            "WowPresence.dll": "Shows your WoW character activity on Discord using WowPresence by Dusk-92. Modernization Tool downloads and updates WowPresence from its GitHub releases, stores its configuration and status under .modernization_tool\\WowPresence, and lets WowPresence.exe handle Discord IPC outside the game process. Set your Discord Application ID in .modernization_tool\\WowPresence\\discord_application_id. If Discord runs as administrator, WoW must also run as administrator for Rich Presence to work.",
 
             # Tweaks Tab
             "fov": "Calculates horizontal Field of View mathematically scaled to maintain vertical aspect space based on your screen ratio.",
@@ -174,7 +174,7 @@ class WowSetupTool:
             "minimapicons.dll": tk.BooleanVar(value=False),
             "pngscreenshots.dll": tk.BooleanVar(value=False),
             "worldmarkers.dll": tk.BooleanVar(value=False),
-            "DiscordPresence.dll": tk.BooleanVar(value=False)
+            "WowPresence.dll": tk.BooleanVar(value=False)
         }
 
         self.addon_dependencies = {
@@ -1072,6 +1072,10 @@ class WowSetupTool:
         text_area.insert("end", "\n• Warlock Muted Demons: ", "bold")
         insert_link("spzilyk/Warlock-Muted-Demons", "https://github.com/spzilyk/Warlock-Muted-Demons")
 
+        text_area.insert("end", "\n• WowPresence: ", "bold")
+        text_area.insert("end", "by Dusk-92 | ")
+        insert_link("Source Repository", "https://github.com/Dusk-92/WowPresence")
+
         text_area.insert("end", "\n• Automatically Clear WDB: ", "bold")
         insert_link("RetroCro guide", "https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow")
 
@@ -1305,14 +1309,25 @@ class WowSetupTool:
         # 3. Clean unselected Optional plugins.
         for dll_name, var in self.optional_plugins.items():
             if not var.get():
-                remove_managed_file(
-                    os.path.join(target, dll_name),
-                    f"managed plugin {dll_name}",
-                )
-                if dll_name == "DiscordPresence.dll":
+                if dll_name == "WowPresence.dll":
+                    # Remove only the binaries owned by the tool. Keep the
+                    # user's .modernization_tool\WowPresence configuration.
+                    remote_packages.remove_managed_mod(
+                        target,
+                        remote_packages.WOWPRESENCE_MANAGED_ID,
+                    )
                     remove_managed_file(
-                        os.path.join(target, "DiscordPresence.exe"),
-                        "managed Discord Presence companion",
+                        os.path.join(target, "WowPresence.dll"),
+                        "managed WowPresence plugin",
+                    )
+                    remove_managed_file(
+                        os.path.join(target, "WowPresence.exe"),
+                        "managed WowPresence companion",
+                    )
+                else:
+                    remove_managed_file(
+                        os.path.join(target, dll_name),
+                        f"managed plugin {dll_name}",
                     )
 
 
@@ -2029,9 +2044,8 @@ class WowSetupTool:
         vanilla_fixes_exe = os.path.join(target_dir, "VanillaFixes.exe")
         modernized_exe = os.path.join(target_dir, "WoW_Modernized.exe")
 
-        # Keep the launcher path identical to the pre-Discord-Presence setup.
-        # When enabled, DiscordPresence.dll starts DiscordPresence.exe from its
-        # worker thread after WoW is already running.
+        # Keep the launcher path unchanged. When enabled, WowPresence.dll
+        # starts WowPresence.exe from its worker thread after WoW is running.
         launcher_exe = vanilla_fixes_exe
         launcher_arguments = "WoW_Modernized.exe"
         launcher_description = "Launch Vanilla WoW with VanillaFixes and Tweaks"
@@ -2319,6 +2333,9 @@ WScript.Echo oWS.SpecialFolders("Desktop")
                 "AuctionQueryThrottle.dll",
                 "VanillaMultiMonitorFix.dll",
                 "Interact.dll",
+                # Legacy test-branch name. Owning it here removes the stale
+                # entry from dlls.txt when migrating to WowPresence.dll.
+                "DiscordPresence.dll",
             )
         )
         return managed
