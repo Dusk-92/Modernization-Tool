@@ -81,7 +81,7 @@ jobs:
           Get-Item $zip | Format-List Name,Length,LastWriteTime
 
       - name: Upload test artifact
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && !(github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.1') }}
         uses: actions/upload-artifact@v4
         with:
           name: WoW_Modernization_Tool-test
