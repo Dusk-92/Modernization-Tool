@@ -47,17 +47,6 @@ jobs:
         with:
           arch: x86
 
-      - name: Build Discord Presence native components
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "Payload" | Out-Null
-          cl /nologo /O2 /MT /W3 /LD "native\DiscordPresence\DiscordPresence.c" /Fe:"Payload\DiscordPresence.dll" /link /INCREMENTAL:NO
-          if ($LASTEXITCODE -ne 0) { throw "DiscordPresence.dll build failed" }
-          cl /nologo /O2 /MT /W3 "native\DiscordPresence\DiscordPresenceLauncher.c" user32.lib /Fe:"Payload\DiscordPresence.exe" /link /SUBSYSTEM:WINDOWS /INCREMENTAL:NO
-          if ($LASTEXITCODE -ne 0) { throw "DiscordPresence.exe build failed" }
-          if (-not (Test-Path "Payload\DiscordPresence.dll")) { throw "DiscordPresence.dll missing" }
-          if (-not (Test-Path "Payload\DiscordPresence.exe")) { throw "DiscordPresence.exe missing" }
-
       - name: Syntax check
         run: python -m py_compile setup_tool.py setup_tool_dynamic.py remote_packages.py tests/test_safety.py
 
