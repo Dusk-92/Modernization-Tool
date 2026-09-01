@@ -18,6 +18,15 @@ covered by the project notice in `LICENSE`.
 Third-party material is excluded from that project notice and remains under its
 own terms.
 
+### WowPresence
+
+- Source: https://github.com/Dusk-92/WowPresence
+- Maintained by Dusk-92
+- Installed and updated from its GitHub Releases when Discord Rich Presence is selected
+- `WowPresence.dll` and `WowPresence.exe` are not bundled in the Modernization Tool payload
+- User configuration under `.modernization_tool/WowPresence/` is preserved across binary updates
+- See the WowPresence repository and its `THIRD_PARTY_NOTICES.md` for component-specific provenance
+
 ## Bundled components with a verified redistribution license
 
 The following bundled components have a license text that was located and
