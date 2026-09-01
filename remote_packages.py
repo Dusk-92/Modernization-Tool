@@ -13,6 +13,8 @@ import zipfile
 USER_AGENT = "Modernization-Tool/1.0 (+https://github.com/Dusk-92/Modernization-Tool)"
 GITHUB_API = "https://api.github.com"
 NETWORK_TIMEOUT = 30
+WOWPRESENCE_REPO = "Dusk-92/WowPresence"
+WOWPRESENCE_MANAGED_ID = "wowpresence"
 
 
 class RemotePackageError(RuntimeError):
@@ -497,6 +499,95 @@ def prepare_vanilla_tweaks(progress=None):
             pass
 
     return exe_path, extract_root, release.get("name") or release.get("tag_name", "latest")
+
+
+def _write_text_if_missing(path, text):
+    """Create a small user-editable config file without overwriting it later."""
+    if os.path.exists(path):
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    temp_path = path + ".new"
+    try:
+        with open(temp_path, "w", encoding="ascii", newline="\n") as handle:
+            handle.write(text)
+        if not os.path.exists(path):
+            os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def ensure_wowpresence_config(target_dir):
+    """Prepare the Modernization Tool-specific WowPresence data directory."""
+    data_dir = os.path.join(target_dir, ".modernization_tool", "WowPresence")
+    os.makedirs(data_dir, exist_ok=True)
+    _write_text_if_missing(
+        os.path.join(data_dir, "discord_application_id"),
+        "PASTE_YOUR_DISCORD_APPLICATION_ID_HERE\n",
+    )
+    _write_text_if_missing(
+        os.path.join(data_dir, "discord_broadcast_flags"),
+        "63\n",
+    )
+    return data_dir
+
+
+def install_wowpresence(target_dir, progress=None):
+    """Install or update WowPresence from its latest stable GitHub release."""
+    _emit_progress(progress, "Checking WowPresence release...", None, None)
+    release = _latest_release(WOWPRESENCE_REPO)
+    revision = release.get("tag_name", "latest")
+
+    # The directory itself is the signal used by WowPresence to select the
+    # Modernization Tool managed data location instead of the standalone one.
+    ensure_wowpresence_config(target_dir)
+
+    if managed_mod_is_current(target_dir, WOWPRESENCE_MANAGED_ID, revision):
+        _emit_progress(progress, f"WowPresence {revision} is already current.", None, None)
+        return revision
+
+    dll_asset = _find_asset(release, exact_name="WowPresence.dll")
+    exe_asset = _find_asset(release, exact_name="WowPresence.exe")
+    dll_path = None
+    exe_path = None
+    try:
+        dll_path = _download_asset(
+            dll_asset,
+            progress=progress,
+            label="Downloading WowPresence.dll",
+        )
+        exe_path = _download_asset(
+            exe_asset,
+            progress=progress,
+            label="Downloading WowPresence.exe",
+        )
+        _verify_x86_pe(dll_path, "WowPresence.dll")
+        _verify_x86_pe(exe_path, "WowPresence.exe")
+
+        _emit_progress(progress, f"Installing WowPresence {revision}...", None, None)
+        _install_managed_files_transactional(
+            target_dir,
+            WOWPRESENCE_MANAGED_ID,
+            [
+                (dll_path, "WowPresence.dll"),
+                (exe_path, "WowPresence.exe"),
+            ],
+            revision=revision,
+        )
+    finally:
+        for temp_path in (dll_path, exe_path):
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+    ensure_wowpresence_config(target_dir)
+    return revision
+
 
 
 def install_interact(target_dir, progress=None):
