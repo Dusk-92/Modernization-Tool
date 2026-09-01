@@ -37,3 +37,15 @@ Runtime data is stored under:
 The companion is never launched from `DllMain`; it is started only from the DLL worker
 thread after the startup delay. The DLL never performs Discord IPC, and the companion
 never reads or writes WoW memory.
+
+## OctoWoW race mapping
+
+For OctoWoW, the helper treats:
+
+- race id 9 as `Goblin` / Horde
+- race id 10 as `High Elf` / Alliance
+- race id 16 as a `High Elf` / Alliance compatibility fallback
+
+The companion reads the `race` field from `discord_wow_status.json` and includes it in
+Rich Presence details, e.g. `Lvl 1 Priest · High Elf · Alliance`.
+
