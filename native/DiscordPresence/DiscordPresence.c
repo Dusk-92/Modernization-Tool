@@ -233,8 +233,38 @@ static int valid_display_text(const char *text, size_t max_length) {
     return 1;
 }
 
+static int looks_like_internal_zone_code(const char *text) {
+    size_t i, length;
+    int has_letter = 0;
+    int has_digit = 0;
+
+    if (!text) return 0;
+    length = strlen(text);
+
+    /* Some 1.12-compatible clients expose compact internal area tokens
+     * (for example "H32D") at one of the candidate zone addresses. These
+     * are identifiers, not user-facing zone names. Keep the rule narrow:
+     * short mixed letter/digit strings with no separators are rejected,
+     * while legitimate names such as "Area 52" remain valid. */
+    if (length < 2u || length > 8u) return 0;
+
+    for (i = 0u; i < length; ++i) {
+        char ch = text[i];
+        if (ascii_letter(ch)) {
+            has_letter = 1;
+        } else if (ch >= '0' && ch <= '9') {
+            has_digit = 1;
+        } else {
+            return 0;
+        }
+    }
+
+    return has_letter && has_digit;
+}
+
 static int valid_zone_name(const char *text) {
-    return valid_display_text(text, ZONE_LIMIT);
+    if (!valid_display_text(text, ZONE_LIMIT)) return 0;
+    return !looks_like_internal_zone_code(text);
 }
 
 static int valid_guild_name(const char *text) {
