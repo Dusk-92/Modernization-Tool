@@ -1072,10 +1072,6 @@ class WowSetupTool:
         text_area.insert("end", "\n• Warlock Muted Demons: ", "bold")
         insert_link("spzilyk/Warlock-Muted-Demons", "https://github.com/spzilyk/Warlock-Muted-Demons")
 
-        text_area.insert("end", "\n• WowPresence: ", "bold")
-        text_area.insert("end", "by Dusk-92 | ")
-        insert_link("Source Repository", "https://github.com/Dusk-92/WowPresence")
-
         text_area.insert("end", "\n• Automatically Clear WDB: ", "bold")
         insert_link("RetroCro guide", "https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow")
 
@@ -1088,6 +1084,10 @@ class WowSetupTool:
             "  (when AutoLogin + Nampower are selected, the tool creates or reuses "
             "WOW_ENCRYPTION_KEY automatically; existing keys are never replaced)"
         )
+
+        text_area.insert("end", "\n• WowPresence: ", "bold")
+        text_area.insert("end", "by Dusk-92 | ")
+        insert_link("Source Repository", "https://github.com/Dusk-92/WowPresence")
 
         # WeirdUtils
         text_area.insert("end", "\n\nWeirdUtils Suite\n", "header")
