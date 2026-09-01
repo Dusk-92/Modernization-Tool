@@ -90,22 +90,22 @@ jobs:
             dist/WoW_Modernization_Tool.zip
           if-no-files-found: error
 
-      # One-time production promotion for v2.0. The exact commit message keeps
+      # One-time production promotion for v2.1. The exact commit message keeps
       # normal main pushes from publishing or modifying the v2.0 release.
-      - name: Create GitHub Release v2.0
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.0' }}
+      - name: Create GitHub Release v2.1
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.1' }}
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v2.0
+          tag_name: v2.1
           target_commitish: ${{ github.sha }}
           files: |
             dist/WoW_Modernization_Tool.exe
             dist/WoW_Modernization_Tool.zip
           fail_on_unmatched_files: true
-          name: "WoW Modernization Tool v2.0"
+          name: "WoW Modernization Tool v2.1"
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
-          previous_tag: v1.1
+          previous_tag: v2.0
           make_latest: true
 
       - name: Create GitHub Release
