@@ -49,3 +49,14 @@ For OctoWoW, the helper treats:
 The companion reads the `race` field from `discord_wow_status.json` and includes it in
 Rich Presence details, e.g. `Lvl 1 Priest · High Elf · Alliance`.
 
+
+## Independent sampler implementation
+
+The WoW memory sampler is implemented in this repository with its own internal
+organization. It preserves the existing runtime contract (same status JSON,
+broadcast flags, timings, read-only memory access, and exact-PID companion
+startup) so DiscordPresence.exe does not need to change.
+
+The client addresses/field offsets are compatibility data for WoW 1.12.1 build
+5875. IchaLaunch remains credited as an earlier Rich Presence implementation
+that inspired this integration; its source code is not bundled here.
