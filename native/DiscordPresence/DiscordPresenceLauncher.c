@@ -338,7 +338,7 @@ static void title_case_faction(char *text) {
     if (text && text[0] >= 'a' && text[0] <= 'z') text[0] = (char)(text[0] - 'a' + 'A');
 }
 
-static void format_activity(const Status *s, char *out, size_t out_size) {
+static void format_activity(const Status *s, char *out, size_t out_size, long long session_start) {
     char details[384] = {0};
     char extra[192] = {0};
     char faction[24] = {0};
@@ -385,8 +385,8 @@ static void format_activity(const Status *s, char *out, size_t out_size) {
     }
 
     _snprintf(out, out_size,
-              "{\"details\":\"%s\",\"state\":\"%s\"}",
-              details, s->zone);
+              "{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%lld}}",
+              details, s->zone, session_start);
     out[out_size - 1] = 0;
 }
 
@@ -433,6 +433,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
     DWORD requested_pid = 0;
     int have_id;
     int wait_loops = 0;
+    long long session_start = 0;
     (void)instance; (void)prev; (void)show;
 
     memset(&rpc, 0, sizeof(rpc));
@@ -465,6 +466,9 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
     }
 
     log_line("WoW_Modernized.exe detected.");
+    /* Fixed for the lifetime of this WoW process. Text updates, character
+     * changes and loading states reuse the same Discord elapsed-time origin. */
+    session_start = (long long)time(NULL);
 
     while (WaitForSingleObject(wow_process, 0) == WAIT_TIMEOUT) {
         Status status;
@@ -475,13 +479,16 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmdline, int show) 
 
         if (have_id && rpc.pipe != INVALID_HANDLE_VALUE) {
             if (load_status(&status)) {
-                format_activity(&status, activity, sizeof(activity));
+                format_activity(&status, activity, sizeof(activity), session_start);
                 rpc_set_activity(&rpc, pid, activity);
             } else {
                 /* Keep only the Discord application header while the game is
                  * loading, on character select, or when the snapshot is stale.
                  * This also prevents old character/zone text from lingering. */
-                rpc_set_activity(&rpc, pid, "{}");
+                _snprintf(activity, sizeof(activity),
+                          "{\"timestamps\":{\"start\":%lld}}", session_start);
+                activity[sizeof(activity) - 1] = 0;
+                rpc_set_activity(&rpc, pid, activity);
             }
         }
         Sleep(TICK_MS);
