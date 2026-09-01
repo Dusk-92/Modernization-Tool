@@ -216,15 +216,17 @@ static const char *race_name(uint32_t id) {
     case 1: return "Human"; case 2: return "Orc"; case 3: return "Dwarf";
     case 4: return "Night Elf"; case 5: return "Undead"; case 6: return "Tauren";
     case 7: return "Gnome"; case 8: return "Troll"; case 9: return "Goblin";
-    case 10: return "Blood Elf"; case 11: return "Draenei"; case 16: return "High Elf";
+    /* OctoWoW uses race id 10 for its Alliance High Elf race. Keep id 16
+     * as a compatibility fallback for clients that expose High Elf there. */
+    case 10: return "High Elf"; case 11: return "Draenei"; case 16: return "High Elf";
     default: return "";
     }
 }
 
 static const char *faction_name(uint32_t race) {
     switch (race) {
-    case 1: case 3: case 4: case 7: case 11: case 16: return "alliance";
-    case 2: case 5: case 6: case 8: case 9: case 10: return "horde";
+    case 1: case 3: case 4: case 7: case 10: case 11: case 16: return "alliance";
+    case 2: case 5: case 6: case 8: case 9: return "horde";
     default: return "";
     }
 }
