@@ -1310,20 +1310,39 @@ class WowSetupTool:
         for dll_name, var in self.optional_plugins.items():
             if not var.get():
                 if dll_name == "WowPresence.dll":
-                    # Remove only the binaries owned by the tool. Keep the
-                    # user's .modernization_tool\WowPresence configuration.
-                    remote_packages.remove_managed_mod(
+                    # Only undo a WowPresence installation that this tool
+                    # actually owns. A standalone/manual WowPresence install
+                    # must survive an Apply with this option unchecked.
+                    if remote_packages.managed_mod_has_manifest(
                         target,
                         remote_packages.WOWPRESENCE_MANAGED_ID,
-                    )
-                    remove_managed_file(
-                        os.path.join(target, "WowPresence.dll"),
-                        "managed WowPresence plugin",
-                    )
-                    remove_managed_file(
-                        os.path.join(target, "WowPresence.exe"),
-                        "managed WowPresence companion",
-                    )
+                    ):
+                        preexisting_entry = remote_packages.managed_mod_manifest_value(
+                            target,
+                            remote_packages.WOWPRESENCE_MANAGED_ID,
+                            "dlls_entry_preexisting",
+                            None,
+                        )
+                        if not isinstance(preexisting_entry, bool):
+                            # Conservative migration for early test manifests:
+                            # a saved DLL backup means WowPresence predated the
+                            # tool, so preserve its dlls.txt entry.
+                            preexisting_entry = remote_packages._managed_backup_exists(
+                                target,
+                                remote_packages.WOWPRESENCE_MANAGED_ID,
+                                "WowPresence.dll",
+                            )
+
+                        if not preexisting_entry:
+                            self._remove_dlls_entry(target, "WowPresence.dll")
+
+                        # This restores any backed-up manual binaries, or
+                        # removes only the copies installed by the tool.
+                        remote_packages.remove_managed_mod(
+                            target,
+                            remote_packages.WOWPRESENCE_MANAGED_ID,
+                        )
+                    # Keep .modernization_tool\WowPresence user configuration.
                 else:
                     remove_managed_file(
                         os.path.join(target, dll_name),
@@ -2321,11 +2340,23 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             self._park_external_renderer_file(target, filename)
 
 
-    def _managed_dll_entries(self):
-        """Return every dlls.txt entry owned by this tool."""
+    def _managed_dll_entries(self, target=None):
+        """Return dlls.txt entries this tool is allowed to rewrite."""
         managed = {"dxvk"}
         managed.update(name.casefold() for name in self.core_plugins)
-        managed.update(name.casefold() for name in self.optional_plugins)
+
+        for name, var in self.optional_plugins.items():
+            if name.casefold() == "wowpresence.dll" and target is not None:
+                selected = bool(var.get())
+                owned = remote_packages.managed_mod_has_manifest(
+                    target,
+                    remote_packages.WOWPRESENCE_MANAGED_ID,
+                )
+                if not selected and not owned:
+                    # A standalone WowPresence.dll line is user-owned.
+                    continue
+            managed.add(name.casefold())
+
         managed.update(
             name.casefold()
             for name in (
@@ -2340,10 +2371,41 @@ WScript.Echo oWS.SpecialFolders("Desktop")
         )
         return managed
 
+    @staticmethod
+    def _remove_dlls_entry(target, entry):
+        """Remove one exact DLL entry while preserving all unrelated lines."""
+        dlls_path = os.path.join(target, "dlls.txt")
+        if not os.path.isfile(dlls_path):
+            return
+        wanted = str(entry).strip().casefold()
+        try:
+            with open(dlls_path, "r", encoding="utf-8", errors="ignore") as handle:
+                lines = handle.read().splitlines()
+        except OSError as exc:
+            raise RuntimeError(f"Could not read existing dlls.txt: {exc}") from exc
+
+        kept = [
+            line for line in lines
+            if line.strip().casefold() != wanted
+        ]
+        staged = dlls_path + ".modernization-new"
+        try:
+            with open(staged, "w", encoding="utf-8", newline="\n") as handle:
+                if kept:
+                    handle.write("\n".join(kept) + "\n")
+            os.replace(staged, dlls_path)
+        except OSError as exc:
+            try:
+                if os.path.exists(staged):
+                    os.remove(staged)
+            except OSError:
+                pass
+            raise RuntimeError(f"Could not update existing dlls.txt: {exc}") from exc
+
     def _write_dlls_file(self, target, active_managed_lines):
         """Rewrite only tool-owned dlls.txt entries and preserve user entries."""
         dlls_path = os.path.join(target, "dlls.txt")
-        managed_names = self._managed_dll_entries()
+        managed_names = self._managed_dll_entries(target)
         preserved = []
         seen_preserved = set()
 
