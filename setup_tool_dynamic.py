@@ -294,10 +294,10 @@ class ModernWowSetupTool(WowSetupTool):
             "minimapicons.dll": "MinimapIcons",
             "pngscreenshots.dll": "PNG Screenshots",
             "worldmarkers.dll": "WorldMarkers",
-            "DiscordPresence.dll": "Discord Presence",
+            "WowPresence.dll": "Discord Rich Presence",
         }
         optional_attribution = {
-            "DiscordPresence.dll": "Modernization Tool",
+            "WowPresence.dll": "by Dusk-92",
         }
 
         for dll, var in self.optional_plugins.items():
@@ -825,49 +825,48 @@ class ModernWowSetupTool(WowSetupTool):
                     self._fallback_interact(target, exc)
                 dlls_text_lines.append("Interact.dll")
 
-            # Optional WeirdUtils and Discord Presence.
+            # Optional WeirdUtils and WowPresence.
             for dll_name, var in self.optional_plugins.items():
                 if dll_name == "no1600x1200.dll":
                     continue
                 if not var.get():
                     continue
 
-                if dll_name == "DiscordPresence.dll":
-                    source_dll = os.path.join(payload_base, "DiscordPresence.dll")
-                    source_exe = os.path.join(payload_base, "DiscordPresence.exe")
-                    if not os.path.isfile(source_dll) or not os.path.isfile(source_exe):
-                        raise RuntimeError(
-                            "Discord Presence payload is incomplete. DiscordPresence.dll and DiscordPresence.exe are both required."
+                if dll_name == "WowPresence.dll":
+                    try:
+                        remote_packages.install_wowpresence(
+                            target,
+                            progress=self._report_download_progress,
                         )
-                    remote_packages._verify_x86_pe(
-                        source_dll,
-                        "DiscordPresence.dll",
-                    )
-                    remote_packages._verify_x86_pe(
-                        source_exe,
-                        "DiscordPresence.exe",
-                    )
-                    remote_packages._transactional_replace_bundle(
-                        [
-                            ("file", source_dll, os.path.join(target, "DiscordPresence.dll")),
-                            ("file", source_exe, os.path.join(target, "DiscordPresence.exe")),
-                        ],
-                        label="Discord Presence",
-                    )
+                    except Exception as exc:
+                        existing_dll = os.path.join(target, "WowPresence.dll")
+                        existing_exe = os.path.join(target, "WowPresence.exe")
+                        if (
+                            self._valid_x86_dll(existing_dll, "WowPresence.dll")
+                            and self._valid_x86_dll(existing_exe, "WowPresence.exe")
+                        ):
+                            remote_packages.ensure_wowpresence_config(target)
+                            self._warn_offline(
+                                "WowPresence",
+                                "Keeping the currently installed WowPresence binaries.",
+                                exc,
+                            )
+                        else:
+                            raise RuntimeError(
+                                "Could not install WowPresence from "
+                                "https://github.com/Dusk-92/WowPresence releases."
+                            ) from exc
 
-                    discord_dir = os.path.join(
-                        target,
-                        ".modernization_tool",
-                        "DiscordPresence",
-                    )
-                    os.makedirs(discord_dir, exist_ok=True)
-
-                    flags_path = os.path.join(discord_dir, "discord_broadcast_flags")
-                    if not os.path.exists(flags_path):
-                        flags_tmp = flags_path + ".new"
-                        with open(flags_tmp, "w", encoding="ascii", newline="\n") as handle:
-                            handle.write("63\n")
-                        os.replace(flags_tmp, flags_path)
+                    # Remove the old test-branch filenames after a successful
+                    # migration. The legacy config directory is intentionally
+                    # left untouched so the user can remove it manually.
+                    for legacy_name in ("DiscordPresence.dll", "DiscordPresence.exe"):
+                        legacy_path = os.path.join(target, legacy_name)
+                        if os.path.isfile(legacy_path):
+                            try:
+                                os.remove(legacy_path)
+                            except OSError:
+                                pass
                 else:
                     source_dll = os.path.join(payload_weirdu, dll_name)
                     if os.path.exists(source_dll):
