@@ -15,6 +15,8 @@ GITHUB_API = "https://api.github.com"
 NETWORK_TIMEOUT = 30
 WOWPRESENCE_REPO = "Dusk-92/WowPresence"
 WOWPRESENCE_MANAGED_ID = "wowpresence"
+WOWPRESENCE_DEFAULT_APPLICATION_ID = "1544072796098011176"
+WOWPRESENCE_APPLICATION_ID_PLACEHOLDER = "PASTE_YOUR_DISCORD_APPLICATION_ID_HERE"
 
 
 class RemotePackageError(RuntimeError):
@@ -524,10 +526,34 @@ def ensure_wowpresence_config(target_dir):
     """Prepare the Modernization Tool-specific WowPresence data directory."""
     data_dir = os.path.join(target_dir, ".modernization_tool", "WowPresence")
     os.makedirs(data_dir, exist_ok=True)
+
+    app_id_path = os.path.join(data_dir, "discord_application_id")
     _write_text_if_missing(
-        os.path.join(data_dir, "discord_application_id"),
-        "PASTE_YOUR_DISCORD_APPLICATION_ID_HERE\n",
+        app_id_path,
+        WOWPRESENCE_DEFAULT_APPLICATION_ID + "\n",
     )
+
+    # Migrate the placeholder created by early test builds to the OctoWoW
+    # Application ID, but never overwrite a user's own configured ID.
+    try:
+        with open(app_id_path, "r", encoding="ascii", errors="ignore") as handle:
+            current_id = handle.read().strip()
+    except OSError:
+        current_id = ""
+
+    if current_id == WOWPRESENCE_APPLICATION_ID_PLACEHOLDER:
+        temp_path = app_id_path + ".new"
+        try:
+            with open(temp_path, "w", encoding="ascii", newline="\n") as handle:
+                handle.write(WOWPRESENCE_DEFAULT_APPLICATION_ID + "\n")
+            os.replace(temp_path, app_id_path)
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
     _write_text_if_missing(
         os.path.join(data_dir, "discord_broadcast_flags"),
         "63\n",
