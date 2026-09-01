@@ -107,7 +107,7 @@ class WowSetupTool:
             "minimapicons.dll": "Adds TBC/WotLK-style minimap tracking icons for NPCs and objects, combined into a new native tracking dropdown.",
             "pngscreenshots.dll": "Saves screenshots as compressed PNG files on a background thread to completely eliminate frame drops when taking pictures.",
             "worldmarkers.dll": "Place up to 5 animated colored markers (Cataclysm style) in the world for raid positioning. Syncs automatically with other users.",
-            "WowPresence.dll": "Shows your WoW character activity on Discord using WowPresence by Dusk-92. Modernization Tool downloads and updates WowPresence from its GitHub releases, stores its configuration and status under .modernization_tool\\WowPresence, and lets WowPresence.exe handle Discord IPC outside the game process. Set your Discord Application ID in .modernization_tool\\WowPresence\\discord_application_id. If Discord runs as administrator, WoW must also run as administrator for Rich Presence to work.",
+            "WowPresence.dll": "Shows your WoW character activity on Discord using WowPresence by Dusk-92. Modernization Tool downloads and updates WowPresence from its GitHub releases, stores its configuration and status under .modernization_tool\\WowPresence, and preconfigures the OctoWoW Discord Application ID. Advanced users can change .modernization_tool\\WowPresence\\discord_application_id for another Discord application. If Discord runs as administrator, WoW must also run as administrator for Rich Presence to work.",
 
             # Tweaks Tab
             "fov": "Calculates horizontal Field of View mathematically scaled to maintain vertical aspect space based on your screen ratio.",
