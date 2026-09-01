@@ -612,6 +612,187 @@ class PeValidationTests(unittest.TestCase):
                 remote_packages._verify_x86_pe(bad, "bad.dll")
 
 
+class WowPresenceIntegrationTests(unittest.TestCase):
+    def make_tool(self, selected=False):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool.install_autologin = FakeVar(False)
+        tool.core_plugins = {}
+        tool.addon_dependencies = {}
+        tool.optional_plugins = {
+            "WowPresence.dll": FakeVar(selected),
+        }
+        return tool
+
+    def test_config_defaults_migrate_placeholder_and_preserve_custom_id(self):
+        with tempfile.TemporaryDirectory() as root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            app_id = os.path.join(data_dir, "discord_application_id")
+            flags = os.path.join(data_dir, "discord_broadcast_flags")
+
+            with open(app_id, "r", encoding="ascii") as handle:
+                self.assertEqual(
+                    handle.read().strip(),
+                    remote_packages.WOWPRESENCE_DEFAULT_APPLICATION_ID,
+                )
+            with open(flags, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "63")
+
+            with open(app_id, "w", encoding="ascii") as handle:
+                handle.write(
+                    remote_packages.WOWPRESENCE_APPLICATION_ID_PLACEHOLDER + "\n"
+                )
+            remote_packages.ensure_wowpresence_config(root)
+            with open(app_id, "r", encoding="ascii") as handle:
+                self.assertEqual(
+                    handle.read().strip(),
+                    remote_packages.WOWPRESENCE_DEFAULT_APPLICATION_ID,
+                )
+
+            with open(app_id, "w", encoding="ascii") as handle:
+                handle.write("123456789012345678\n")
+            with open(flags, "w", encoding="ascii") as handle:
+                handle.write("31\n")
+            remote_packages.ensure_wowpresence_config(root)
+            with open(app_id, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "123456789012345678")
+            with open(flags, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "31")
+
+    def test_unchecked_manual_wowpresence_is_untouched(self):
+        tool = self.make_tool(selected=False)
+        with tempfile.TemporaryDirectory() as root:
+            dll = os.path.join(root, "WowPresence.dll")
+            exe = os.path.join(root, "WowPresence.exe")
+            dlls = os.path.join(root, "dlls.txt")
+            with open(dll, "wb") as handle:
+                handle.write(b"manual-dll")
+            with open(exe, "wb") as handle:
+                handle.write(b"manual-exe")
+            with open(dlls, "w", encoding="utf-8") as handle:
+                handle.write("WowPresence.dll\nManual.dll\n")
+
+            tool.clean_unselected_files(root)
+            tool._write_dlls_file(root, [])
+
+            self.assertTrue(os.path.isfile(dll))
+            self.assertTrue(os.path.isfile(exe))
+            with open(dlls, "r", encoding="utf-8") as handle:
+                self.assertIn("WowPresence.dll", handle.read().splitlines())
+
+    def test_unchecked_tool_owned_wowpresence_is_removed_but_config_survives(self):
+        tool = self.make_tool(selected=False)
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as src:
+            source_dll = os.path.join(src, "WowPresence.dll")
+            source_exe = os.path.join(src, "WowPresence.exe")
+            with open(source_dll, "wb") as handle:
+                handle.write(b"tool-dll")
+            with open(source_exe, "wb") as handle:
+                handle.write(b"tool-exe")
+
+            remote_packages._install_managed_files_transactional(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                [
+                    (source_dll, "WowPresence.dll"),
+                    (source_exe, "WowPresence.exe"),
+                ],
+                revision="v-test",
+            )
+            remote_packages._set_managed_manifest_values(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                dlls_entry_preexisting=False,
+            )
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            with open(os.path.join(root, "dlls.txt"), "w", encoding="utf-8") as handle:
+                handle.write("WowPresence.dll\nManual.dll\n")
+
+            tool.clean_unselected_files(root)
+            tool._write_dlls_file(root, [])
+
+            self.assertFalse(os.path.exists(os.path.join(root, "WowPresence.dll")))
+            self.assertFalse(os.path.exists(os.path.join(root, "WowPresence.exe")))
+            self.assertTrue(os.path.isdir(data_dir))
+            with open(os.path.join(root, "dlls.txt"), "r", encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+            self.assertNotIn("WowPresence.dll", lines)
+            self.assertIn("Manual.dll", lines)
+
+    def test_manual_wowpresence_is_restored_after_tool_ownership(self):
+        tool = self.make_tool(selected=False)
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as src:
+            live_dll = os.path.join(root, "WowPresence.dll")
+            live_exe = os.path.join(root, "WowPresence.exe")
+            with open(live_dll, "wb") as handle:
+                handle.write(b"manual-dll")
+            with open(live_exe, "wb") as handle:
+                handle.write(b"manual-exe")
+            with open(os.path.join(root, "dlls.txt"), "w", encoding="utf-8") as handle:
+                handle.write("WowPresence.dll\n")
+
+            source_dll = os.path.join(src, "WowPresence.dll")
+            source_exe = os.path.join(src, "WowPresence.exe")
+            with open(source_dll, "wb") as handle:
+                handle.write(b"managed-dll")
+            with open(source_exe, "wb") as handle:
+                handle.write(b"managed-exe")
+
+            remote_packages._install_managed_files_transactional(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                [
+                    (source_dll, "WowPresence.dll"),
+                    (source_exe, "WowPresence.exe"),
+                ],
+                revision="v-test",
+            )
+            remote_packages._set_managed_manifest_values(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                dlls_entry_preexisting=True,
+            )
+
+            tool.clean_unselected_files(root)
+            tool._write_dlls_file(root, [])
+
+            with open(live_dll, "rb") as handle:
+                self.assertEqual(handle.read(), b"manual-dll")
+            with open(live_exe, "rb") as handle:
+                self.assertEqual(handle.read(), b"manual-exe")
+            with open(os.path.join(root, "dlls.txt"), "r", encoding="utf-8") as handle:
+                self.assertIn("WowPresence.dll", handle.read().splitlines())
+
+    def test_installed_asset_integrity_detects_corruption(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "WowPresence.dll")
+            payload = b"A" * 2048
+            with open(path, "wb") as handle:
+                handle.write(payload)
+            digest = __import__("hashlib").sha256(payload).hexdigest()
+            asset = {
+                "size": len(payload),
+                "digest": "sha256:" + digest,
+            }
+            self.assertTrue(
+                remote_packages._installed_asset_is_current(
+                    path,
+                    asset,
+                    "WowPresence.dll",
+                )
+            )
+
+            with open(path, "r+b") as handle:
+                handle.seek(100)
+                handle.write(b"B")
+            self.assertFalse(
+                remote_packages._installed_asset_is_current(
+                    path,
+                    asset,
+                    "WowPresence.dll",
+                )
+            )
+
+
 class SettingsRecoveryTests(unittest.TestCase):
     def test_corrupt_settings_are_left_untouched_and_legacy_state_is_recovered(self):
         tool = WowSetupTool.__new__(WowSetupTool)
