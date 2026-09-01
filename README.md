@@ -93,6 +93,7 @@ Optional client-side improvements include:
 - **MinimapIcons** — adds TBC/WotLK-style minimap tracking icons for NPCs and game objects, with a combined tracking menu and saved preferences.
 - **PNG Screenshots** — saves screenshots as compressed PNG files instead of the default uncompressed TGA format, using background processing to minimize frame-time impact.
 - **WorldMarkers** — lets party or raid leaders place up to five animated, Cataclysm-style colored world markers for positioning and tactical planning.
+- **Discord Rich Presence** — installs and keeps **WowPresence** up to date from [Dusk-92/WowPresence](https://github.com/Dusk-92/WowPresence). Configuration is kept under `.modernization_tool\WowPresence` and is preserved across updates.
 
 ---
 
@@ -275,6 +276,7 @@ Modernization Tool brings together work from several community projects and deve
 - [No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)
 - [VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)
 - [Interact](https://github.com/lookino/Interact)
+- [WowPresence — Dusk-92](https://github.com/Dusk-92/WowPresence)
 
 ## Visual & Audio Mods
 
