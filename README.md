@@ -276,7 +276,7 @@ Modernization Tool brings together work from several community projects and deve
 - [No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)
 - [VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)
 - [Interact](https://github.com/lookino/Interact)
-- [WowPresence — Dusk-92](https://github.com/Dusk-92/WowPresence)
+- [WowPresence](https://github.com/Dusk-92/WowPresence)
 
 ## Visual & Audio Mods
 
