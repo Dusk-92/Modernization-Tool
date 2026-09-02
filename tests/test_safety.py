@@ -893,7 +893,7 @@ class WowPresenceDetailPreferenceTests(unittest.TestCase):
 
         tool.discord_show_character_details.set(False)
         self.assertEqual(tool._discord_broadcast_mask(), 0)
-        self.assertTrue(tool.discord_detail_vars["race"].get())
+        self.assertFalse(tool.discord_detail_vars["race"].get())
         self.assertTrue(tool.discord_detail_vars["zone"].get())
 
     def test_legacy_six_bit_mask_keeps_race_enabled(self):
