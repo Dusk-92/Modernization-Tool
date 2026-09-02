@@ -562,12 +562,11 @@ def ensure_wowpresence_config(target_dir):
 
 
 def install_wowpresence(target_dir, progress=None):
-    """Install or update WowPresence from its latest stable GitHub release."""
+    """Install or update WowPresence from its latest stable GitHub release ZIP."""
     _emit_progress(progress, "Checking WowPresence release...", None, None)
     release = _latest_release(WOWPRESENCE_REPO)
     revision = release.get("tag_name", "latest")
-    dll_asset = _find_asset(release, exact_name="WowPresence.dll")
-    exe_asset = _find_asset(release, exact_name="WowPresence.exe")
+    package_asset = _find_asset(release, exact_name="WowPresence.zip")
 
     # Preserve whether dlls.txt already belonged to a standalone/manual
     # WowPresence install before this tool first takes ownership.
@@ -598,16 +597,29 @@ def install_wowpresence(target_dir, progress=None):
     ensure_wowpresence_config(target_dir)
 
     if managed_mod_is_current(target_dir, WOWPRESENCE_MANAGED_ID, revision):
-        dll_ok = _installed_asset_is_current(
-            os.path.join(target_dir, "WowPresence.dll"),
-            dll_asset,
-            "WowPresence.dll",
-        )
-        exe_ok = _installed_asset_is_current(
-            os.path.join(target_dir, "WowPresence.exe"),
-            exe_asset,
-            "WowPresence.exe",
-        )
+        manifest = _load_managed_manifest_data(target_dir, WOWPRESENCE_MANAGED_ID)
+        saved_hashes = manifest.get("file_sha256")
+        if not isinstance(saved_hashes, dict):
+            saved_hashes = {}
+
+        def installed_file_ok(filename):
+            path = os.path.join(target_dir, filename)
+            expected = saved_hashes.get(filename)
+            if isinstance(expected, str):
+                expected = expected.strip().lower()
+                if len(expected) == 64 and all(ch in "0123456789abcdef" for ch in expected):
+                    try:
+                        return _file_sha256(path) == expected
+                    except OSError:
+                        return False
+            try:
+                _verify_x86_pe(path, filename)
+                return True
+            except RemotePackageError:
+                return False
+
+        dll_ok = installed_file_ok("WowPresence.dll")
+        exe_ok = installed_file_ok("WowPresence.exe")
         if dll_ok and exe_ok:
             _set_managed_manifest_values(
                 target_dir,
@@ -623,24 +635,25 @@ def install_wowpresence(target_dir, progress=None):
             return revision
         _emit_progress(
             progress,
-            f"WowPresence {revision} needs repair; refreshing binaries...",
+            f"WowPresence {revision} needs repair; refreshing package...",
             None,
             None,
         )
 
-    dll_path = None
-    exe_path = None
+    zip_path = None
+    extract_root = None
     try:
-        dll_path = _download_asset(
-            dll_asset,
+        zip_path = _download_asset(
+            package_asset,
             progress=progress,
-            label="Downloading WowPresence.dll",
+            label="Downloading WowPresence.zip",
         )
-        exe_path = _download_asset(
-            exe_asset,
-            progress=progress,
-            label="Downloading WowPresence.exe",
-        )
+        extract_root = tempfile.mkdtemp(prefix="modernization_wowpresence_")
+        _emit_progress(progress, "Extracting WowPresence...", None, None)
+        _safe_extract(zip_path, extract_root)
+
+        dll_path = _find_file(extract_root, "WowPresence.dll")
+        exe_path = _find_file(extract_root, "WowPresence.exe")
         _verify_x86_pe(dll_path, "WowPresence.dll")
         _verify_x86_pe(exe_path, "WowPresence.exe")
 
@@ -658,18 +671,25 @@ def install_wowpresence(target_dir, progress=None):
             target_dir,
             WOWPRESENCE_MANAGED_ID,
             dlls_entry_preexisting=bool(dlls_entry_preexisting),
+            file_sha256={
+                "WowPresence.dll": _file_sha256(dll_path),
+                "WowPresence.exe": _file_sha256(exe_path),
+            },
+            package_digest=package_asset.get("digest"),
         )
     finally:
-        for temp_path in (dll_path, exe_path):
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    pass
+        if zip_path and os.path.exists(zip_path):
+            try:
+                os.remove(zip_path)
+            except OSError:
+                pass
+        if extract_root:
+            shutil.rmtree(extract_root, ignore_errors=True)
 
+    # Never overwrite user-editable settings with the copies bundled in the
+    # release ZIP. The managed config folder remains owned by the user/tool.
     ensure_wowpresence_config(target_dir)
     return revision
-
 
 def install_interact(target_dir, progress=None):
     _emit_progress(progress, "Checking Interact release...", None, None)
