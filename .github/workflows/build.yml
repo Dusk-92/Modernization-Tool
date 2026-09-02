@@ -98,6 +98,11 @@ jobs:
         with:
           tag_name: v2.1
           target_commitish: ${{ github.sha }}
+          files: |
+            dist/WoW_Modernization_Tool.exe
+            dist/WoW_Modernization_Tool.zip
+          fail_on_unmatched_files: true
+          overwrite_files: true
           name: "WoW Modernization Tool v2.1"
           body_path: RELEASE_NOTES.md
           generate_release_notes: false
