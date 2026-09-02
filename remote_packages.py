@@ -5,6 +5,7 @@ import shutil
 import stat
 import struct
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -40,12 +41,24 @@ def _request(url, accept=None):
     return urllib.request.Request(url, headers=headers)
 
 
+JSON_CACHE_TTL = 300
+_JSON_CACHE = {}
+
+
 def _get_json(url):
+    now = time.monotonic()
+    cached = _JSON_CACHE.get(url)
+    if cached and now - cached[0] < JSON_CACHE_TTL:
+        return cached[1]
+
     try:
         with urllib.request.urlopen(_request(url, "application/vnd.github+json"), timeout=NETWORK_TIMEOUT) as response:
-            return json.loads(response.read().decode("utf-8"))
+            data = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
         raise RemotePackageError(f"GitHub request failed: {exc}") from exc
+
+    _JSON_CACHE[url] = (now, data)
+    return data
 
 
 def _latest_release(repo):
@@ -53,6 +66,24 @@ def _latest_release(repo):
     if data.get("draft") or data.get("prerelease"):
         raise RemotePackageError(f"{repo}: latest release is not a stable release.")
     return data
+
+
+def _branch_head_sha(repo, branch):
+    data = _get_json(f"{GITHUB_API}/repos/{repo}/commits/{branch}")
+    sha = data.get("sha") if isinstance(data, dict) else None
+    if not isinstance(sha, str) or len(sha) < 7:
+        raise RemotePackageError(f"{repo}@{branch}: could not resolve branch revision.")
+    return sha
+
+
+def _release_revision(release):
+    tag = release.get("tag_name") if isinstance(release, dict) else None
+    if isinstance(tag, str) and tag.strip():
+        return tag.strip()
+    release_id = release.get("id") if isinstance(release, dict) else None
+    if release_id is not None:
+        return f"release:{release_id}"
+    return "latest"
 
 
 def _find_asset(release, exact_name=None, predicate=None):
@@ -469,9 +500,7 @@ def _find_directory_with_file(root, filename):
     return None
 
 
-def prepare_vanilla_tweaks(progress=None):
-    """Download and extract the latest stable tubtubs vanilla-tweaks Windows build."""
-    _emit_progress(progress, "Checking vanilla-tweaks release...", None, None)
+def vanilla_tweaks_release_info():
     release = _latest_release("tubtubs/vanilla-tweaks")
     asset = _find_asset(
         release,
@@ -481,6 +510,20 @@ def prepare_vanilla_tweaks(progress=None):
             and not name.lower().endswith(".sha256sum")
         ),
     )
+    return {
+        "release": release,
+        "asset": asset,
+        "revision": _release_revision(release),
+        "version": release.get("name") or _release_revision(release),
+    }
+
+
+def prepare_vanilla_tweaks(progress=None, release_info=None):
+    """Download and extract the latest stable tubtubs vanilla-tweaks Windows build."""
+    _emit_progress(progress, "Checking vanilla-tweaks release...", None, None)
+    info = release_info or vanilla_tweaks_release_info()
+    release = info["release"]
+    asset = info["asset"]
     zip_path = _download_asset(
         asset,
         progress=progress,
@@ -500,7 +543,7 @@ def prepare_vanilla_tweaks(progress=None):
         except OSError:
             pass
 
-    return exe_path, extract_root, release.get("name") or release.get("tag_name", "latest")
+    return exe_path, extract_root, info["version"], info["revision"]
 
 
 def _write_text_if_missing(path, text):
@@ -878,6 +921,146 @@ def _file_sha256(path):
                 break
             digest.update(chunk)
     return digest.hexdigest().lower()
+
+
+PACKAGE_STATE_DIR = "package_state"
+
+
+def _package_state_path(target_dir, package_id):
+    safe_id = "".join(
+        ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+        for ch in str(package_id)
+    )
+    return os.path.join(
+        target_dir,
+        MANAGED_ROOT,
+        PACKAGE_STATE_DIR,
+        safe_id + ".json",
+    )
+
+
+def _hash_directory(path):
+    digest = hashlib.sha256()
+    if not os.path.isdir(path):
+        raise OSError(f"Directory does not exist: {path}")
+
+    found_file = False
+    for current_root, dirs, files in os.walk(path):
+        dirs.sort(key=str.casefold)
+        files.sort(key=str.casefold)
+        for filename in files:
+            found_file = True
+            full_path = os.path.join(current_root, filename)
+            rel = os.path.relpath(full_path, path).replace(os.sep, "/")
+            digest.update(b"F\0")
+            digest.update(rel.encode("utf-8", "surrogatepass"))
+            digest.update(b"\0")
+            digest.update(_file_sha256(full_path).encode("ascii"))
+            digest.update(b"\0")
+
+    if not found_file:
+        digest.update(b"EMPTY\0")
+    return digest.hexdigest().lower()
+
+
+def _snapshot_package_paths(target_dir, relative_paths):
+    entries = {}
+    for relative in relative_paths:
+        rel = _safe_relative_path(relative)
+        full_path = os.path.join(target_dir, rel)
+        key = rel.replace(os.sep, "/")
+
+        if os.path.isfile(full_path):
+            entries[key] = {
+                "type": "file",
+                "sha256": _file_sha256(full_path),
+            }
+        elif os.path.isdir(full_path):
+            entries[key] = {
+                "type": "dir",
+                "sha256": _hash_directory(full_path),
+            }
+        else:
+            raise OSError(f"Package path is missing: {full_path}")
+    return entries
+
+
+def _load_package_state(target_dir, package_id):
+    path = _package_state_path(target_dir, package_id)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        return {}
+
+
+def _record_package_state(target_dir, package_id, revision, relative_paths):
+    entries = _snapshot_package_paths(target_dir, relative_paths)
+    path = _package_state_path(target_dir, package_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp_path = path + ".new"
+    payload = {
+        "schema": 1,
+        "package_id": str(package_id),
+        "revision": str(revision),
+        "paths": entries,
+    }
+    try:
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    return payload
+
+
+def _package_state_is_current(target_dir, package_id, revision):
+    data = _load_package_state(target_dir, package_id)
+    if str(data.get("revision")) != str(revision):
+        return False
+
+    paths = data.get("paths")
+    if not isinstance(paths, dict) or not paths:
+        return False
+
+    try:
+        current = _snapshot_package_paths(target_dir, paths.keys())
+    except OSError:
+        return False
+    return current == paths
+
+
+def _record_release_asset_state_if_matching(
+    target_dir,
+    package_id,
+    revision,
+    relative_path,
+    asset,
+):
+    """Migrate an existing direct release asset without downloading it again."""
+    expected_sha = _asset_sha256(asset)
+    if not expected_sha:
+        return False
+
+    rel = _safe_relative_path(relative_path)
+    path = os.path.join(target_dir, rel)
+    if not os.path.isfile(path):
+        return False
+
+    try:
+        if _file_sha256(path) != expected_sha:
+            return False
+        _record_package_state(target_dir, package_id, revision, [rel])
+        return True
+    except OSError:
+        return False
 
 
 def _installed_asset_is_current(path, asset, label):
