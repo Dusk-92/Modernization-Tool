@@ -93,7 +93,7 @@ Optional client-side improvements include:
 - **MinimapIcons** — adds TBC/WotLK-style minimap tracking icons for NPCs and game objects, with a combined tracking menu and saved preferences.
 - **PNG Screenshots** — saves screenshots as compressed PNG files instead of the default uncompressed TGA format, using background processing to minimize frame-time impact.
 - **WorldMarkers** — lets party or raid leaders place up to five animated, Cataclysm-style colored world markers for positioning and tactical planning.
-- **Discord Rich Presence** — installs and keeps **WowPresence** up to date from [Dusk-92/WowPresence](https://github.com/Dusk-92/WowPresence). The Tool preconfigures the OctoWoW Discord Application ID in `.modernization_tool\WowPresence\discord_application_id`; custom IDs are preserved across updates.
+- **Discord Rich Presence** — installs and keeps **WowPresence** up to date from [Dusk-92/WowPresence](https://github.com/Dusk-92/WowPresence). The Tool preconfigures the OctoWoW Discord Application ID and lets you choose which character details are shown on Discord, including **Name, Guild, Race, Faction, Class, Level and Zone**. Custom Discord Application IDs are preserved across updates.
 
 ---
 
