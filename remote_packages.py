@@ -734,10 +734,18 @@ def install_wowpresence(target_dir, progress=None):
     ensure_wowpresence_config(target_dir)
     return revision
 
+
 def install_interact(target_dir, progress=None):
     _emit_progress(progress, "Checking Interact release...", None, None)
     release = _latest_release("lookino/Interact")
+    revision = _release_revision(release)
     asset = _find_asset(release, exact_name="Interact.zip")
+    package_id = "interact"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(progress, f"Interact {revision} is already current.", None, None)
+        return revision
+
     zip_path = _download_asset(asset, progress=progress, label="Downloading Interact package")
     extract_root = tempfile.mkdtemp(prefix="modernization_interact_")
     try:
@@ -761,6 +769,15 @@ def install_interact(target_dir, progress=None):
             ],
             label="Interact",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "Interact.dll",
+                os.path.join("Interface", "AddOns", "Interact"),
+            ],
+        )
     finally:
         try:
             os.remove(zip_path)
@@ -768,13 +785,26 @@ def install_interact(target_dir, progress=None):
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
 
-    return release.get("tag_name", "latest")
+    return revision
+
 
 
 def install_vanilla_multimonitor_fix(target_dir, progress=None):
     _emit_progress(progress, "Checking VanillaMultiMonitorFix release...", None, None)
     release = _latest_release("Mates1500/VanillaMultiMonitorFix")
+    revision = _release_revision(release)
     asset = _find_asset(release, exact_name="release.zip")
+    package_id = "vanilla_multimonitor_fix"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(
+            progress,
+            f"VanillaMultiMonitorFix {revision} is already current.",
+            None,
+            None,
+        )
+        return revision
+
     zip_path = _download_asset(
         asset,
         progress=progress,
@@ -799,6 +829,15 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
         if not os.path.exists(target_config):
             _emit_progress(progress, "Installing monitor preference file...", None, None)
             _atomic_replace_file(config_path, target_config)
+
+        # The preference file is intentionally excluded from integrity tracking
+        # because it is user-editable.
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            ["VanillaMultiMonitorFix.dll"],
+        )
     finally:
         try:
             os.remove(zip_path)
@@ -806,11 +845,7 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
 
-    return release.get("tag_name", "latest")
-
-
-
-MANAGED_ROOT = ".modernization_tool"
+    return revision
 
 
 def _safe_relative_path(relative_path):
@@ -1582,9 +1617,21 @@ def install_fog_pushback(target_dir, progress=None):
     return "RetroCro mirror"
 
 
+
 def install_pink_herbs(target_dir, progress=None):
     mod_id = "visual_pink_herbs"
     destination = os.path.join("Data", "patch-V.mpq")
+    revision = _branch_head_sha("seacrabsam/patch-herb", "main")
+
+    if _package_state_is_current(target_dir, mod_id, revision):
+        _emit_progress(
+            progress,
+            f"Pink Herbs {revision[:7]} is already current.",
+            None,
+            None,
+        )
+        return f"seacrabsam/patch-herb main@{revision[:7]}"
+
     temp_path = _download(
         "https://raw.githubusercontent.com/seacrabsam/patch-herb/main/patch-H.mpq",
         suffix=".mpq",
@@ -1607,13 +1654,19 @@ def install_pink_herbs(target_dir, progress=None):
             [(temp_path, destination)],
             revision=VISUAL_MOD_REVISIONS[mod_id],
         )
+        _record_package_state_safely(
+            target_dir,
+            mod_id,
+            revision,
+            [destination],
+        )
     finally:
         try:
             os.remove(temp_path)
         except OSError:
             pass
 
-    return "seacrabsam/patch-herb main"
+    return f"seacrabsam/patch-herb main@{revision[:7]}"
 
 
 def _download_github_branch_archive(repo, branch, progress=None, label="Downloading sound mod"):
@@ -1649,7 +1702,18 @@ def _collect_tree_files(source_dir, destination_prefix):
     return mappings
 
 
+
 def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, destination_prefix, progress=None, label="Downloading sound mod"):
+    revision = _branch_head_sha(repo, branch)
+    if _package_state_is_current(target_dir, mod_id, revision):
+        _emit_progress(
+            progress,
+            f"{label.replace('Downloading ', '')} is already current.",
+            None,
+            None,
+        )
+        return revision
+
     zip_path = _download_github_branch_archive(
         repo,
         branch,
@@ -1664,12 +1728,19 @@ def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, 
         mappings = _collect_tree_files(source_dir, destination_prefix)
         _emit_progress(progress, f"Installing {label.replace('Downloading ', '')}...", None, None)
         _install_managed_files_transactional(target_dir, mod_id, mappings)
+        _record_package_state_safely(
+            target_dir,
+            mod_id,
+            revision,
+            _load_managed_manifest(target_dir, mod_id),
+        )
     finally:
         try:
             os.remove(zip_path)
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
+    return revision
 
 
 def install_no_error_sounds(target_dir, progress=None):
@@ -1714,13 +1785,21 @@ def install_warlock_muted_demons(target_dir, progress=None):
     return "spzilyk/Warlock-Muted-Demons main"
 
 
+
 def install_nampower(target_dir, progress=None):
     _emit_progress(progress, "Checking Nampower release...", None, None)
     release = _latest_release("brues-code/nampower")
+    revision = _release_revision(release)
     asset = _find_asset(
         release,
         predicate=lambda name: name.lower().startswith("nampower-") and name.lower().endswith(".zip"),
     )
+    package_id = "nampower"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(progress, f"Nampower {revision} is already current.", None, None)
+        return revision
+
     zip_path = _download_asset(asset, progress=progress, label="Downloading Nampower package")
     extract_root = tempfile.mkdtemp(prefix="modernization_nampower_")
     try:
@@ -1742,19 +1821,46 @@ def install_nampower(target_dir, progress=None):
             ],
             label="Nampower",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "nampower.dll",
+                os.path.join("Interface", "AddOns", "nampowersettings"),
+            ],
+        )
     finally:
         try:
             os.remove(zip_path)
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
-    return release.get("tag_name", "latest")
+    return revision
+
 
 
 def install_vanillahelpers(target_dir, progress=None):
     _emit_progress(progress, "Checking VanillaHelpers release...", None, None)
     release = _latest_release("isfir/VanillaHelpers")
+    revision = _release_revision(release)
     asset = _find_asset(release, exact_name="VanillaHelpers.dll")
+    package_id = "vanillahelpers"
+    relative_path = "VanillaHelpers.dll"
+
+    if (
+        _package_state_is_current(target_dir, package_id, revision)
+        or _record_release_asset_state_if_matching(
+            target_dir,
+            package_id,
+            revision,
+            relative_path,
+            asset,
+        )
+    ):
+        _emit_progress(progress, f"VanillaHelpers {revision} is already current.", None, None)
+        return revision
+
     temp_path = _download_asset(
         asset,
         progress=progress,
@@ -1763,14 +1869,34 @@ def install_vanillahelpers(target_dir, progress=None):
     try:
         _verify_x86_pe(temp_path, "VanillaHelpers.dll")
         _emit_progress(progress, "Installing VanillaHelpers.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "VanillaHelpers.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return release.get("tag_name", "latest")
+    return revision
+
 
 
 def install_no1600x1200(target_dir, progress=None):
     _emit_progress(progress, "Checking no1600x1200 source...", None, None)
+    revision = _branch_head_sha("RetroCro/TurtleWoW-Mods", "main")
+    package_id = "no1600x1200"
+    relative_path = "no1600x1200.dll"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(
+            progress,
+            f"no1600x1200 {revision[:7]} is already current.",
+            None,
+            None,
+        )
+        return f"RetroCro/TurtleWoW-Mods main@{revision[:7]}"
+
     url = (
         "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/"
         "refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll"
@@ -1784,30 +1910,83 @@ def install_no1600x1200(target_dir, progress=None):
     try:
         _verify_x86_pe(temp_path, "no1600x1200.dll")
         _emit_progress(progress, "Installing no1600x1200.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "no1600x1200.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return "RetroCro/TurtleWoW-Mods main"
+    return f"RetroCro/TurtleWoW-Mods main@{revision[:7]}"
+
 
 
 def install_classicapi(target_dir, progress=None):
     _emit_progress(progress, "Checking ClassicAPI release...", None, None)
     release = _latest_release("brues-code/ClassicAPI")
+    revision = _release_revision(release)
     asset = _find_asset(release, exact_name="ClassicAPI.dll")
+    package_id = "classicapi"
+    relative_path = "ClassicAPI.dll"
+
+    if (
+        _package_state_is_current(target_dir, package_id, revision)
+        or _record_release_asset_state_if_matching(
+            target_dir,
+            package_id,
+            revision,
+            relative_path,
+            asset,
+        )
+    ):
+        _emit_progress(progress, f"ClassicAPI {revision} is already current.", None, None)
+        return revision
+
     temp_path = _download_asset(asset, progress=progress, label="Downloading ClassicAPI.dll")
     try:
         _verify_x86_pe(temp_path, "ClassicAPI.dll")
         _emit_progress(progress, "Installing ClassicAPI.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "ClassicAPI.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return release.get("tag_name", "latest")
+    return revision
+
 
 
 def install_auction_query_throttle(target_dir, progress=None):
     _emit_progress(progress, "Checking AuctionQueryThrottle release...", None, None)
     release = _latest_release("brues-code/AuctionQueryThrottle")
+    revision = _release_revision(release)
     asset = _find_asset(release, exact_name="AuctionQueryThrottle.dll")
+    package_id = "auction_query_throttle"
+    relative_path = "AuctionQueryThrottle.dll"
+
+    if (
+        _package_state_is_current(target_dir, package_id, revision)
+        or _record_release_asset_state_if_matching(
+            target_dir,
+            package_id,
+            revision,
+            relative_path,
+            asset,
+        )
+    ):
+        _emit_progress(
+            progress,
+            f"AuctionQueryThrottle {revision} is already current.",
+            None,
+            None,
+        )
+        return revision
+
     temp_path = _download_asset(
         asset,
         progress=progress,
@@ -1816,19 +1995,33 @@ def install_auction_query_throttle(target_dir, progress=None):
     try:
         _verify_x86_pe(temp_path, "AuctionQueryThrottle.dll")
         _emit_progress(progress, "Installing AuctionQueryThrottle.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "AuctionQueryThrottle.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return release.get("tag_name", "latest")
+    return revision
+
 
 
 def install_unitxp(target_dir, progress=None):
     _emit_progress(progress, "Checking UnitXP_SP3 release...", None, None)
     release = _latest_release("brues-code/UnitXP_SP3")
+    revision = _release_revision(release)
     asset = _find_asset(
         release,
         predicate=lambda name: name.lower().startswith("unitxp_sp3") and name.lower().endswith(".zip"),
     )
+    package_id = "unitxp_sp3"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(progress, f"UnitXP_SP3 {revision} is already current.", None, None)
+        return revision
+
     zip_path = _download_asset(asset, progress=progress, label="Downloading UnitXP_SP3 package")
     extract_root = tempfile.mkdtemp(prefix="modernization_unitxp_")
     try:
@@ -1850,22 +2043,47 @@ def install_unitxp(target_dir, progress=None):
             ],
             label="UnitXP_SP3",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "UnitXP_SP3.dll",
+                os.path.join("Interface", "AddOns", "UnitXP_SP3_Addon"),
+            ],
+        )
     finally:
         try:
             os.remove(zip_path)
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
-    return release.get("tag_name", "latest")
+    return revision
+
 
 
 def install_superwow(target_dir, progress=None):
     _emit_progress(progress, "Checking SuperWoW release...", None, None)
     release = _latest_release("balakethelock/SuperWoW")
+    release_revision = _release_revision(release)
     asset = _find_asset(
         release,
         predicate=lambda name: name.lower().startswith("superwow") and name.lower().endswith(".zip"),
     )
+
+    _emit_progress(progress, "Checking SuperAPI revision...", None, None)
+    superapi_revision = _branch_head_sha("balakethelock/SuperAPI", "master")
+    revision = f"{release_revision}|superapi:{superapi_revision}"
+    package_id = "superwow"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(
+            progress,
+            f"SuperWoW {release_revision} + SuperAPI {superapi_revision[:7]} are already current.",
+            None,
+            None,
+        )
+        return release.get("name") or release_revision
 
     wow_zip = None
     superapi_zip = None
@@ -1918,6 +2136,15 @@ def install_superwow(target_dir, progress=None):
             ],
             label="SuperWoW + SuperAPI",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "SuperWoWhook.dll",
+                os.path.join("Interface", "AddOns", "SuperAPI"),
+            ],
+        )
     finally:
         for path in (wow_zip, superapi_zip):
             if path:
@@ -1928,4 +2155,6 @@ def install_superwow(target_dir, progress=None):
         shutil.rmtree(wow_root, ignore_errors=True)
         shutil.rmtree(superapi_root, ignore_errors=True)
 
-    return release.get("name") or release.get("tag_name", "latest")
+    return release.get("name") or release_revision
+
+
