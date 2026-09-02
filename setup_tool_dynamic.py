@@ -33,6 +33,7 @@ class ModernWowSetupTool(WowSetupTool):
             "zone": tk.BooleanVar(master=root, value=True),
         }
         self.discord_presence_details_frame = None
+        self.discord_detail_checkbuttons = {}
 
         self._download_window = None
         self._download_label = None
@@ -98,10 +99,22 @@ class ModernWowSetupTool(WowSetupTool):
                 bool(mask & remote_packages.WOWPRESENCE_SHARE_RACE)
             )
 
-        # A legacy mask never had a separate master switch. Keeping this on
-        # preserves the previous display while still allowing all individual
-        # choices to be edited.
-        self.discord_show_character_details.set(True)
+        # "Show character details" now means "show everything". Only select it
+        # automatically when the existing configuration already represents the
+        # full legacy/default disclosure set. Any custom mask stays custom.
+        legacy_all = (
+            mask <= 63
+            and (mask & 63) == 63
+        )
+        current_all = (
+            mask > 63
+            and (mask & remote_packages.WOWPRESENCE_SHARE_ALL)
+            == remote_packages.WOWPRESENCE_SHARE_ALL
+        )
+        self.discord_show_character_details.set(legacy_all or current_all)
+        if self.discord_show_character_details.get():
+            for var in self.discord_detail_vars.values():
+                var.set(True)
 
     def _load_legacy_install_state(self, target_dir):
         super()._load_legacy_install_state(target_dir)
@@ -131,8 +144,8 @@ class ModernWowSetupTool(WowSetupTool):
         return loaded
 
     def _discord_broadcast_mask(self):
-        if not self.discord_show_character_details.get():
-            return 0
+        if self.discord_show_character_details.get():
+            return remote_packages.WOWPRESENCE_SHARE_ALL
 
         bits = {
             "name": remote_packages.WOWPRESENCE_SHARE_NAME,
@@ -150,6 +163,21 @@ class ModernWowSetupTool(WowSetupTool):
                 mask |= bit
         return mask
 
+    def _toggle_discord_all_details(self):
+        show_all = bool(self.discord_show_character_details.get())
+        if show_all:
+            for var in self.discord_detail_vars.values():
+                var.set(True)
+        self.update_discord_detail_states()
+
+    def update_discord_detail_states(self):
+        state = "disabled" if self.discord_show_character_details.get() else "normal"
+        for checkbox in getattr(self, "discord_detail_checkbuttons", {}).values():
+            try:
+                checkbox.configure(state=state)
+            except tk.TclError:
+                pass
+
     def update_discord_presence_controls(self):
         frame = getattr(self, "discord_presence_details_frame", None)
         if frame is None:
@@ -164,6 +192,9 @@ class ModernWowSetupTool(WowSetupTool):
         elif not visible and manager:
             frame.pack_forget()
 
+        if visible:
+            self.update_discord_detail_states()
+
     def _build_discord_presence_details(self, parent):
         frame = ttk.Frame(parent)
         self.discord_presence_details_frame = frame
@@ -172,12 +203,13 @@ class ModernWowSetupTool(WowSetupTool):
             frame,
             text="Show character details",
             variable=self.discord_show_character_details,
+            command=self._toggle_discord_all_details,
         )
         show_cb.pack(anchor="w", padx=6, pady=(1, 2))
         ToolTip(
             show_cb,
-            "Controls whether the selected character details are published to Discord. "
-            "The choices below stay available even when this is unchecked.",
+            "When enabled, all character details are shown and the individual choices "
+            "below are locked. Uncheck it to choose each detail separately.",
         )
 
         labels = {
@@ -196,6 +228,7 @@ class ModernWowSetupTool(WowSetupTool):
                 variable=self.discord_detail_vars[name],
             )
             cb.pack(anchor="w", padx=24, pady=1)
+            self.discord_detail_checkbuttons[name] = cb
             ToolTip(
                 cb,
                 f"Choose whether WowPresence may publish your {label.lower()} on Discord.",
