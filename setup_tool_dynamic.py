@@ -558,6 +558,7 @@ class ModernWowSetupTool(WowSetupTool):
         patcher_source,
         patcher_version,
         patcher_path,
+        patcher_revision=None,
     ):
         wow_exe = os.path.join(target, "WoW.exe")
         output_exe = os.path.join(target, "WoW_Modernized.exe")
@@ -570,9 +571,12 @@ class ModernWowSetupTool(WowSetupTool):
         os.makedirs(os.path.dirname(marker_path), exist_ok=True)
         temp_path = marker_path + ".new"
         payload = {
-            "schema": 1,
+            "schema": 2,
             "patcher_source": patcher_source,
             "patcher_version": str(patcher_version),
+            "patcher_revision": (
+                str(patcher_revision) if patcher_revision is not None else None
+            ),
             "patcher_sha256": (
                 self._file_sha256(patcher_path)
                 if patcher_path and os.path.isfile(patcher_path)
@@ -622,20 +626,25 @@ class ModernWowSetupTool(WowSetupTool):
         except (OSError, json.JSONDecodeError, ValueError, TypeError):
             return False, None
 
+
     def run_vanilla_tweaks(self, target):
-        # Prefer the latest stable tubtubs build on every Apply. If the network
-        # is unavailable, preserve an already valid/current WoW_Modernized.exe
-        # instead of unnecessarily repatching it with an older bundled build.
+        # First compare the small GitHub release metadata with the patcher
+        # revision already recorded for this exact WoW.exe/settings output.
+        # The multi-megabyte Windows package is downloaded only when needed.
+        existing_matches, marker = self._existing_vanilla_tweaks_output_matches(
+            target
+        )
+
         try:
-            tweaks_exe, extract_root, version = remote_packages.prepare_vanilla_tweaks(
-                progress=self._report_download_progress,
+            self._report_download_progress(
+                "Checking vanilla-tweaks release...",
+                None,
+                None,
             )
+            release_info = remote_packages.vanilla_tweaks_release_info()
         except Exception as exc:
             self._close_download_progress()
 
-            existing_matches, marker = self._existing_vanilla_tweaks_output_matches(
-                target
-            )
             if existing_matches:
                 patcher_version = (
                     marker.get("patcher_version", "previously installed")
@@ -644,10 +653,9 @@ class ModernWowSetupTool(WowSetupTool):
                 )
                 messagebox.showwarning(
                     "Latest vanilla-tweaks unavailable",
-                    "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
+                    "Could not check the latest tubtubs/vanilla-tweaks build.\n\n"
                     "Your existing WoW_Modernized.exe matches the current WoW.exe "
-                    "and all executable patch settings, so it was kept unchanged "
-                    f"instead of being repatched with the bundled fallback.\n\n"
+                    "and all executable patch settings, so it was kept unchanged.\n\n"
                     f"Existing patcher version: {patcher_version}\n\n"
                     f"Details: {exc}",
                 )
@@ -657,7 +665,81 @@ class ModernWowSetupTool(WowSetupTool):
             bundled_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
             messagebox.showwarning(
                 "Latest vanilla-tweaks unavailable",
-                "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
+                "Could not check the latest tubtubs/vanilla-tweaks build.\n\n"
+                "The current WoW.exe or executable patch settings need to be "
+                "repatched, so the bundled known-good vanilla-tweaks build will "
+                f"be used instead ({bundled['version']}).\n\n"
+                f"Details: {exc}",
+            )
+
+            result = super().run_vanilla_tweaks(
+                target,
+                tweaks_exe=bundled_exe,
+                modern_cli=True,
+            )
+            self._write_vanilla_tweaks_marker(
+                target,
+                patcher_source="bundled",
+                patcher_version=bundled["version"],
+                patcher_path=bundled_exe,
+            )
+            return result
+
+        remote_revision = release_info["revision"]
+        remote_version = release_info["version"]
+        if existing_matches and isinstance(marker, dict):
+            same_online_patcher = (
+                marker.get("patcher_source") == "online"
+                and (
+                    str(marker.get("patcher_revision")) == str(remote_revision)
+                    or (
+                        marker.get("patcher_revision") in (None, "")
+                        and str(marker.get("patcher_version")) == str(remote_version)
+                    )
+                )
+            )
+            if same_online_patcher:
+                self._report_download_progress(
+                    f"vanilla-tweaks {remote_version} is already current.",
+                    None,
+                    None,
+                )
+                self._close_download_progress()
+                return os.path.join(target, "WoW_Modernized.exe")
+
+        try:
+            tweaks_exe, extract_root, version, revision = (
+                remote_packages.prepare_vanilla_tweaks(
+                    progress=self._report_download_progress,
+                    release_info=release_info,
+                )
+            )
+        except Exception as exc:
+            self._close_download_progress()
+
+            # A remote update may exist but be temporarily unavailable. Keep a
+            # valid existing output rather than downgrading or repatching it.
+            if existing_matches:
+                patcher_version = (
+                    marker.get("patcher_version", "previously installed")
+                    if isinstance(marker, dict)
+                    else "previously installed"
+                )
+                messagebox.showwarning(
+                    "Latest vanilla-tweaks unavailable",
+                    "The latest vanilla-tweaks package could not be downloaded.\n\n"
+                    "Your existing WoW_Modernized.exe still matches the current "
+                    "WoW.exe and all executable patch settings, so it was kept unchanged.\n\n"
+                    f"Existing patcher version: {patcher_version}\n\n"
+                    f"Details: {exc}",
+                )
+                return os.path.join(target, "WoW_Modernized.exe")
+
+            bundled = self._bundled_vanilla_tweaks_info()
+            bundled_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
+            messagebox.showwarning(
+                "Latest vanilla-tweaks unavailable",
+                "The latest vanilla-tweaks package could not be downloaded.\n\n"
                 "The current WoW.exe or executable patch settings need to be "
                 "repatched, so the bundled known-good vanilla-tweaks build will "
                 f"be used instead ({bundled['version']}).\n\n"
@@ -693,6 +775,7 @@ class ModernWowSetupTool(WowSetupTool):
                 patcher_source="online",
                 patcher_version=version,
                 patcher_path=tweaks_exe,
+                patcher_revision=revision,
             )
             return result
         finally:
