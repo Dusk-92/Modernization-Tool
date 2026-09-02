@@ -18,6 +18,23 @@ class ModernWowSetupTool(WowSetupTool):
         self.auction_throttle_enabled = tk.BooleanVar(master=root, value=True)
         self.vmmfix_enabled = tk.BooleanVar(master=root, value=False)
         self.interact_enabled = tk.BooleanVar(master=root, value=False)
+
+        # Discord Rich Presence detail choices are kept independently from the
+        # main WowPresence checkbox so hiding/disabling the integration never
+        # destroys the user's selected disclosure preferences.
+        self.discord_show_character_details = tk.BooleanVar(master=root, value=True)
+        self.discord_detail_vars = {
+            "name": tk.BooleanVar(master=root, value=True),
+            "guild": tk.BooleanVar(master=root, value=True),
+            "race": tk.BooleanVar(master=root, value=True),
+            "faction": tk.BooleanVar(master=root, value=True),
+            "class": tk.BooleanVar(master=root, value=True),
+            "level": tk.BooleanVar(master=root, value=True),
+            "zone": tk.BooleanVar(master=root, value=True),
+        }
+        self.discord_presence_details_frame = None
+        self.discord_detail_checkbuttons = {}
+
         self._download_window = None
         self._download_label = None
         self._download_detail = None
@@ -25,6 +42,199 @@ class ModernWowSetupTool(WowSetupTool):
         self._download_bar = None
         self._download_indeterminate = False
         super().__init__(root)
+
+    def _collect_settings(self):
+        settings = super()._collect_settings()
+        settings["discord_presence"] = {
+            "show_character_details": bool(self.discord_show_character_details.get()),
+            "details": {
+                name: bool(var.get())
+                for name, var in self.discord_detail_vars.items()
+            },
+        }
+        return settings
+
+    def _apply_settings_dict(self, saved):
+        super()._apply_settings_dict(saved)
+
+        discord = saved.get("discord_presence") if isinstance(saved, dict) else None
+        if not isinstance(discord, dict):
+            return
+
+        show_details = discord.get("show_character_details")
+        if isinstance(show_details, bool):
+            self.discord_show_character_details.set(show_details)
+
+        details = discord.get("details")
+        if isinstance(details, dict):
+            for name, value in details.items():
+                var = self.discord_detail_vars.get(name)
+                if var is not None and isinstance(value, bool):
+                    var.set(value)
+
+    def _load_wowpresence_broadcast_preferences(self, target_dir):
+        """Migrate the old six-bit mask into the new seven-choice UI."""
+        mask = remote_packages.read_wowpresence_broadcast_flags(target_dir)
+        if mask is None:
+            return
+
+        bits = {
+            "name": remote_packages.WOWPRESENCE_SHARE_NAME,
+            "guild": remote_packages.WOWPRESENCE_SHARE_GUILD,
+            "faction": remote_packages.WOWPRESENCE_SHARE_FACTION,
+            "class": remote_packages.WOWPRESENCE_SHARE_CLASS,
+            "level": remote_packages.WOWPRESENCE_SHARE_LEVEL,
+            "zone": remote_packages.WOWPRESENCE_SHARE_ZONE,
+        }
+        for name, bit in bits.items():
+            self.discord_detail_vars[name].set(bool(mask & bit))
+
+        # WowPresence versions before the dedicated Race flag always exposed
+        # race information regardless of the six-bit mask. Treat masks <= 63
+        # as legacy so the migration preserves exactly that visible behavior.
+        if mask <= 63:
+            self.discord_detail_vars["race"].set(True)
+        else:
+            self.discord_detail_vars["race"].set(
+                bool(mask & remote_packages.WOWPRESENCE_SHARE_RACE)
+            )
+
+        # "Show character details" now means "show everything". Only select it
+        # automatically when the existing configuration already represents the
+        # full legacy/default disclosure set. Any custom mask stays custom.
+        legacy_all = (
+            mask <= 63
+            and (mask & 63) == 63
+        )
+        current_all = (
+            mask > 63
+            and (mask & remote_packages.WOWPRESENCE_SHARE_ALL)
+            == remote_packages.WOWPRESENCE_SHARE_ALL
+        )
+        self.discord_show_character_details.set(legacy_all or current_all)
+        if self.discord_show_character_details.get():
+            for var in self.discord_detail_vars.values():
+                var.set(True)
+
+    def _load_legacy_install_state(self, target_dir):
+        super()._load_legacy_install_state(target_dir)
+        self._load_wowpresence_broadcast_preferences(target_dir)
+
+    def load_settings(self, target_dir):
+        settings_path = self._settings_path(target_dir)
+        has_saved_discord_preferences = False
+        try:
+            with open(settings_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            has_saved_discord_preferences = isinstance(
+                saved.get("discord_presence") if isinstance(saved, dict) else None,
+                dict,
+            )
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            pass
+
+        loaded = super().load_settings(target_dir)
+
+        # Existing v2.1 settings.json files predate the detailed controls. Read
+        # their actual WowPresence mask once so manual choices are not lost.
+        if os.path.isfile(settings_path) and not has_saved_discord_preferences:
+            self._load_wowpresence_broadcast_preferences(target_dir)
+
+        self.update_discord_presence_controls()
+        return loaded
+
+    def _discord_broadcast_mask(self):
+        if self.discord_show_character_details.get():
+            return remote_packages.WOWPRESENCE_SHARE_ALL
+
+        bits = {
+            "name": remote_packages.WOWPRESENCE_SHARE_NAME,
+            "guild": remote_packages.WOWPRESENCE_SHARE_GUILD,
+            "race": remote_packages.WOWPRESENCE_SHARE_RACE,
+            "faction": remote_packages.WOWPRESENCE_SHARE_FACTION,
+            "class": remote_packages.WOWPRESENCE_SHARE_CLASS,
+            "level": remote_packages.WOWPRESENCE_SHARE_LEVEL,
+            "zone": remote_packages.WOWPRESENCE_SHARE_ZONE,
+        }
+        mask = 0
+        for name, bit in bits.items():
+            var = self.discord_detail_vars.get(name)
+            if var is not None and var.get():
+                mask |= bit
+        return mask
+
+    def _toggle_discord_all_details(self):
+        show_all = bool(self.discord_show_character_details.get())
+        if show_all:
+            for var in self.discord_detail_vars.values():
+                var.set(True)
+        self.update_discord_detail_states()
+
+    def update_discord_detail_states(self):
+        state = "disabled" if self.discord_show_character_details.get() else "normal"
+        for checkbox in getattr(self, "discord_detail_checkbuttons", {}).values():
+            try:
+                checkbox.configure(state=state)
+            except tk.TclError:
+                pass
+
+    def update_discord_presence_controls(self):
+        frame = getattr(self, "discord_presence_details_frame", None)
+        if frame is None:
+            return
+
+        var = self.optional_plugins.get("WowPresence.dll")
+        visible = bool(var is not None and var.get())
+        manager = frame.winfo_manager()
+
+        if visible and not manager:
+            frame.pack(fill="x", padx=(22, 8), pady=(0, 4))
+        elif not visible and manager:
+            frame.pack_forget()
+
+        if visible:
+            self.update_discord_detail_states()
+
+    def _build_discord_presence_details(self, parent):
+        frame = ttk.Frame(parent)
+        self.discord_presence_details_frame = frame
+
+        show_cb = ttk.Checkbutton(
+            frame,
+            text="Show character details",
+            variable=self.discord_show_character_details,
+            command=self._toggle_discord_all_details,
+        )
+        show_cb.pack(anchor="w", padx=6, pady=(1, 2))
+        ToolTip(
+            show_cb,
+            "When enabled, all character details are shown and the individual choices "
+            "below are locked. Uncheck it to choose each detail separately.",
+        )
+
+        labels = {
+            "name": "Character Name",
+            "guild": "Guild",
+            "race": "Race",
+            "faction": "Faction",
+            "class": "Class",
+            "level": "Level",
+            "zone": "Zone",
+        }
+        for name, label in labels.items():
+            cb = ttk.Checkbutton(
+                frame,
+                text=label,
+                variable=self.discord_detail_vars[name],
+            )
+            cb.pack(anchor="w", padx=24, pady=1)
+            self.discord_detail_checkbuttons[name] = cb
+            ToolTip(
+                cb,
+                f"Choose whether WowPresence may publish your {label.lower()} on Discord.",
+            )
+
+        self.update_discord_presence_controls()
 
     def _show_download_progress(self):
         if self._download_window is not None and self._download_window.winfo_exists():
@@ -303,13 +513,23 @@ class ModernWowSetupTool(WowSetupTool):
         for dll, var in self.optional_plugins.items():
             if dll == "no1600x1200.dll":
                 continue
+
+            command = (
+                self.update_discord_presence_controls
+                if dll == "WowPresence.dll"
+                else None
+            )
             self._plugin_row(
                 right_frame,
                 optional_display.get(dll, os.path.splitext(dll)[0]),
                 var,
                 optional_attribution.get(dll, "by MarcelineVQ"),
                 self.descriptions.get(dll, ""),
+                command=command,
             )
+
+            if dll == "WowPresence.dll":
+                self._build_discord_presence_details(right_frame)
 
     def clean_unselected_files(self, target):
         super().clean_unselected_files(target)
@@ -558,6 +778,7 @@ class ModernWowSetupTool(WowSetupTool):
         patcher_source,
         patcher_version,
         patcher_path,
+        patcher_revision=None,
     ):
         wow_exe = os.path.join(target, "WoW.exe")
         output_exe = os.path.join(target, "WoW_Modernized.exe")
@@ -570,9 +791,12 @@ class ModernWowSetupTool(WowSetupTool):
         os.makedirs(os.path.dirname(marker_path), exist_ok=True)
         temp_path = marker_path + ".new"
         payload = {
-            "schema": 1,
+            "schema": 2,
             "patcher_source": patcher_source,
             "patcher_version": str(patcher_version),
+            "patcher_revision": (
+                str(patcher_revision) if patcher_revision is not None else None
+            ),
             "patcher_sha256": (
                 self._file_sha256(patcher_path)
                 if patcher_path and os.path.isfile(patcher_path)
@@ -623,19 +847,23 @@ class ModernWowSetupTool(WowSetupTool):
             return False, None
 
     def run_vanilla_tweaks(self, target):
-        # Prefer the latest stable tubtubs build on every Apply. If the network
-        # is unavailable, preserve an already valid/current WoW_Modernized.exe
-        # instead of unnecessarily repatching it with an older bundled build.
+        # First compare the small GitHub release metadata with the patcher
+        # revision already recorded for this exact WoW.exe/settings output.
+        # The multi-megabyte Windows package is downloaded only when needed.
+        existing_matches, marker = self._existing_vanilla_tweaks_output_matches(
+            target
+        )
+
         try:
-            tweaks_exe, extract_root, version = remote_packages.prepare_vanilla_tweaks(
-                progress=self._report_download_progress,
+            self._report_download_progress(
+                "Checking vanilla-tweaks release...",
+                None,
+                None,
             )
+            release_info = remote_packages.vanilla_tweaks_release_info()
         except Exception as exc:
             self._close_download_progress()
 
-            existing_matches, marker = self._existing_vanilla_tweaks_output_matches(
-                target
-            )
             if existing_matches:
                 patcher_version = (
                     marker.get("patcher_version", "previously installed")
@@ -644,10 +872,9 @@ class ModernWowSetupTool(WowSetupTool):
                 )
                 messagebox.showwarning(
                     "Latest vanilla-tweaks unavailable",
-                    "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
+                    "Could not check the latest tubtubs/vanilla-tweaks build.\n\n"
                     "Your existing WoW_Modernized.exe matches the current WoW.exe "
-                    "and all executable patch settings, so it was kept unchanged "
-                    f"instead of being repatched with the bundled fallback.\n\n"
+                    "and all executable patch settings, so it was kept unchanged.\n\n"
                     f"Existing patcher version: {patcher_version}\n\n"
                     f"Details: {exc}",
                 )
@@ -657,7 +884,81 @@ class ModernWowSetupTool(WowSetupTool):
             bundled_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
             messagebox.showwarning(
                 "Latest vanilla-tweaks unavailable",
-                "Could not download the latest tubtubs/vanilla-tweaks build.\n\n"
+                "Could not check the latest tubtubs/vanilla-tweaks build.\n\n"
+                "The current WoW.exe or executable patch settings need to be "
+                "repatched, so the bundled known-good vanilla-tweaks build will "
+                f"be used instead ({bundled['version']}).\n\n"
+                f"Details: {exc}",
+            )
+
+            result = super().run_vanilla_tweaks(
+                target,
+                tweaks_exe=bundled_exe,
+                modern_cli=True,
+            )
+            self._write_vanilla_tweaks_marker(
+                target,
+                patcher_source="bundled",
+                patcher_version=bundled["version"],
+                patcher_path=bundled_exe,
+            )
+            return result
+
+        remote_revision = release_info["revision"]
+        remote_version = release_info["version"]
+        if existing_matches and isinstance(marker, dict):
+            same_online_patcher = (
+                marker.get("patcher_source") == "online"
+                and (
+                    str(marker.get("patcher_revision")) == str(remote_revision)
+                    or (
+                        marker.get("patcher_revision") in (None, "")
+                        and str(marker.get("patcher_version")) == str(remote_version)
+                    )
+                )
+            )
+            if same_online_patcher:
+                self._report_download_progress(
+                    f"vanilla-tweaks {remote_version} is already current.",
+                    None,
+                    None,
+                )
+                self._close_download_progress()
+                return os.path.join(target, "WoW_Modernized.exe")
+
+        try:
+            tweaks_exe, extract_root, version, revision = (
+                remote_packages.prepare_vanilla_tweaks(
+                    progress=self._report_download_progress,
+                    release_info=release_info,
+                )
+            )
+        except Exception as exc:
+            self._close_download_progress()
+
+            # A remote update may exist but be temporarily unavailable. Keep a
+            # valid existing output rather than downgrading or repatching it.
+            if existing_matches:
+                patcher_version = (
+                    marker.get("patcher_version", "previously installed")
+                    if isinstance(marker, dict)
+                    else "previously installed"
+                )
+                messagebox.showwarning(
+                    "Latest vanilla-tweaks unavailable",
+                    "The latest vanilla-tweaks package could not be downloaded.\n\n"
+                    "Your existing WoW_Modernized.exe still matches the current "
+                    "WoW.exe and all executable patch settings, so it was kept unchanged.\n\n"
+                    f"Existing patcher version: {patcher_version}\n\n"
+                    f"Details: {exc}",
+                )
+                return os.path.join(target, "WoW_Modernized.exe")
+
+            bundled = self._bundled_vanilla_tweaks_info()
+            bundled_exe = os.path.join(get_base_path(), "vanilla-tweaks.exe")
+            messagebox.showwarning(
+                "Latest vanilla-tweaks unavailable",
+                "The latest vanilla-tweaks package could not be downloaded.\n\n"
                 "The current WoW.exe or executable patch settings need to be "
                 "repatched, so the bundled known-good vanilla-tweaks build will "
                 f"be used instead ({bundled['version']}).\n\n"
@@ -693,6 +994,7 @@ class ModernWowSetupTool(WowSetupTool):
                 patcher_source="online",
                 patcher_version=version,
                 patcher_path=tweaks_exe,
+                patcher_revision=revision,
             )
             return result
         finally:
@@ -867,6 +1169,11 @@ class ModernWowSetupTool(WowSetupTool):
                                 os.remove(legacy_path)
                             except OSError:
                                 pass
+
+                    remote_packages.write_wowpresence_broadcast_flags(
+                        target,
+                        self._discord_broadcast_mask(),
+                    )
                 else:
                     source_dll = os.path.join(payload_weirdu, dll_name)
                     if os.path.exists(source_dll):

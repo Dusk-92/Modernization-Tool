@@ -7,7 +7,9 @@ from unittest import mock
 
 import remote_packages
 import setup_tool
+import setup_tool_dynamic
 from setup_tool import WowSetupTool
+from setup_tool_dynamic import ModernWowSetupTool
 
 
 class FakeVar:
@@ -612,6 +614,183 @@ class PeValidationTests(unittest.TestCase):
                 remote_packages._verify_x86_pe(bad, "bad.dll")
 
 
+class SmartUpdateTests(unittest.TestCase):
+    def test_package_state_tracks_revision_and_local_integrity(self):
+        with tempfile.TemporaryDirectory() as root:
+            dll = os.path.join(root, "Example.dll")
+            addon = os.path.join(root, "Interface", "AddOns", "Example")
+            os.makedirs(addon)
+            with open(dll, "wb") as handle:
+                handle.write(b"dll-v1")
+            with open(os.path.join(addon, "Example.toc"), "wb") as handle:
+                handle.write(b"addon-v1")
+
+            remote_packages._record_package_state(
+                root,
+                "example",
+                "v1",
+                ["Example.dll", os.path.join("Interface", "AddOns", "Example")],
+            )
+
+            self.assertTrue(
+                remote_packages._package_state_is_current(root, "example", "v1")
+            )
+            self.assertFalse(
+                remote_packages._package_state_is_current(root, "example", "v2")
+            )
+
+            with open(os.path.join(addon, "Example.toc"), "wb") as handle:
+                handle.write(b"modified")
+            self.assertFalse(
+                remote_packages._package_state_is_current(root, "example", "v1")
+            )
+
+    def test_release_asset_revision_detects_replaced_asset_under_same_tag(self):
+        release_a = {
+            "tag_name": "Release",
+            "assets": [
+                {
+                    "id": 1,
+                    "name": "package.zip",
+                    "updated_at": "2026-09-01T10:00:00Z",
+                    "size": 100,
+                }
+            ],
+        }
+        release_b = {
+            "tag_name": "Release",
+            "assets": [
+                {
+                    "id": 2,
+                    "name": "package.zip",
+                    "updated_at": "2026-09-02T10:00:00Z",
+                    "size": 120,
+                }
+            ],
+        }
+
+        self.assertNotEqual(
+            remote_packages._release_asset_revision(
+                release_a,
+                release_a["assets"][0],
+            ),
+            remote_packages._release_asset_revision(
+                release_b,
+                release_b["assets"][0],
+            ),
+        )
+
+    def test_release_component_skips_download_when_revision_and_hashes_match(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = os.path.join(root, "ClassicAPI.dll")
+            with open(target, "wb") as handle:
+                handle.write(b"already-installed")
+
+            release = {
+                "tag_name": "v-test",
+                "assets": [
+                    {
+                        "name": "ClassicAPI.dll",
+                        "browser_download_url": "https://example.invalid/ClassicAPI.dll",
+                    }
+                ],
+            }
+            revision = remote_packages._release_asset_revision(
+                release,
+                release["assets"][0],
+            )
+            remote_packages._record_package_state(
+                root,
+                "classicapi",
+                revision,
+                ["ClassicAPI.dll"],
+            )
+
+            with mock.patch(
+                "remote_packages._latest_release",
+                return_value=release,
+            ), mock.patch(
+                "remote_packages._download_asset",
+                side_effect=AssertionError("unchanged component was downloaded"),
+            ) as download:
+                self.assertEqual(
+                    remote_packages.install_classicapi(root),
+                    "v-test",
+                )
+
+            download.assert_not_called()
+
+    def test_branch_component_skips_archive_when_commit_and_files_match(self):
+        with tempfile.TemporaryDirectory() as root:
+            sound = os.path.join(root, "Sound", "example.wav")
+            os.makedirs(os.path.dirname(sound))
+            with open(sound, "wb") as handle:
+                handle.write(b"sound")
+
+            remote_packages._record_package_state(
+                root,
+                "audio_example",
+                "abcdef1234567890",
+                [os.path.join("Sound", "example.wav")],
+            )
+
+            with mock.patch(
+                "remote_packages._branch_head_sha",
+                return_value="abcdef1234567890",
+            ), mock.patch(
+                "remote_packages._download_github_branch_archive",
+                side_effect=AssertionError("unchanged branch archive was downloaded"),
+            ) as download:
+                revision = remote_packages._install_github_sound_pack(
+                    root,
+                    "audio_example",
+                    "owner/repo",
+                    "main",
+                    "Sound",
+                    "Sound",
+                )
+
+            self.assertEqual(revision, "abcdef1234567890")
+            download.assert_not_called()
+
+    def test_vanilla_tweaks_skips_package_when_output_and_revision_match(self):
+        tool = setup_tool_dynamic.ModernWowSetupTool.__new__(
+            setup_tool_dynamic.ModernWowSetupTool
+        )
+        tool._existing_vanilla_tweaks_output_matches = mock.Mock(
+            return_value=(
+                True,
+                {
+                    "patcher_source": "online",
+                    "patcher_version": "Vanilla Tweaks v1",
+                    "patcher_revision": "v1",
+                },
+            )
+        )
+        tool._report_download_progress = mock.Mock()
+        tool._close_download_progress = mock.Mock()
+
+        release_info = {
+            "release": {},
+            "asset": {},
+            "revision": "v1",
+            "version": "Vanilla Tweaks v1",
+        }
+
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+            "setup_tool_dynamic.remote_packages.vanilla_tweaks_release_info",
+            return_value=release_info,
+        ), mock.patch(
+            "setup_tool_dynamic.remote_packages.prepare_vanilla_tweaks",
+            side_effect=AssertionError("unchanged vanilla-tweaks was downloaded"),
+        ) as prepare:
+            result = tool.run_vanilla_tweaks(root)
+
+        self.assertEqual(result, os.path.join(root, "WoW_Modernized.exe"))
+        prepare.assert_not_called()
+        tool._close_download_progress.assert_called_once()
+
+
 class WowPresenceIntegrationTests(unittest.TestCase):
     def make_tool(self, selected=False):
         tool = WowSetupTool.__new__(WowSetupTool)
@@ -635,7 +814,7 @@ class WowPresenceIntegrationTests(unittest.TestCase):
                     remote_packages.WOWPRESENCE_DEFAULT_APPLICATION_ID,
                 )
             with open(flags, "r", encoding="ascii") as handle:
-                self.assertEqual(handle.read().strip(), "63")
+                self.assertEqual(handle.read().strip(), "127")
 
             with open(app_id, "w", encoding="ascii") as handle:
                 handle.write(
@@ -696,7 +875,7 @@ class WowPresenceIntegrationTests(unittest.TestCase):
             with mock.patch(
                 "remote_packages._latest_release",
                 return_value=release,
-            ), mock.patch(
+            ) as latest_release, mock.patch(
                 "remote_packages._download_asset",
                 return_value=zip_path,
             ) as download:
@@ -705,6 +884,9 @@ class WowPresenceIntegrationTests(unittest.TestCase):
                     "v-test",
                 )
 
+            latest_release.assert_called_once_with(
+                remote_packages.WOWPRESENCE_REPO,
+            )
             download.assert_called_once()
             remote_packages._verify_x86_pe(
                 os.path.join(root, "WowPresence.dll"),
@@ -864,6 +1046,101 @@ class WowPresenceIntegrationTests(unittest.TestCase):
                 )
             )
 
+
+class WowPresenceDetailPreferenceTests(unittest.TestCase):
+    def make_tool(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool.discord_show_character_details = FakeVar(True)
+        tool.discord_detail_vars = {
+            "name": FakeVar(True),
+            "guild": FakeVar(True),
+            "race": FakeVar(True),
+            "faction": FakeVar(True),
+            "class": FakeVar(True),
+            "level": FakeVar(True),
+            "zone": FakeVar(True),
+        }
+        return tool
+
+    def test_detail_mask_supports_race_and_all_details_switch(self):
+        tool = self.make_tool()
+        self.assertEqual(
+            tool._discord_broadcast_mask(),
+            remote_packages.WOWPRESENCE_SHARE_ALL,
+        )
+
+        # The master switch always means "show all" even if a variable is
+        # changed programmatically while its checkbox would be disabled.
+        tool.discord_detail_vars["race"].set(False)
+        self.assertEqual(
+            tool._discord_broadcast_mask(),
+            remote_packages.WOWPRESENCE_SHARE_ALL,
+        )
+
+        # Once the master is off, the individual choices become authoritative.
+        tool.discord_show_character_details.set(False)
+        self.assertEqual(tool._discord_broadcast_mask(), 63)
+        self.assertFalse(tool.discord_detail_vars["race"].get())
+        self.assertTrue(tool.discord_detail_vars["zone"].get())
+
+    def test_legacy_six_bit_mask_keeps_race_enabled(self):
+        tool = self.make_tool()
+        with tempfile.TemporaryDirectory() as root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            flags = os.path.join(data_dir, "discord_broadcast_flags")
+            with open(flags, "w", encoding="ascii") as handle:
+                handle.write("31\n")
+
+            tool._load_wowpresence_broadcast_preferences(root)
+
+            self.assertFalse(tool.discord_show_character_details.get())
+            self.assertTrue(tool.discord_detail_vars["name"].get())
+            self.assertTrue(tool.discord_detail_vars["guild"].get())
+            self.assertTrue(tool.discord_detail_vars["faction"].get())
+            self.assertTrue(tool.discord_detail_vars["class"].get())
+            self.assertTrue(tool.discord_detail_vars["level"].get())
+            self.assertFalse(tool.discord_detail_vars["zone"].get())
+            self.assertTrue(tool.discord_detail_vars["race"].get())
+
+    def test_legacy_default_mask_selects_all_details(self):
+        tool = self.make_tool()
+        with tempfile.TemporaryDirectory() as root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            flags = os.path.join(data_dir, "discord_broadcast_flags")
+            with open(flags, "w", encoding="ascii") as handle:
+                handle.write("63\n")
+
+            tool._load_wowpresence_broadcast_preferences(root)
+
+            self.assertTrue(tool.discord_show_character_details.get())
+            self.assertTrue(all(var.get() for var in tool.discord_detail_vars.values()))
+            self.assertEqual(
+                tool._discord_broadcast_mask(),
+                remote_packages.WOWPRESENCE_SHARE_ALL,
+            )
+
+    def test_broadcast_flag_writer_preserves_other_config(self):
+        with tempfile.TemporaryDirectory() as root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            app_id = os.path.join(data_dir, "discord_application_id")
+            with open(app_id, "w", encoding="ascii") as handle:
+                handle.write("123456789012345678\n")
+
+            path = remote_packages.write_wowpresence_broadcast_flags(
+                root,
+                remote_packages.WOWPRESENCE_SHARE_ALL,
+            )
+            self.assertEqual(
+                remote_packages.read_wowpresence_broadcast_flags(root),
+                127,
+            )
+            with open(path, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "127")
+            with open(app_id, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "123456789012345678")
+
+            with self.assertRaises(ValueError):
+                remote_packages.write_wowpresence_broadcast_flags(root, 128)
 
 class SettingsRecoveryTests(unittest.TestCase):
     def test_corrupt_settings_are_left_untouched_and_legacy_state_is_recovered(self):

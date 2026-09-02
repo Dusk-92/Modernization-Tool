@@ -81,7 +81,7 @@ jobs:
           Get-Item $zip | Format-List Name,Length,LastWriteTime
 
       - name: Upload test artifact
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && !(github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.1') }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && !(github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.2') }}
         uses: actions/upload-artifact@v4
         with:
           name: WoW_Modernization_Tool-test
@@ -90,20 +90,20 @@ jobs:
             dist/WoW_Modernization_Tool.zip
           if-no-files-found: error
 
-      # One-time production promotion for v2.1. The exact commit message keeps
-      # normal main pushes from publishing or modifying the v2.1 release.
-      - name: Create GitHub Release v2.1
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.1' }}
+      # One-time production promotion for v2.2. The exact commit message keeps
+      # normal main pushes from publishing or modifying the v2.2 release.
+      - name: Create GitHub Release v2.2
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release v2.2' }}
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v2.1
+          tag_name: v2.2
           target_commitish: ${{ github.sha }}
           files: |
             dist/WoW_Modernization_Tool.exe
             dist/WoW_Modernization_Tool.zip
           fail_on_unmatched_files: true
           overwrite_files: true
-          name: "WoW Modernization Tool v2.1"
+          name: "WoW Modernization Tool v2.2"
           body_path: RELEASE_NOTES.md
           generate_release_notes: false
           make_latest: true

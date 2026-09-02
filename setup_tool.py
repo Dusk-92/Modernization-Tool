@@ -1725,13 +1725,19 @@ class WowSetupTool:
             # is enough to trigger one fresh download when a source/version changes.
             for key, managed_id, display_name, installer in visual_defs:
                 if self.visual_mods[key].get():
-                    revision = remote_packages.VISUAL_MOD_REVISIONS[managed_id]
-                    if remote_packages.managed_mpq_is_current(
-                        target,
-                        managed_id,
-                        revision,
-                    ):
-                        continue
+                    # Hosted static mirrors use explicit revisions and can be
+                    # skipped without any network request. Pink Herbs follows a
+                    # GitHub branch, so its installer performs a lightweight
+                    # branch-SHA check before deciding whether a download is
+                    # needed.
+                    if key != "pink_herbs":
+                        revision = remote_packages.VISUAL_MOD_REVISIONS[managed_id]
+                        if remote_packages.managed_mpq_is_current(
+                            target,
+                            managed_id,
+                            revision,
+                        ):
+                            continue
 
                     try:
                         installer(target, progress=progress)
