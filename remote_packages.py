@@ -15,7 +15,6 @@ USER_AGENT = "Modernization-Tool/1.0 (+https://github.com/Dusk-92/Modernization-
 GITHUB_API = "https://api.github.com"
 NETWORK_TIMEOUT = 30
 WOWPRESENCE_REPO = "Dusk-92/WowPresence"
-WOWPRESENCE_TEST_RELEASE_TAG = "test-discord-details"
 WOWPRESENCE_MANAGED_ID = "wowpresence"
 WOWPRESENCE_DEFAULT_APPLICATION_ID = "1544072796098011176"
 WOWPRESENCE_APPLICATION_ID_PLACEHOLDER = "PASTE_YOUR_DISCORD_APPLICATION_ID_HERE"
@@ -75,13 +74,6 @@ def _latest_release(repo):
     data = _get_json(f"{GITHUB_API}/repos/{repo}/releases/latest")
     if data.get("draft") or data.get("prerelease"):
         raise RemotePackageError(f"{repo}: latest release is not a stable release.")
-    return data
-
-
-def _release_by_tag(repo, tag):
-    data = _get_json(f"{GITHUB_API}/repos/{repo}/releases/tags/{tag}")
-    if data.get("draft"):
-        raise RemotePackageError(f"{repo}: release {tag} is still a draft.")
     return data
 
 
@@ -633,7 +625,7 @@ def ensure_wowpresence_config(target_dir):
 
     _write_text_if_missing(
         os.path.join(data_dir, "discord_broadcast_flags"),
-        "63\n",
+        "127\n",
     )
     return data_dir
 
@@ -685,12 +677,9 @@ def write_wowpresence_broadcast_flags(target_dir, value):
 
 
 def install_wowpresence(target_dir, progress=None):
-    """Install or update the WowPresence Discord-details test release ZIP."""
-    _emit_progress(progress, "Checking WowPresence Discord-details test release...", None, None)
-    release = _release_by_tag(
-        WOWPRESENCE_REPO,
-        WOWPRESENCE_TEST_RELEASE_TAG,
-    )
+    """Install or update WowPresence from its latest stable GitHub release ZIP."""
+    _emit_progress(progress, "Checking WowPresence release...", None, None)
+    release = _latest_release(WOWPRESENCE_REPO)
     revision = _release_revision(release)
     package_asset = _find_asset(release, exact_name="WowPresence.zip")
     package_revision = _release_asset_revision(release, package_asset)
@@ -718,7 +707,7 @@ def install_wowpresence(target_dir, progress=None):
                 "WowPresence.dll",
             )
 
-    # The directory itself is the signal used by WowPresence v1.2 to select
+    # The directory itself is the signal used by WowPresence to select
     # the Modernization Tool managed data location instead of the standalone
     # one. User-editable config is created only when missing.
     ensure_wowpresence_config(target_dir)
