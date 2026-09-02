@@ -644,18 +644,47 @@ class SmartUpdateTests(unittest.TestCase):
                 remote_packages._package_state_is_current(root, "example", "v1")
             )
 
+    def test_release_asset_revision_detects_replaced_asset_under_same_tag(self):
+        release_a = {
+            "tag_name": "Release",
+            "assets": [
+                {
+                    "id": 1,
+                    "name": "package.zip",
+                    "updated_at": "2026-09-01T10:00:00Z",
+                    "size": 100,
+                }
+            ],
+        }
+        release_b = {
+            "tag_name": "Release",
+            "assets": [
+                {
+                    "id": 2,
+                    "name": "package.zip",
+                    "updated_at": "2026-09-02T10:00:00Z",
+                    "size": 120,
+                }
+            ],
+        }
+
+        self.assertNotEqual(
+            remote_packages._release_asset_revision(
+                release_a,
+                release_a["assets"][0],
+            ),
+            remote_packages._release_asset_revision(
+                release_b,
+                release_b["assets"][0],
+            ),
+        )
+
     def test_release_component_skips_download_when_revision_and_hashes_match(self):
         with tempfile.TemporaryDirectory() as root:
             target = os.path.join(root, "ClassicAPI.dll")
             with open(target, "wb") as handle:
                 handle.write(b"already-installed")
 
-            remote_packages._record_package_state(
-                root,
-                "classicapi",
-                "v-test",
-                ["ClassicAPI.dll"],
-            )
             release = {
                 "tag_name": "v-test",
                 "assets": [
@@ -665,6 +694,16 @@ class SmartUpdateTests(unittest.TestCase):
                     }
                 ],
             }
+            revision = remote_packages._release_asset_revision(
+                release,
+                release["assets"][0],
+            )
+            remote_packages._record_package_state(
+                root,
+                "classicapi",
+                revision,
+                ["ClassicAPI.dll"],
+            )
 
             with mock.patch(
                 "remote_packages._latest_release",
