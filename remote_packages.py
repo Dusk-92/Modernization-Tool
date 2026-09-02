@@ -5,6 +5,7 @@ import shutil
 import stat
 import struct
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -49,12 +50,24 @@ def _request(url, accept=None):
     return urllib.request.Request(url, headers=headers)
 
 
+JSON_CACHE_TTL = 300
+_JSON_CACHE = {}
+
+
 def _get_json(url):
+    now = time.monotonic()
+    cached = _JSON_CACHE.get(url)
+    if cached and now - cached[0] < JSON_CACHE_TTL:
+        return cached[1]
+
     try:
         with urllib.request.urlopen(_request(url, "application/vnd.github+json"), timeout=NETWORK_TIMEOUT) as response:
-            return json.loads(response.read().decode("utf-8"))
+            data = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
         raise RemotePackageError(f"GitHub request failed: {exc}") from exc
+
+    _JSON_CACHE[url] = (now, data)
+    return data
 
 
 def _latest_release(repo):
@@ -62,6 +75,41 @@ def _latest_release(repo):
     if data.get("draft") or data.get("prerelease"):
         raise RemotePackageError(f"{repo}: latest release is not a stable release.")
     return data
+
+
+def _branch_head_sha(repo, branch):
+    data = _get_json(f"{GITHUB_API}/repos/{repo}/commits/{branch}")
+    sha = data.get("sha") if isinstance(data, dict) else None
+    if not isinstance(sha, str) or len(sha) < 7:
+        raise RemotePackageError(f"{repo}@{branch}: could not resolve branch revision.")
+    return sha
+
+
+def _release_revision(release):
+    tag = release.get("tag_name") if isinstance(release, dict) else None
+    if isinstance(tag, str) and tag.strip():
+        return tag.strip()
+    release_id = release.get("id") if isinstance(release, dict) else None
+    if release_id is not None:
+        return f"release:{release_id}"
+    return "latest"
+
+
+def _release_asset_revision(release, asset):
+    """Track the actual release asset, even when an upstream reuses one tag."""
+    base = _release_revision(release)
+    digest = _asset_sha256(asset)
+    if digest:
+        return f"{base}|sha256:{digest}"
+
+    asset_id = asset.get("id") if isinstance(asset, dict) else None
+    updated = asset.get("updated_at") if isinstance(asset, dict) else None
+    size = asset.get("size") if isinstance(asset, dict) else None
+    name = asset.get("name") if isinstance(asset, dict) else None
+    return (
+        f"{base}|asset:{asset_id or name or '?'}"
+        f"|updated:{updated or '?'}|size:{size or '?'}"
+    )
 
 
 def _find_asset(release, exact_name=None, predicate=None):
@@ -478,9 +526,7 @@ def _find_directory_with_file(root, filename):
     return None
 
 
-def prepare_vanilla_tweaks(progress=None):
-    """Download and extract the latest stable tubtubs vanilla-tweaks Windows build."""
-    _emit_progress(progress, "Checking vanilla-tweaks release...", None, None)
+def vanilla_tweaks_release_info():
     release = _latest_release("tubtubs/vanilla-tweaks")
     asset = _find_asset(
         release,
@@ -490,6 +536,20 @@ def prepare_vanilla_tweaks(progress=None):
             and not name.lower().endswith(".sha256sum")
         ),
     )
+    return {
+        "release": release,
+        "asset": asset,
+        "revision": _release_asset_revision(release, asset),
+        "version": release.get("name") or _release_revision(release),
+    }
+
+
+def prepare_vanilla_tweaks(progress=None, release_info=None):
+    """Download and extract the latest stable tubtubs vanilla-tweaks Windows build."""
+    _emit_progress(progress, "Checking vanilla-tweaks release...", None, None)
+    info = release_info or vanilla_tweaks_release_info()
+    release = info["release"]
+    asset = info["asset"]
     zip_path = _download_asset(
         asset,
         progress=progress,
@@ -509,7 +569,7 @@ def prepare_vanilla_tweaks(progress=None):
         except OSError:
             pass
 
-    return exe_path, extract_root, release.get("name") or release.get("tag_name", "latest")
+    return exe_path, extract_root, info["version"], info["revision"]
 
 
 def _write_text_if_missing(path, text):
@@ -615,12 +675,14 @@ def write_wowpresence_broadcast_flags(target_dir, value):
     return path
 
 
+
 def install_wowpresence(target_dir, progress=None):
     """Install or update WowPresence from its latest stable GitHub release ZIP."""
     _emit_progress(progress, "Checking WowPresence release...", None, None)
     release = _latest_release(WOWPRESENCE_REPO)
-    revision = release.get("tag_name", "latest")
+    revision = _release_revision(release)
     package_asset = _find_asset(release, exact_name="WowPresence.zip")
+    package_revision = _release_asset_revision(release, package_asset)
 
     # Preserve whether dlls.txt already belonged to a standalone/manual
     # WowPresence install before this tool first takes ownership.
@@ -656,6 +718,19 @@ def install_wowpresence(target_dir, progress=None):
         if not isinstance(saved_hashes, dict):
             saved_hashes = {}
 
+        saved_package_revision = manifest.get("package_revision")
+        current_digest = package_asset.get("digest")
+        saved_digest = manifest.get("package_digest")
+        package_matches = (
+            str(saved_package_revision) == str(package_revision)
+            or (
+                saved_package_revision in (None, "")
+                and isinstance(saved_digest, str)
+                and isinstance(current_digest, str)
+                and saved_digest == current_digest
+            )
+        )
+
         def installed_file_ok(filename):
             path = os.path.join(target_dir, filename)
             expected = saved_hashes.get(filename)
@@ -674,11 +749,13 @@ def install_wowpresence(target_dir, progress=None):
 
         dll_ok = installed_file_ok("WowPresence.dll")
         exe_ok = installed_file_ok("WowPresence.exe")
-        if dll_ok and exe_ok:
+        if dll_ok and exe_ok and package_matches:
             _set_managed_manifest_values(
                 target_dir,
                 WOWPRESENCE_MANAGED_ID,
                 dlls_entry_preexisting=bool(dlls_entry_preexisting),
+                package_revision=package_revision,
+                package_digest=current_digest,
             )
             _emit_progress(
                 progress,
@@ -730,6 +807,7 @@ def install_wowpresence(target_dir, progress=None):
                 "WowPresence.exe": _file_sha256(exe_path),
             },
             package_digest=package_asset.get("digest"),
+            package_revision=package_revision,
         )
     finally:
         if zip_path and os.path.exists(zip_path):
@@ -745,10 +823,19 @@ def install_wowpresence(target_dir, progress=None):
     ensure_wowpresence_config(target_dir)
     return revision
 
+
 def install_interact(target_dir, progress=None):
     _emit_progress(progress, "Checking Interact release...", None, None)
     release = _latest_release("lookino/Interact")
     asset = _find_asset(release, exact_name="Interact.zip")
+    revision = _release_asset_revision(release, asset)
+    version = _release_revision(release)
+    package_id = "interact"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(progress, f"Interact {version} is already current.", None, None)
+        return version
+
     zip_path = _download_asset(asset, progress=progress, label="Downloading Interact package")
     extract_root = tempfile.mkdtemp(prefix="modernization_interact_")
     try:
@@ -772,6 +859,15 @@ def install_interact(target_dir, progress=None):
             ],
             label="Interact",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "Interact.dll",
+                os.path.join("Interface", "AddOns", "Interact"),
+            ],
+        )
     finally:
         try:
             os.remove(zip_path)
@@ -779,13 +875,27 @@ def install_interact(target_dir, progress=None):
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
 
-    return release.get("tag_name", "latest")
+    return version
+
 
 
 def install_vanilla_multimonitor_fix(target_dir, progress=None):
     _emit_progress(progress, "Checking VanillaMultiMonitorFix release...", None, None)
     release = _latest_release("Mates1500/VanillaMultiMonitorFix")
     asset = _find_asset(release, exact_name="release.zip")
+    revision = _release_asset_revision(release, asset)
+    version = _release_revision(release)
+    package_id = "vanilla_multimonitor_fix"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(
+            progress,
+            f"VanillaMultiMonitorFix {version} is already current.",
+            None,
+            None,
+        )
+        return version
+
     zip_path = _download_asset(
         asset,
         progress=progress,
@@ -810,6 +920,15 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
         if not os.path.exists(target_config):
             _emit_progress(progress, "Installing monitor preference file...", None, None)
             _atomic_replace_file(config_path, target_config)
+
+        # The preference file is intentionally excluded from integrity tracking
+        # because it is user-editable.
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            ["VanillaMultiMonitorFix.dll"],
+        )
     finally:
         try:
             os.remove(zip_path)
@@ -817,9 +936,7 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
 
-    return release.get("tag_name", "latest")
-
-
+    return version
 
 MANAGED_ROOT = ".modernization_tool"
 
@@ -932,6 +1049,156 @@ def _file_sha256(path):
                 break
             digest.update(chunk)
     return digest.hexdigest().lower()
+
+
+PACKAGE_STATE_DIR = "package_state"
+
+
+def _package_state_path(target_dir, package_id):
+    safe_id = "".join(
+        ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+        for ch in str(package_id)
+    )
+    return os.path.join(
+        target_dir,
+        MANAGED_ROOT,
+        PACKAGE_STATE_DIR,
+        safe_id + ".json",
+    )
+
+
+def _hash_directory(path):
+    digest = hashlib.sha256()
+    if not os.path.isdir(path):
+        raise OSError(f"Directory does not exist: {path}")
+
+    found_file = False
+    for current_root, dirs, files in os.walk(path):
+        dirs.sort(key=str.casefold)
+        files.sort(key=str.casefold)
+        for filename in files:
+            found_file = True
+            full_path = os.path.join(current_root, filename)
+            rel = os.path.relpath(full_path, path).replace(os.sep, "/")
+            digest.update(b"F\0")
+            digest.update(rel.encode("utf-8", "surrogatepass"))
+            digest.update(b"\0")
+            digest.update(_file_sha256(full_path).encode("ascii"))
+            digest.update(b"\0")
+
+    if not found_file:
+        digest.update(b"EMPTY\0")
+    return digest.hexdigest().lower()
+
+
+def _snapshot_package_paths(target_dir, relative_paths):
+    entries = {}
+    for relative in relative_paths:
+        rel = _safe_relative_path(relative)
+        full_path = os.path.join(target_dir, rel)
+        key = rel.replace(os.sep, "/")
+
+        if os.path.isfile(full_path):
+            entries[key] = {
+                "type": "file",
+                "sha256": _file_sha256(full_path),
+            }
+        elif os.path.isdir(full_path):
+            entries[key] = {
+                "type": "dir",
+                "sha256": _hash_directory(full_path),
+            }
+        else:
+            raise OSError(f"Package path is missing: {full_path}")
+    return entries
+
+
+def _load_package_state(target_dir, package_id):
+    path = _package_state_path(target_dir, package_id)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        return {}
+
+
+def _record_package_state(target_dir, package_id, revision, relative_paths):
+    entries = _snapshot_package_paths(target_dir, relative_paths)
+    path = _package_state_path(target_dir, package_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp_path = path + ".new"
+    payload = {
+        "schema": 1,
+        "package_id": str(package_id),
+        "revision": str(revision),
+        "paths": entries,
+    }
+    try:
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    return payload
+
+
+def _package_state_is_current(target_dir, package_id, revision):
+    data = _load_package_state(target_dir, package_id)
+    if str(data.get("revision")) != str(revision):
+        return False
+
+    paths = data.get("paths")
+    if not isinstance(paths, dict) or not paths:
+        return False
+
+    try:
+        current = _snapshot_package_paths(target_dir, paths.keys())
+    except OSError:
+        return False
+    return current == paths
+
+
+def _record_package_state_safely(target_dir, package_id, revision, relative_paths):
+    try:
+        _record_package_state(target_dir, package_id, revision, relative_paths)
+        return True
+    except OSError:
+        # Update metadata is an optimization only. A successful component
+        # install must remain usable even if its cache state cannot be saved.
+        return False
+
+
+def _record_release_asset_state_if_matching(
+    target_dir,
+    package_id,
+    revision,
+    relative_path,
+    asset,
+):
+    """Migrate an existing direct release asset without downloading it again."""
+    expected_sha = _asset_sha256(asset)
+    if not expected_sha:
+        return False
+
+    rel = _safe_relative_path(relative_path)
+    path = os.path.join(target_dir, rel)
+    if not os.path.isfile(path):
+        return False
+
+    try:
+        if _file_sha256(path) != expected_sha:
+            return False
+        _record_package_state(target_dir, package_id, revision, [rel])
+        return True
+    except OSError:
+        return False
 
 
 def _installed_asset_is_current(path, asset, label):
@@ -1443,9 +1710,21 @@ def install_fog_pushback(target_dir, progress=None):
     return "RetroCro mirror"
 
 
+
 def install_pink_herbs(target_dir, progress=None):
     mod_id = "visual_pink_herbs"
     destination = os.path.join("Data", "patch-V.mpq")
+    revision = _branch_head_sha("seacrabsam/patch-herb", "main")
+
+    if _package_state_is_current(target_dir, mod_id, revision):
+        _emit_progress(
+            progress,
+            f"Pink Herbs {revision[:7]} is already current.",
+            None,
+            None,
+        )
+        return f"seacrabsam/patch-herb main@{revision[:7]}"
+
     temp_path = _download(
         "https://raw.githubusercontent.com/seacrabsam/patch-herb/main/patch-H.mpq",
         suffix=".mpq",
@@ -1468,13 +1747,19 @@ def install_pink_herbs(target_dir, progress=None):
             [(temp_path, destination)],
             revision=VISUAL_MOD_REVISIONS[mod_id],
         )
+        _record_package_state_safely(
+            target_dir,
+            mod_id,
+            revision,
+            [destination],
+        )
     finally:
         try:
             os.remove(temp_path)
         except OSError:
             pass
 
-    return "seacrabsam/patch-herb main"
+    return f"seacrabsam/patch-herb main@{revision[:7]}"
 
 
 def _download_github_branch_archive(repo, branch, progress=None, label="Downloading sound mod"):
@@ -1510,7 +1795,18 @@ def _collect_tree_files(source_dir, destination_prefix):
     return mappings
 
 
+
 def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, destination_prefix, progress=None, label="Downloading sound mod"):
+    revision = _branch_head_sha(repo, branch)
+    if _package_state_is_current(target_dir, mod_id, revision):
+        _emit_progress(
+            progress,
+            f"{label.replace('Downloading ', '')} is already current.",
+            None,
+            None,
+        )
+        return revision
+
     zip_path = _download_github_branch_archive(
         repo,
         branch,
@@ -1525,12 +1821,19 @@ def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, 
         mappings = _collect_tree_files(source_dir, destination_prefix)
         _emit_progress(progress, f"Installing {label.replace('Downloading ', '')}...", None, None)
         _install_managed_files_transactional(target_dir, mod_id, mappings)
+        _record_package_state_safely(
+            target_dir,
+            mod_id,
+            revision,
+            _load_managed_manifest(target_dir, mod_id),
+        )
     finally:
         try:
             os.remove(zip_path)
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
+    return revision
 
 
 def install_no_error_sounds(target_dir, progress=None):
@@ -1575,6 +1878,7 @@ def install_warlock_muted_demons(target_dir, progress=None):
     return "spzilyk/Warlock-Muted-Demons main"
 
 
+
 def install_nampower(target_dir, progress=None):
     _emit_progress(progress, "Checking Nampower release...", None, None)
     release = _latest_release("brues-code/nampower")
@@ -1582,6 +1886,14 @@ def install_nampower(target_dir, progress=None):
         release,
         predicate=lambda name: name.lower().startswith("nampower-") and name.lower().endswith(".zip"),
     )
+    revision = _release_asset_revision(release, asset)
+    version = _release_revision(release)
+    package_id = "nampower"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(progress, f"Nampower {version} is already current.", None, None)
+        return version
+
     zip_path = _download_asset(asset, progress=progress, label="Downloading Nampower package")
     extract_root = tempfile.mkdtemp(prefix="modernization_nampower_")
     try:
@@ -1603,19 +1915,46 @@ def install_nampower(target_dir, progress=None):
             ],
             label="Nampower",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "nampower.dll",
+                os.path.join("Interface", "AddOns", "nampowersettings"),
+            ],
+        )
     finally:
         try:
             os.remove(zip_path)
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
-    return release.get("tag_name", "latest")
+    return version
 
 
 def install_vanillahelpers(target_dir, progress=None):
     _emit_progress(progress, "Checking VanillaHelpers release...", None, None)
     release = _latest_release("isfir/VanillaHelpers")
     asset = _find_asset(release, exact_name="VanillaHelpers.dll")
+    revision = _release_asset_revision(release, asset)
+    version = _release_revision(release)
+    package_id = "vanillahelpers"
+    relative_path = "VanillaHelpers.dll"
+
+    if (
+        _package_state_is_current(target_dir, package_id, revision)
+        or _record_release_asset_state_if_matching(
+            target_dir,
+            package_id,
+            revision,
+            relative_path,
+            asset,
+        )
+    ):
+        _emit_progress(progress, f"VanillaHelpers {version} is already current.", None, None)
+        return version
+
     temp_path = _download_asset(
         asset,
         progress=progress,
@@ -1624,14 +1963,33 @@ def install_vanillahelpers(target_dir, progress=None):
     try:
         _verify_x86_pe(temp_path, "VanillaHelpers.dll")
         _emit_progress(progress, "Installing VanillaHelpers.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "VanillaHelpers.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return release.get("tag_name", "latest")
+    return version
 
 
 def install_no1600x1200(target_dir, progress=None):
     _emit_progress(progress, "Checking no1600x1200 source...", None, None)
+    revision = _branch_head_sha("RetroCro/TurtleWoW-Mods", "main")
+    package_id = "no1600x1200"
+    relative_path = "no1600x1200.dll"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(
+            progress,
+            f"no1600x1200 {revision[:7]} is already current.",
+            None,
+            None,
+        )
+        return f"RetroCro/TurtleWoW-Mods main@{revision[:7]}"
+
     url = (
         "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/"
         "refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll"
@@ -1645,30 +2003,84 @@ def install_no1600x1200(target_dir, progress=None):
     try:
         _verify_x86_pe(temp_path, "no1600x1200.dll")
         _emit_progress(progress, "Installing no1600x1200.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "no1600x1200.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return "RetroCro/TurtleWoW-Mods main"
+    return f"RetroCro/TurtleWoW-Mods main@{revision[:7]}"
+
 
 
 def install_classicapi(target_dir, progress=None):
     _emit_progress(progress, "Checking ClassicAPI release...", None, None)
     release = _latest_release("brues-code/ClassicAPI")
     asset = _find_asset(release, exact_name="ClassicAPI.dll")
+    revision = _release_asset_revision(release, asset)
+    version = _release_revision(release)
+    package_id = "classicapi"
+    relative_path = "ClassicAPI.dll"
+
+    if (
+        _package_state_is_current(target_dir, package_id, revision)
+        or _record_release_asset_state_if_matching(
+            target_dir,
+            package_id,
+            revision,
+            relative_path,
+            asset,
+        )
+    ):
+        _emit_progress(progress, f"ClassicAPI {version} is already current.", None, None)
+        return version
+
     temp_path = _download_asset(asset, progress=progress, label="Downloading ClassicAPI.dll")
     try:
         _verify_x86_pe(temp_path, "ClassicAPI.dll")
         _emit_progress(progress, "Installing ClassicAPI.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "ClassicAPI.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return release.get("tag_name", "latest")
+    return version
 
 
 def install_auction_query_throttle(target_dir, progress=None):
     _emit_progress(progress, "Checking AuctionQueryThrottle release...", None, None)
     release = _latest_release("brues-code/AuctionQueryThrottle")
     asset = _find_asset(release, exact_name="AuctionQueryThrottle.dll")
+    revision = _release_asset_revision(release, asset)
+    version = _release_revision(release)
+    package_id = "auction_query_throttle"
+    relative_path = "AuctionQueryThrottle.dll"
+
+    if (
+        _package_state_is_current(target_dir, package_id, revision)
+        or _record_release_asset_state_if_matching(
+            target_dir,
+            package_id,
+            revision,
+            relative_path,
+            asset,
+        )
+    ):
+        _emit_progress(
+            progress,
+            f"AuctionQueryThrottle {version} is already current.",
+            None,
+            None,
+        )
+        return version
+
     temp_path = _download_asset(
         asset,
         progress=progress,
@@ -1677,10 +2089,16 @@ def install_auction_query_throttle(target_dir, progress=None):
     try:
         _verify_x86_pe(temp_path, "AuctionQueryThrottle.dll")
         _emit_progress(progress, "Installing AuctionQueryThrottle.dll...", None, None)
-        _atomic_replace_file(temp_path, os.path.join(target_dir, "AuctionQueryThrottle.dll"))
+        _atomic_replace_file(temp_path, os.path.join(target_dir, relative_path))
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [relative_path],
+        )
     finally:
         os.remove(temp_path)
-    return release.get("tag_name", "latest")
+    return version
 
 
 def install_unitxp(target_dir, progress=None):
@@ -1690,6 +2108,14 @@ def install_unitxp(target_dir, progress=None):
         release,
         predicate=lambda name: name.lower().startswith("unitxp_sp3") and name.lower().endswith(".zip"),
     )
+    revision = _release_asset_revision(release, asset)
+    version = _release_revision(release)
+    package_id = "unitxp_sp3"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(progress, f"UnitXP_SP3 {version} is already current.", None, None)
+        return version
+
     zip_path = _download_asset(asset, progress=progress, label="Downloading UnitXP_SP3 package")
     extract_root = tempfile.mkdtemp(prefix="modernization_unitxp_")
     try:
@@ -1711,22 +2137,47 @@ def install_unitxp(target_dir, progress=None):
             ],
             label="UnitXP_SP3",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "UnitXP_SP3.dll",
+                os.path.join("Interface", "AddOns", "UnitXP_SP3_Addon"),
+            ],
+        )
     finally:
         try:
             os.remove(zip_path)
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
-    return release.get("tag_name", "latest")
+    return version
 
 
 def install_superwow(target_dir, progress=None):
     _emit_progress(progress, "Checking SuperWoW release...", None, None)
     release = _latest_release("balakethelock/SuperWoW")
+    release_version = release.get("name") or _release_revision(release)
     asset = _find_asset(
         release,
         predicate=lambda name: name.lower().startswith("superwow") and name.lower().endswith(".zip"),
     )
+    release_asset_revision = _release_asset_revision(release, asset)
+
+    _emit_progress(progress, "Checking SuperAPI revision...", None, None)
+    superapi_revision = _branch_head_sha("balakethelock/SuperAPI", "master")
+    revision = f"{release_asset_revision}|superapi:{superapi_revision}"
+    package_id = "superwow"
+
+    if _package_state_is_current(target_dir, package_id, revision):
+        _emit_progress(
+            progress,
+            f"{release_version} + SuperAPI {superapi_revision[:7]} are already current.",
+            None,
+            None,
+        )
+        return release_version
 
     wow_zip = None
     superapi_zip = None
@@ -1779,6 +2230,15 @@ def install_superwow(target_dir, progress=None):
             ],
             label="SuperWoW + SuperAPI",
         )
+        _record_package_state_safely(
+            target_dir,
+            package_id,
+            revision,
+            [
+                "SuperWoWhook.dll",
+                os.path.join("Interface", "AddOns", "SuperAPI"),
+            ],
+        )
     finally:
         for path in (wow_zip, superapi_zip):
             if path:
@@ -1789,4 +2249,6 @@ def install_superwow(target_dir, progress=None):
         shutil.rmtree(wow_root, ignore_errors=True)
         shutil.rmtree(superapi_root, ignore_errors=True)
 
-    return release.get("name") or release.get("tag_name", "latest")
+    return release_version
+
+
