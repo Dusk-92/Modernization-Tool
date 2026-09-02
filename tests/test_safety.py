@@ -7,6 +7,7 @@ from unittest import mock
 
 import remote_packages
 import setup_tool
+import setup_tool_dynamic
 from setup_tool import WowSetupTool
 
 
@@ -610,6 +611,144 @@ class PeValidationTests(unittest.TestCase):
             remote_packages._verify_x86_pe(good, "good.dll")
             with self.assertRaises(remote_packages.RemotePackageError):
                 remote_packages._verify_x86_pe(bad, "bad.dll")
+
+
+class SmartUpdateTests(unittest.TestCase):
+    def test_package_state_tracks_revision_and_local_integrity(self):
+        with tempfile.TemporaryDirectory() as root:
+            dll = os.path.join(root, "Example.dll")
+            addon = os.path.join(root, "Interface", "AddOns", "Example")
+            os.makedirs(addon)
+            with open(dll, "wb") as handle:
+                handle.write(b"dll-v1")
+            with open(os.path.join(addon, "Example.toc"), "wb") as handle:
+                handle.write(b"addon-v1")
+
+            remote_packages._record_package_state(
+                root,
+                "example",
+                "v1",
+                ["Example.dll", os.path.join("Interface", "AddOns", "Example")],
+            )
+
+            self.assertTrue(
+                remote_packages._package_state_is_current(root, "example", "v1")
+            )
+            self.assertFalse(
+                remote_packages._package_state_is_current(root, "example", "v2")
+            )
+
+            with open(os.path.join(addon, "Example.toc"), "wb") as handle:
+                handle.write(b"modified")
+            self.assertFalse(
+                remote_packages._package_state_is_current(root, "example", "v1")
+            )
+
+    def test_release_component_skips_download_when_revision_and_hashes_match(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = os.path.join(root, "ClassicAPI.dll")
+            with open(target, "wb") as handle:
+                handle.write(b"already-installed")
+
+            remote_packages._record_package_state(
+                root,
+                "classicapi",
+                "v-test",
+                ["ClassicAPI.dll"],
+            )
+            release = {
+                "tag_name": "v-test",
+                "assets": [
+                    {
+                        "name": "ClassicAPI.dll",
+                        "browser_download_url": "https://example.invalid/ClassicAPI.dll",
+                    }
+                ],
+            }
+
+            with mock.patch(
+                "remote_packages._latest_release",
+                return_value=release,
+            ), mock.patch(
+                "remote_packages._download_asset",
+                side_effect=AssertionError("unchanged component was downloaded"),
+            ) as download:
+                self.assertEqual(
+                    remote_packages.install_classicapi(root),
+                    "v-test",
+                )
+
+            download.assert_not_called()
+
+    def test_branch_component_skips_archive_when_commit_and_files_match(self):
+        with tempfile.TemporaryDirectory() as root:
+            sound = os.path.join(root, "Sound", "example.wav")
+            os.makedirs(os.path.dirname(sound))
+            with open(sound, "wb") as handle:
+                handle.write(b"sound")
+
+            remote_packages._record_package_state(
+                root,
+                "audio_example",
+                "abcdef1234567890",
+                [os.path.join("Sound", "example.wav")],
+            )
+
+            with mock.patch(
+                "remote_packages._branch_head_sha",
+                return_value="abcdef1234567890",
+            ), mock.patch(
+                "remote_packages._download_github_branch_archive",
+                side_effect=AssertionError("unchanged branch archive was downloaded"),
+            ) as download:
+                revision = remote_packages._install_github_sound_pack(
+                    root,
+                    "audio_example",
+                    "owner/repo",
+                    "main",
+                    "Sound",
+                    "Sound",
+                )
+
+            self.assertEqual(revision, "abcdef1234567890")
+            download.assert_not_called()
+
+    def test_vanilla_tweaks_skips_package_when_output_and_revision_match(self):
+        tool = setup_tool_dynamic.ModernWowSetupTool.__new__(
+            setup_tool_dynamic.ModernWowSetupTool
+        )
+        tool._existing_vanilla_tweaks_output_matches = mock.Mock(
+            return_value=(
+                True,
+                {
+                    "patcher_source": "online",
+                    "patcher_version": "Vanilla Tweaks v1",
+                    "patcher_revision": "v1",
+                },
+            )
+        )
+        tool._report_download_progress = mock.Mock()
+        tool._close_download_progress = mock.Mock()
+
+        release_info = {
+            "release": {},
+            "asset": {},
+            "revision": "v1",
+            "version": "Vanilla Tweaks v1",
+        }
+
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+            "setup_tool_dynamic.remote_packages.vanilla_tweaks_release_info",
+            return_value=release_info,
+        ), mock.patch(
+            "setup_tool_dynamic.remote_packages.prepare_vanilla_tweaks",
+            side_effect=AssertionError("unchanged vanilla-tweaks was downloaded"),
+        ) as prepare:
+            result = tool.run_vanilla_tweaks(root)
+
+        self.assertEqual(result, os.path.join(root, "WoW_Modernized.exe"))
+        prepare.assert_not_called()
+        tool._close_download_progress.assert_called_once()
 
 
 class WowPresenceIntegrationTests(unittest.TestCase):
