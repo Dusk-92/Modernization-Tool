@@ -881,18 +881,24 @@ class WowPresenceDetailPreferenceTests(unittest.TestCase):
         }
         return tool
 
-    def test_detail_mask_supports_race_and_master_switch(self):
+    def test_detail_mask_supports_race_and_all_details_switch(self):
         tool = self.make_tool()
         self.assertEqual(
             tool._discord_broadcast_mask(),
             remote_packages.WOWPRESENCE_SHARE_ALL,
         )
 
+        # The master switch always means "show all" even if a variable is
+        # changed programmatically while its checkbox would be disabled.
         tool.discord_detail_vars["race"].set(False)
-        self.assertEqual(tool._discord_broadcast_mask(), 63)
+        self.assertEqual(
+            tool._discord_broadcast_mask(),
+            remote_packages.WOWPRESENCE_SHARE_ALL,
+        )
 
+        # Once the master is off, the individual choices become authoritative.
         tool.discord_show_character_details.set(False)
-        self.assertEqual(tool._discord_broadcast_mask(), 0)
+        self.assertEqual(tool._discord_broadcast_mask(), 63)
         self.assertFalse(tool.discord_detail_vars["race"].get())
         self.assertTrue(tool.discord_detail_vars["zone"].get())
 
@@ -906,7 +912,7 @@ class WowPresenceDetailPreferenceTests(unittest.TestCase):
 
             tool._load_wowpresence_broadcast_preferences(root)
 
-            self.assertTrue(tool.discord_show_character_details.get())
+            self.assertFalse(tool.discord_show_character_details.get())
             self.assertTrue(tool.discord_detail_vars["name"].get())
             self.assertTrue(tool.discord_detail_vars["guild"].get())
             self.assertTrue(tool.discord_detail_vars["faction"].get())
@@ -914,6 +920,23 @@ class WowPresenceDetailPreferenceTests(unittest.TestCase):
             self.assertTrue(tool.discord_detail_vars["level"].get())
             self.assertFalse(tool.discord_detail_vars["zone"].get())
             self.assertTrue(tool.discord_detail_vars["race"].get())
+
+    def test_legacy_default_mask_selects_all_details(self):
+        tool = self.make_tool()
+        with tempfile.TemporaryDirectory() as root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            flags = os.path.join(data_dir, "discord_broadcast_flags")
+            with open(flags, "w", encoding="ascii") as handle:
+                handle.write("63\n")
+
+            tool._load_wowpresence_broadcast_preferences(root)
+
+            self.assertTrue(tool.discord_show_character_details.get())
+            self.assertTrue(all(var.get() for var in tool.discord_detail_vars.values()))
+            self.assertEqual(
+                tool._discord_broadcast_mask(),
+                remote_packages.WOWPRESENCE_SHARE_ALL,
+            )
 
     def test_broadcast_flag_writer_preserves_other_config(self):
         with tempfile.TemporaryDirectory() as root:
