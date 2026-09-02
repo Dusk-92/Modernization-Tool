@@ -8,6 +8,7 @@ from unittest import mock
 import remote_packages
 import setup_tool
 from setup_tool import WowSetupTool
+from setup_tool_dynamic import ModernWowSetupTool
 
 
 class FakeVar:
@@ -863,6 +864,79 @@ class WowPresenceIntegrationTests(unittest.TestCase):
                     "WowPresence.dll",
                 )
             )
+
+
+class WowPresenceDetailPreferenceTests(unittest.TestCase):
+    def make_tool(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool.discord_show_character_details = FakeVar(True)
+        tool.discord_detail_vars = {
+            "name": FakeVar(True),
+            "guild": FakeVar(True),
+            "race": FakeVar(True),
+            "faction": FakeVar(True),
+            "class": FakeVar(True),
+            "level": FakeVar(True),
+            "zone": FakeVar(True),
+        }
+        return tool
+
+    def test_detail_mask_supports_race_and_master_switch(self):
+        tool = self.make_tool()
+        self.assertEqual(
+            tool._discord_broadcast_mask(),
+            remote_packages.WOWPRESENCE_SHARE_ALL,
+        )
+
+        tool.discord_detail_vars["race"].set(False)
+        self.assertEqual(tool._discord_broadcast_mask(), 63)
+
+        tool.discord_show_character_details.set(False)
+        self.assertEqual(tool._discord_broadcast_mask(), 0)
+        self.assertTrue(tool.discord_detail_vars["race"].get())
+        self.assertTrue(tool.discord_detail_vars["zone"].get())
+
+    def test_legacy_six_bit_mask_keeps_race_enabled(self):
+        tool = self.make_tool()
+        with tempfile.TemporaryDirectory() as root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            flags = os.path.join(data_dir, "discord_broadcast_flags")
+            with open(flags, "w", encoding="ascii") as handle:
+                handle.write("31\n")
+
+            tool._load_wowpresence_broadcast_preferences(root)
+
+            self.assertTrue(tool.discord_show_character_details.get())
+            self.assertTrue(tool.discord_detail_vars["name"].get())
+            self.assertTrue(tool.discord_detail_vars["guild"].get())
+            self.assertTrue(tool.discord_detail_vars["faction"].get())
+            self.assertTrue(tool.discord_detail_vars["class"].get())
+            self.assertTrue(tool.discord_detail_vars["level"].get())
+            self.assertFalse(tool.discord_detail_vars["zone"].get())
+            self.assertTrue(tool.discord_detail_vars["race"].get())
+
+    def test_broadcast_flag_writer_preserves_other_config(self):
+        with tempfile.TemporaryDirectory() as root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            app_id = os.path.join(data_dir, "discord_application_id")
+            with open(app_id, "w", encoding="ascii") as handle:
+                handle.write("123456789012345678\n")
+
+            path = remote_packages.write_wowpresence_broadcast_flags(
+                root,
+                remote_packages.WOWPRESENCE_SHARE_ALL,
+            )
+            self.assertEqual(
+                remote_packages.read_wowpresence_broadcast_flags(root),
+                127,
+            )
+            with open(path, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "127")
+            with open(app_id, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "123456789012345678")
+
+            with self.assertRaises(ValueError):
+                remote_packages.write_wowpresence_broadcast_flags(root, 128)
 
 
 class SettingsRecoveryTests(unittest.TestCase):
