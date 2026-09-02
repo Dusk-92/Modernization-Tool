@@ -802,6 +802,25 @@ class WowPresenceIntegrationTests(unittest.TestCase):
         }
         return tool
 
+    def test_release_by_tag_allows_prerelease_for_test_channel(self):
+        release = {
+            "tag_name": remote_packages.WOWPRESENCE_TEST_RELEASE_TAG,
+            "draft": False,
+            "prerelease": True,
+        }
+        with mock.patch("remote_packages._get_json", return_value=release) as get_json:
+            result = remote_packages._release_by_tag(
+                remote_packages.WOWPRESENCE_REPO,
+                remote_packages.WOWPRESENCE_TEST_RELEASE_TAG,
+            )
+
+        self.assertIs(result, release)
+        get_json.assert_called_once_with(
+            f"{remote_packages.GITHUB_API}/repos/"
+            f"{remote_packages.WOWPRESENCE_REPO}/releases/tags/"
+            f"{remote_packages.WOWPRESENCE_TEST_RELEASE_TAG}"
+        )
+
     def test_config_defaults_migrate_placeholder_and_preserve_custom_id(self):
         with tempfile.TemporaryDirectory() as root:
             data_dir = remote_packages.ensure_wowpresence_config(root)
@@ -873,9 +892,9 @@ class WowPresenceIntegrationTests(unittest.TestCase):
             }
 
             with mock.patch(
-                "remote_packages._latest_release",
+                "remote_packages._release_by_tag",
                 return_value=release,
-            ), mock.patch(
+            ) as release_by_tag, mock.patch(
                 "remote_packages._download_asset",
                 return_value=zip_path,
             ) as download:
@@ -884,6 +903,10 @@ class WowPresenceIntegrationTests(unittest.TestCase):
                     "v-test",
                 )
 
+            release_by_tag.assert_called_once_with(
+                remote_packages.WOWPRESENCE_REPO,
+                remote_packages.WOWPRESENCE_TEST_RELEASE_TAG,
+            )
             download.assert_called_once()
             remote_packages._verify_x86_pe(
                 os.path.join(root, "WowPresence.dll"),
