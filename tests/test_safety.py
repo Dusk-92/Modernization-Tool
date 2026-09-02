@@ -658,6 +658,78 @@ class WowPresenceIntegrationTests(unittest.TestCase):
             with open(flags, "r", encoding="ascii") as handle:
                 self.assertEqual(handle.read().strip(), "31")
 
+    def test_install_wowpresence_from_zip_preserves_user_config(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as package_root:
+            data_dir = remote_packages.ensure_wowpresence_config(root)
+            app_id = os.path.join(data_dir, "discord_application_id")
+            flags = os.path.join(data_dir, "discord_broadcast_flags")
+            with open(app_id, "w", encoding="ascii") as handle:
+                handle.write("123456789012345678\n")
+            with open(flags, "w", encoding="ascii") as handle:
+                handle.write("31\n")
+
+            dll = os.path.join(package_root, "WowPresence.dll")
+            exe = os.path.join(package_root, "WowPresence.exe")
+            PeValidationTests().write_minimal_x86_pe(dll)
+            PeValidationTests().write_minimal_x86_pe(exe)
+
+            zip_path = os.path.join(package_root, "WowPresence.zip")
+            with remote_packages.zipfile.ZipFile(zip_path, "w") as archive:
+                archive.write(dll, "WowPresence.dll")
+                archive.write(exe, "WowPresence.exe")
+                archive.writestr(
+                    "WowPresence/discord_application_id",
+                    "999999999999999999\n",
+                )
+                archive.writestr("WowPresence/discord_broadcast_flags", "0\n")
+
+            release = {
+                "tag_name": "v-test",
+                "assets": [
+                    {
+                        "name": "WowPresence.zip",
+                        "browser_download_url": "https://example.invalid/WowPresence.zip",
+                    }
+                ],
+            }
+
+            with mock.patch(
+                "remote_packages._latest_release",
+                return_value=release,
+            ), mock.patch(
+                "remote_packages._download_asset",
+                return_value=zip_path,
+            ) as download:
+                self.assertEqual(
+                    remote_packages.install_wowpresence(root),
+                    "v-test",
+                )
+
+            download.assert_called_once()
+            remote_packages._verify_x86_pe(
+                os.path.join(root, "WowPresence.dll"),
+                "WowPresence.dll",
+            )
+            remote_packages._verify_x86_pe(
+                os.path.join(root, "WowPresence.exe"),
+                "WowPresence.exe",
+            )
+
+            with open(app_id, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "123456789012345678")
+            with open(flags, "r", encoding="ascii") as handle:
+                self.assertEqual(handle.read().strip(), "31")
+
+            manifest = remote_packages._load_managed_manifest_data(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+            )
+            self.assertEqual(manifest.get("revision"), "v-test")
+            self.assertEqual(
+                set((manifest.get("file_sha256") or {}).keys()),
+                {"WowPresence.dll", "WowPresence.exe"},
+            )
+
     def test_unchecked_manual_wowpresence_is_untouched(self):
         tool = self.make_tool(selected=False)
         with tempfile.TemporaryDirectory() as root:
