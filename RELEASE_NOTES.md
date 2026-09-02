@@ -1,35 +1,34 @@
-# 🛠️ WoW Modernization Tool v2.1
-
-This update adds **Discord Rich Presence** and includes several compatibility, maintenance and documentation improvements.
+# 🛠️ WoW Modernization Tool v2.2
 
 ## 🎮 Discord Rich Presence
 
-- Added optional **WowPresence** integration with automatic installation and updates from its GitHub Releases.
-- Preconfigures the **OctoWoW Discord Application ID** while preserving custom IDs and settings.
-- Includes improved zone detection from WowPresence v1.2 and safer handling of standalone/manual WowPresence installations.
+- Added detailed Discord Rich Presence privacy controls.
+- Choose individually whether Discord can display:
+  - Character Name
+  - Guild
+  - Race
+  - Faction
+  - Class
+  - Level
+  - Zone
+- Added a `Show character details` option to quickly enable all Discord details.
+- Updated WowPresence integration for the new privacy system.
 
-## 🌿 Pink Herbs
+## 🔄 Updates & Downloads
 
-- Moved **Pink Herbs** safely from `patch-H.mpq` to `patch-V.mpq`.
-- Existing custom `patch-H.mpq` files are protected from accidental replacement or removal.
+- Added smart update checks for remote components.
+- Unchanged components are no longer downloaded again on every Apply.
+- Modified or missing managed files are automatically detected and repaired.
+- Release assets are detected even when an upstream project replaces a file under the same tag.
+- Improved vanilla-tweaks update detection to avoid unnecessary downloads and repatching.
+- Improved update checks for GitHub branch-based components.
 
-## 🖥️ Compatibility Fixes
+## 📚 Documentation
 
-- Fixed elevated **DEP configuration** when the WoW installation path contains spaces.
-- Improved cleanup and migration of older managed files.
+- Updated Discord Rich Presence documentation.
 
-## 📜 Licensing & Provenance
-
-- Added expanded licensing, binary provenance and asset provenance documentation.
-- Improved third-party attribution and project identity information.
-- Updated Credits and source links.
-
-## ✅ Updating from v2.0
+## ✅ Updating from v2.1
 
 Download the new executable, select your existing WoW folder and click **Apply Setup & Tweaks**.
 
 A complete WoW reinstall is not required.
-
----
-
-The detailed commit history since **v2.0** is available on GitHub.
