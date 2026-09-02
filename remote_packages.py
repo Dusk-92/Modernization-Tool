@@ -884,6 +884,9 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
     return revision
 
 
+MANAGED_ROOT = ".modernization_tool"
+
+
 def _safe_relative_path(relative_path):
     rel = os.path.normpath(str(relative_path).replace("\\", os.sep).replace("/", os.sep))
     if os.path.isabs(rel) or rel == ".." or rel.startswith(".." + os.sep):
