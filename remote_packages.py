@@ -625,8 +625,9 @@ def install_wowpresence(target_dir, progress=None):
     """Install or update WowPresence from its latest stable GitHub release ZIP."""
     _emit_progress(progress, "Checking WowPresence release...", None, None)
     release = _latest_release(WOWPRESENCE_REPO)
-    revision = release.get("tag_name", "latest")
+    revision = _release_revision(release)
     package_asset = _find_asset(release, exact_name="WowPresence.zip")
+    package_revision = _release_asset_revision(release, package_asset)
 
     # Preserve whether dlls.txt already belonged to a standalone/manual
     # WowPresence install before this tool first takes ownership.
@@ -662,6 +663,19 @@ def install_wowpresence(target_dir, progress=None):
         if not isinstance(saved_hashes, dict):
             saved_hashes = {}
 
+        saved_package_revision = manifest.get("package_revision")
+        current_digest = package_asset.get("digest")
+        saved_digest = manifest.get("package_digest")
+        package_matches = (
+            str(saved_package_revision) == str(package_revision)
+            or (
+                saved_package_revision in (None, "")
+                and isinstance(saved_digest, str)
+                and isinstance(current_digest, str)
+                and saved_digest == current_digest
+            )
+        )
+
         def installed_file_ok(filename):
             path = os.path.join(target_dir, filename)
             expected = saved_hashes.get(filename)
@@ -680,11 +694,13 @@ def install_wowpresence(target_dir, progress=None):
 
         dll_ok = installed_file_ok("WowPresence.dll")
         exe_ok = installed_file_ok("WowPresence.exe")
-        if dll_ok and exe_ok:
+        if dll_ok and exe_ok and package_matches:
             _set_managed_manifest_values(
                 target_dir,
                 WOWPRESENCE_MANAGED_ID,
                 dlls_entry_preexisting=bool(dlls_entry_preexisting),
+                package_revision=package_revision,
+                package_digest=current_digest,
             )
             _emit_progress(
                 progress,
@@ -736,6 +752,7 @@ def install_wowpresence(target_dir, progress=None):
                 "WowPresence.exe": _file_sha256(exe_path),
             },
             package_digest=package_asset.get("digest"),
+            package_revision=package_revision,
         )
     finally:
         if zip_path and os.path.exists(zip_path):
