@@ -762,7 +762,7 @@ def install_interact(target_dir, progress=None):
 
     if _package_state_is_current(target_dir, package_id, revision):
         _emit_progress(progress, f"Interact {version} is already current.", None, None)
-        return revision
+        return version
 
     zip_path = _download_asset(asset, progress=progress, label="Downloading Interact package")
     extract_root = tempfile.mkdtemp(prefix="modernization_interact_")
@@ -822,7 +822,7 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
             None,
             None,
         )
-        return revision
+        return version
 
     zip_path = _download_asset(
         asset,
@@ -1818,7 +1818,7 @@ def install_nampower(target_dir, progress=None):
 
     if _package_state_is_current(target_dir, package_id, revision):
         _emit_progress(progress, f"Nampower {version} is already current.", None, None)
-        return revision
+        return version
 
     zip_path = _download_asset(asset, progress=progress, label="Downloading Nampower package")
     extract_root = tempfile.mkdtemp(prefix="modernization_nampower_")
@@ -1856,7 +1856,10 @@ def install_nampower(target_dir, progress=None):
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
-    return versiondef install_vanillahelpers(target_dir, progress=None):
+    return version
+
+
+def install_vanillahelpers(target_dir, progress=None):
     _emit_progress(progress, "Checking VanillaHelpers release...", None, None)
     release = _latest_release("isfir/VanillaHelpers")
     asset = _find_asset(release, exact_name="VanillaHelpers.dll")
@@ -1876,7 +1879,7 @@ def install_nampower(target_dir, progress=None):
         )
     ):
         _emit_progress(progress, f"VanillaHelpers {version} is already current.", None, None)
-        return revision
+        return version
 
     temp_path = _download_asset(
         asset,
@@ -1895,7 +1898,10 @@ def install_nampower(target_dir, progress=None):
         )
     finally:
         os.remove(temp_path)
-    return versiondef install_no1600x1200(target_dir, progress=None):
+    return version
+
+
+def install_no1600x1200(target_dir, progress=None):
     _emit_progress(progress, "Checking no1600x1200 source...", None, None)
     revision = _branch_head_sha("RetroCro/TurtleWoW-Mods", "main")
     package_id = "no1600x1200"
@@ -1956,7 +1962,7 @@ def install_classicapi(target_dir, progress=None):
         )
     ):
         _emit_progress(progress, f"ClassicAPI {version} is already current.", None, None)
-        return revision
+        return version
 
     temp_path = _download_asset(asset, progress=progress, label="Downloading ClassicAPI.dll")
     try:
@@ -1971,7 +1977,10 @@ def install_classicapi(target_dir, progress=None):
         )
     finally:
         os.remove(temp_path)
-    return versiondef install_auction_query_throttle(target_dir, progress=None):
+    return version
+
+
+def install_auction_query_throttle(target_dir, progress=None):
     _emit_progress(progress, "Checking AuctionQueryThrottle release...", None, None)
     release = _latest_release("brues-code/AuctionQueryThrottle")
     asset = _find_asset(release, exact_name="AuctionQueryThrottle.dll")
@@ -1996,7 +2005,7 @@ def install_classicapi(target_dir, progress=None):
             None,
             None,
         )
-        return revision
+        return version
 
     temp_path = _download_asset(
         asset,
@@ -2015,7 +2024,10 @@ def install_classicapi(target_dir, progress=None):
         )
     finally:
         os.remove(temp_path)
-    return versiondef install_unitxp(target_dir, progress=None):
+    return version
+
+
+def install_unitxp(target_dir, progress=None):
     _emit_progress(progress, "Checking UnitXP_SP3 release...", None, None)
     release = _latest_release("brues-code/UnitXP_SP3")
     asset = _find_asset(
@@ -2028,7 +2040,7 @@ def install_classicapi(target_dir, progress=None):
 
     if _package_state_is_current(target_dir, package_id, revision):
         _emit_progress(progress, f"UnitXP_SP3 {version} is already current.", None, None)
-        return revision
+        return version
 
     zip_path = _download_asset(asset, progress=progress, label="Downloading UnitXP_SP3 package")
     extract_root = tempfile.mkdtemp(prefix="modernization_unitxp_")
@@ -2066,7 +2078,10 @@ def install_classicapi(target_dir, progress=None):
         except OSError:
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
-    return versiondef install_superwow(target_dir, progress=None):
+    return version
+
+
+def install_superwow(target_dir, progress=None):
     _emit_progress(progress, "Checking SuperWoW release...", None, None)
     release = _latest_release("balakethelock/SuperWoW")
     release_version = release.get("name") or _release_revision(release)
