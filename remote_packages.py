@@ -881,8 +881,7 @@ def install_vanilla_multimonitor_fix(target_dir, progress=None):
             pass
         shutil.rmtree(extract_root, ignore_errors=True)
 
-    return revision
-
+    return version
 
 MANAGED_ROOT = ".modernization_tool"
 
