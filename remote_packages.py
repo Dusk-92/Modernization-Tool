@@ -18,6 +18,15 @@ WOWPRESENCE_MANAGED_ID = "wowpresence"
 WOWPRESENCE_DEFAULT_APPLICATION_ID = "1544072796098011176"
 WOWPRESENCE_APPLICATION_ID_PLACEHOLDER = "PASTE_YOUR_DISCORD_APPLICATION_ID_HERE"
 
+WOWPRESENCE_SHARE_NAME = 1
+WOWPRESENCE_SHARE_GUILD = 2
+WOWPRESENCE_SHARE_FACTION = 4
+WOWPRESENCE_SHARE_CLASS = 8
+WOWPRESENCE_SHARE_LEVEL = 16
+WOWPRESENCE_SHARE_ZONE = 32
+WOWPRESENCE_SHARE_RACE = 64
+WOWPRESENCE_SHARE_ALL = 127
+
 
 class RemotePackageError(RuntimeError):
     pass
@@ -559,6 +568,51 @@ def ensure_wowpresence_config(target_dir):
         "63\n",
     )
     return data_dir
+
+
+def read_wowpresence_broadcast_flags(target_dir):
+    """Read the user-visible WowPresence detail mask, or None when invalid."""
+    path = os.path.join(
+        target_dir,
+        ".modernization_tool",
+        "WowPresence",
+        "discord_broadcast_flags",
+    )
+    try:
+        with open(path, "r", encoding="ascii", errors="ignore") as handle:
+            text = handle.read().strip()
+        value = int(text, 10)
+    except (OSError, ValueError):
+        return None
+
+    if value < 0:
+        return None
+    return value & WOWPRESENCE_SHARE_ALL
+
+
+def write_wowpresence_broadcast_flags(target_dir, value):
+    """Atomically persist the WowPresence detail mask without touching other config."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("WowPresence broadcast flags must be an integer.")
+    if value < 0 or value > WOWPRESENCE_SHARE_ALL:
+        raise ValueError(
+            f"WowPresence broadcast flags must be between 0 and {WOWPRESENCE_SHARE_ALL}."
+        )
+
+    data_dir = ensure_wowpresence_config(target_dir)
+    path = os.path.join(data_dir, "discord_broadcast_flags")
+    temp_path = path + ".new"
+    try:
+        with open(temp_path, "w", encoding="ascii", newline="\n") as handle:
+            handle.write(f"{value}\n")
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    return path
 
 
 def install_wowpresence(target_dir, progress=None):
