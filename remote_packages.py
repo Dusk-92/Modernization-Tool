@@ -1037,6 +1037,16 @@ def _package_state_is_current(target_dir, package_id, revision):
     return current == paths
 
 
+def _record_package_state_safely(target_dir, package_id, revision, relative_paths):
+    try:
+        _record_package_state(target_dir, package_id, revision, relative_paths)
+        return True
+    except OSError:
+        # Update metadata is an optimization only. A successful component
+        # install must remain usable even if its cache state cannot be saved.
+        return False
+
+
 def _record_release_asset_state_if_matching(
     target_dir,
     package_id,
