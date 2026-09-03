@@ -14,10 +14,6 @@ import zipfile
 USER_AGENT = "Modernization-Tool/1.0 (+https://github.com/Dusk-92/Modernization-Tool)"
 GITHUB_API = "https://api.github.com"
 NETWORK_TIMEOUT = 30
-
-# SuperAPI has no stable release/tag channel. Keep Modernization Tool builds
-# reproducible by using the revision validated with the current SuperWoW setup.
-SUPERAPI_TESTED_REVISION = "901322dc88890a2ea10610b8228fb43c9c2a3610"
 WOWPRESENCE_REPO = "Dusk-92/WowPresence"
 WOWPRESENCE_MANAGED_ID = "wowpresence"
 WOWPRESENCE_DEFAULT_APPLICATION_ID = "1544072796098011176"
@@ -2177,8 +2173,8 @@ def install_superwow(target_dir, progress=None):
     )
     release_asset_revision = _release_asset_revision(release, asset)
 
-    _emit_progress(progress, "Checking tested SuperAPI revision...", None, None)
-    superapi_revision = SUPERAPI_TESTED_REVISION
+    _emit_progress(progress, "Checking SuperAPI revision...", None, None)
+    superapi_revision = _branch_head_sha("balakethelock/SuperAPI", "master")
     revision = f"{release_asset_revision}|superapi:{superapi_revision}"
     package_id = "superwow"
 
