@@ -1305,7 +1305,7 @@ class BundledComponentSafetyTests(unittest.TestCase):
             "no1600x1200.dll",
         )
 
-    def test_superapi_uses_tested_revision_without_querying_master(self):
+    def test_superapi_tracks_master_revision(self):
         release = {
             "name": "SuperWoW 2.2",
             "tag_name": "Release",
@@ -1327,13 +1327,17 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 "_package_state_is_current",
                 return_value=True,
             ) as state,
-            mock.patch.object(remote_packages, "_branch_head_sha") as branch_head,
+            mock.patch.object(
+                remote_packages,
+                "_branch_head_sha",
+                return_value="abc1234",
+            ) as branch_head,
         ):
             remote_packages.install_superwow("C:/WoW")
 
-        branch_head.assert_not_called()
+        branch_head.assert_called_once_with("balakethelock/SuperAPI", "master")
         revision = state.call_args.args[2]
-        self.assertIn(remote_packages.SUPERAPI_TESTED_REVISION, revision)
+        self.assertIn("superapi:abc1234", revision)
 
     def test_branch_archive_download_can_be_pinned_to_resolved_revision(self):
         with (
