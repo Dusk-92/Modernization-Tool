@@ -1561,6 +1561,255 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 ["WowPresence.dll", "WowPresence.exe"],
             )
 
+    def test_cache_metadata_wrong_type_is_ignored(self):
+        with tempfile.TemporaryDirectory() as root:
+            cache_dir = remote_packages._package_cache_dir(root, "example")
+            os.makedirs(cache_dir)
+            with open(os.path.join(cache_dir, "metadata.json"), "w", encoding="utf-8") as handle:
+                json.dump([], handle)
+
+            self.assertIsNone(
+                remote_packages._load_cached_file(
+                    root,
+                    "example",
+                    "payload.bin",
+                )
+            )
+
+    def test_cache_metadata_cannot_escape_cache_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            cache_dir = remote_packages._package_cache_dir(root, "example")
+            os.makedirs(cache_dir)
+            outside = os.path.join(root, "outside.bin")
+            with open(outside, "wb") as handle:
+                handle.write(b"outside")
+            with open(os.path.join(cache_dir, "metadata.json"), "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "filename": "../outside.bin",
+                        "size": os.path.getsize(outside),
+                        "sha256": hashlib.sha256(b"outside").hexdigest(),
+                        "revision": "rev1",
+                    },
+                    handle,
+                )
+
+            self.assertIsNone(
+                remote_packages._load_cached_file(
+                    root,
+                    "example",
+                )
+            )
+
+    def test_current_managed_mpq_seeds_cache_without_network(self):
+        with tempfile.TemporaryDirectory() as root:
+            relative = os.path.join("Data", "patch-X.mpq")
+            target = os.path.join(root, relative)
+            os.makedirs(os.path.dirname(target))
+            with open(target, "wb") as handle:
+                handle.write(b"MPQalready-current")
+
+            remote_packages._write_managed_manifest(
+                root,
+                "visual_example",
+                [relative],
+                revision="1",
+            )
+
+            with mock.patch.object(remote_packages, "_download") as download:
+                remote_packages._install_remote_mpq(
+                    root,
+                    "visual_example",
+                    "https://example.invalid/visual.mpq",
+                    relative,
+                    revision="1",
+                )
+
+            download.assert_not_called()
+            cached = remote_packages._load_cached_file(
+                root,
+                "visual_example",
+                "payload.mpq",
+                expected_revision="1",
+            )
+            self.assertIsNotNone(cached)
+
+    def test_cache_write_failure_does_not_break_online_mpq_install(self):
+        with tempfile.TemporaryDirectory() as root:
+            downloaded = os.path.join(root, "downloaded.mpq")
+            with open(downloaded, "wb") as handle:
+                handle.write(b"MPQdownloaded")
+
+            with (
+                mock.patch.object(
+                    remote_packages,
+                    "_download",
+                    return_value=downloaded,
+                ),
+                mock.patch.object(
+                    remote_packages,
+                    "_install_managed_files",
+                ) as install,
+                mock.patch.object(
+                    remote_packages,
+                    "_store_cached_file_safely",
+                    return_value=None,
+                ),
+            ):
+                remote_packages._install_remote_mpq(
+                    root,
+                    "visual_example",
+                    "https://example.invalid/visual.mpq",
+                    os.path.join("Data", "patch-X.mpq"),
+                    revision="2",
+                )
+
+            install.assert_called_once()
+
+    def test_pink_herbs_keeps_valid_installed_revision_when_update_download_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            relative = os.path.join("Data", "patch-V.mpq")
+            target = os.path.join(root, relative)
+            os.makedirs(os.path.dirname(target))
+            with open(target, "wb") as handle:
+                handle.write(b"MPQinstalled-old")
+
+            remote_packages._record_package_state(
+                root,
+                "visual_pink_herbs",
+                "oldrev123",
+                [relative],
+            )
+
+            with (
+                mock.patch.object(
+                    remote_packages,
+                    "_branch_head_sha",
+                    return_value="newrev456",
+                ),
+                mock.patch.object(
+                    remote_packages,
+                    "_download",
+                    side_effect=remote_packages.RemotePackageError("offline"),
+                ),
+                mock.patch.object(
+                    remote_packages,
+                    "_install_managed_files",
+                ) as install,
+            ):
+                result = remote_packages.install_pink_herbs(root)
+
+            install.assert_not_called()
+            self.assertIn("oldrev1", result)
+            with open(target, "rb") as handle:
+                self.assertEqual(handle.read(), b"MPQinstalled-old")
+
+    def test_installed_wowpresence_can_seed_offline_cache(self):
+        with tempfile.TemporaryDirectory() as root:
+            for filename in ("WowPresence.dll", "WowPresence.exe"):
+                with open(os.path.join(root, filename), "wb") as handle:
+                    handle.write(filename.encode("ascii"))
+
+            with mock.patch.object(remote_packages, "_verify_x86_pe"):
+                self.assertTrue(
+                    remote_packages.cache_installed_wowpresence(
+                        root,
+                        revision="v1.3",
+                    )
+                )
+
+            cached = remote_packages._load_cached_file(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                "WowPresence.zip",
+                expected_revision="v1.3",
+            )
+            self.assertIsNotNone(cached)
+
+    def test_superapi_bundled_tree_rejects_tampering(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+
+        with tempfile.TemporaryDirectory() as root:
+            fallback = os.path.join(root, "Payload", "Fallback")
+            addon = os.path.join(root, "Payload", "Interface", "Addons", "SuperAPI")
+            os.makedirs(fallback)
+            os.makedirs(addon)
+
+            first = os.path.join(addon, "SuperAPI.toc")
+            second = os.path.join(addon, "SuperAPI.lua")
+            with open(first, "wb") as handle:
+                handle.write(b"## Interface: 11200\nSuperAPI.lua\n")
+            with open(second, "wb") as handle:
+                handle.write(b"print('ok')\n")
+
+            records = []
+            for path in (first, second):
+                relative = os.path.relpath(path, root).replace(os.sep, "/")
+                records.append(
+                    {
+                        "path": relative,
+                        "size": os.path.getsize(path),
+                        "git_blob_sha1": remote_packages._git_blob_sha1(path),
+                    }
+                )
+
+            with open(
+                os.path.join(fallback, "versions.json"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                json.dump(
+                    {
+                        "components": {
+                            "test tree": {
+                                "superapi_files": records,
+                            }
+                        }
+                    },
+                    handle,
+                )
+
+            with mock.patch("setup_tool_dynamic.get_base_path", return_value=root):
+                verified = tool._verified_bundled_tree(
+                    "test tree",
+                    "superapi_files",
+                    "Payload/Interface/Addons/SuperAPI",
+                    "test SuperAPI",
+                )
+                self.assertEqual(verified, addon)
+
+                with open(second, "ab") as handle:
+                    handle.write(b"tampered")
+
+                with self.assertRaises(RuntimeError):
+                    tool._verified_bundled_tree(
+                        "test tree",
+                        "superapi_files",
+                        "Payload/Interface/Addons/SuperAPI",
+                        "test SuperAPI",
+                    )
+
+    def test_superapi_existing_folder_must_be_complete(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+
+        with tempfile.TemporaryDirectory() as addon:
+            self.assertFalse(tool._valid_superapi_addon(addon))
+
+            with open(os.path.join(addon, "SuperAPI.lua"), "w", encoding="utf-8") as handle:
+                handle.write("-- test\n")
+            with open(os.path.join(addon, "SuperAPIOptions.lua"), "w", encoding="utf-8") as handle:
+                handle.write("-- test\n")
+            with open(os.path.join(addon, "SuperAPI.toc"), "w", encoding="utf-8") as handle:
+                handle.write("SuperAPI.lua\nlibs\\Needed.lua\n")
+
+            self.assertFalse(tool._valid_superapi_addon(addon))
+
+            os.makedirs(os.path.join(addon, "libs"))
+            with open(os.path.join(addon, "libs", "Needed.lua"), "w", encoding="utf-8") as handle:
+                handle.write("-- lib\n")
+
+            self.assertTrue(tool._valid_superapi_addon(addon))
+
     def test_branch_archive_download_can_be_pinned_to_resolved_revision(self):
         with (
             mock.patch.object(remote_packages, "_download", return_value="archive.zip") as download,
