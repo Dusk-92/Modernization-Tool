@@ -47,6 +47,9 @@ jobs:
         with:
           arch: x86
 
+      - name: Prepare bundled remote fallbacks
+        run: python scripts/prepare_remote_fallbacks.py
+
       - name: Syntax check
         run: python -m py_compile setup_tool.py setup_tool_dynamic.py remote_packages.py tests/test_safety.py
 
