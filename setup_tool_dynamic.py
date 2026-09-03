@@ -1451,14 +1451,26 @@ class ModernWowSetupTool(WowSetupTool):
                                     target,
                                     progress=self._report_download_progress,
                                 )
-                            except Exception as fallback_exc:
-                                raise RuntimeError(
-                                    "Could not install WowPresence from its online source "
-                                    "and no validated local fallback is available."
-                                ) from fallback_exc
+                                fallback_action = (
+                                    "The last validated cached WowPresence package was installed instead."
+                                )
+                            except Exception:
+                                try:
+                                    remote_packages.install_bundled_wowpresence(
+                                        target,
+                                        progress=self._report_download_progress,
+                                    )
+                                    fallback_action = (
+                                        "The bundled known-good WowPresence fallback was installed instead."
+                                    )
+                                except Exception as bundled_exc:
+                                    raise RuntimeError(
+                                        "Could not install WowPresence from its online source, "
+                                        "local cache or bundled fallback."
+                                    ) from bundled_exc
                             self._warn_offline(
                                 "WowPresence",
-                                "The last validated cached WowPresence package was installed instead.",
+                                fallback_action,
                                 exc,
                             )
 
