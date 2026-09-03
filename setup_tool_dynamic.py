@@ -43,6 +43,136 @@ class ModernWowSetupTool(WowSetupTool):
         self._download_indeterminate = False
         super().__init__(root)
 
+    def _bundled_manifest_record(self, relative_path):
+        """Return the expected size/hash record for one bundled payload file."""
+        metadata_path = os.path.join(
+            get_base_path(),
+            "Payload",
+            "Fallback",
+            "versions.json",
+        )
+        wanted = relative_path.replace("\\", "/").casefold()
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "Could not read bundled component integrity metadata."
+            ) from exc
+
+        components = data.get("components") if isinstance(data, dict) else None
+        if not isinstance(components, dict):
+            raise RuntimeError("Bundled component integrity metadata is invalid.")
+
+        for component in components.values():
+            files = component.get("files") if isinstance(component, dict) else None
+            if not isinstance(files, list):
+                continue
+            for record in files:
+                if not isinstance(record, dict):
+                    continue
+                path = record.get("path")
+                if isinstance(path, str) and path.replace("\\", "/").casefold() == wanted:
+                    return record
+
+        raise RuntimeError(
+            f"No integrity record exists for bundled file {relative_path}."
+        )
+
+    def _verified_bundled_file(self, relative_path, label):
+        """Validate a bundled file before it is allowed to touch the WoW folder."""
+        record = self._bundled_manifest_record(relative_path)
+        source = os.path.join(
+            get_base_path(),
+            *relative_path.replace("\\", "/").split("/"),
+        )
+        if not os.path.isfile(source):
+            raise RuntimeError(f"Bundled file is missing: {relative_path}")
+
+        expected_size = record.get("size")
+        if not isinstance(expected_size, int) or expected_size <= 0:
+            raise RuntimeError(f"Invalid bundled size metadata for {relative_path}.")
+        if os.path.getsize(source) != expected_size:
+            raise RuntimeError(
+                f"Bundled {label} has an unexpected size and will not be installed."
+            )
+
+        expected_sha = record.get("sha256")
+        if (
+            not isinstance(expected_sha, str)
+            or len(expected_sha) != 64
+            or any(ch not in "0123456789abcdefABCDEF" for ch in expected_sha)
+        ):
+            raise RuntimeError(f"Invalid bundled SHA-256 metadata for {relative_path}.")
+        expected_sha = expected_sha.lower()
+
+        if self._file_sha256(source).lower() != expected_sha:
+            raise RuntimeError(
+                f"Bundled {label} failed its SHA-256 integrity check."
+            )
+
+        if os.path.splitext(source)[1].lower() in (".dll", ".exe"):
+            remote_packages._verify_x86_pe(source, f"bundled {label}")
+
+        return source, expected_sha
+
+    def _install_verified_bundled_file(self, relative_path, target_path, label):
+        source, expected_sha = self._verified_bundled_file(relative_path, label)
+        if os.path.isfile(target_path):
+            try:
+                if self._file_sha256(target_path).lower() == expected_sha:
+                    return
+            except OSError:
+                pass
+        remote_packages._atomic_replace_file(source, target_path)
+
+    def copy_base_files(self, target):
+        """Install only true base files; component addons are handled with their DLLs."""
+        payload_dir = os.path.join(get_base_path(), "Payload")
+        if not os.path.isdir(payload_dir):
+            return
+
+        if self.install_autologin.get():
+            data_source = os.path.join(payload_dir, "Data")
+            if os.path.isdir(data_source):
+                shutil.copytree(
+                    data_source,
+                    os.path.join(target, "Data"),
+                    dirs_exist_ok=True,
+                )
+
+        # Do not copy Payload/Interface wholesale here. Nampower and UnitXP
+        # addons must stay paired with the exact DLL version selected later.
+        vanilla_fixes, vf_sha = self._verified_bundled_file(
+            "Payload/VanillaFixes.exe",
+            "VanillaFixes.exe",
+        )
+        vf_patcher, patcher_sha = self._verified_bundled_file(
+            "Payload/VfPatcher.dll",
+            "VfPatcher.dll",
+        )
+        target_fixes = os.path.join(target, "VanillaFixes.exe")
+        target_patcher = os.path.join(target, "VfPatcher.dll")
+
+        already_current = False
+        if os.path.isfile(target_fixes) and os.path.isfile(target_patcher):
+            try:
+                already_current = (
+                    self._file_sha256(target_fixes).lower() == vf_sha
+                    and self._file_sha256(target_patcher).lower() == patcher_sha
+                )
+            except OSError:
+                already_current = False
+
+        if not already_current:
+            remote_packages._transactional_replace_bundle(
+                [
+                    ("file", vanilla_fixes, target_fixes),
+                    ("file", vf_patcher, target_patcher),
+                ],
+                label="VanillaFixes",
+            )
+
     def _collect_settings(self):
         settings = super()._collect_settings()
         settings["discord_presence"] = {
@@ -606,9 +736,9 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Could not download the latest {dll_name}, and no bundled fallback exists.\n\n{error}"
             ) from error
 
-        remote_packages._verify_x86_pe(
-            source_dll,
-            f"bundled fallback {dll_name}",
+        self._verified_bundled_file(
+            f"Payload/{dll_name}",
+            f"{dll_name} fallback",
         )
 
         source_addon = None
@@ -1053,10 +1183,48 @@ class ModernWowSetupTool(WowSetupTool):
                     except Exception as exc:
                         self._fallback_core_dll(payload_base, target, dll_name, exc)
 
+                elif dll_name == "perf_boost.dll":
+                    source_dll, _ = self._verified_bundled_file(
+                        "Payload/perf_boost.dll",
+                        "PerfBoost",
+                    )
+                    source_addon = os.path.join(
+                        payload_base,
+                        "Interface",
+                        "Addons",
+                        "perfboostsettings",
+                    )
+                    if not os.path.isdir(source_addon):
+                        raise RuntimeError(
+                            "Bundled PerfBoost settings addon is missing."
+                        )
+                    remote_packages._transactional_replace_bundle(
+                        [
+                            (
+                                "file",
+                                source_dll,
+                                os.path.join(target, "perf_boost.dll"),
+                            ),
+                            (
+                                "dir",
+                                source_addon,
+                                os.path.join(
+                                    target,
+                                    "Interface",
+                                    "AddOns",
+                                    "perfboostsettings",
+                                ),
+                            ),
+                        ],
+                        label="PerfBoost",
+                    )
+
                 else:
-                    source_dll = os.path.join(payload_base, dll_name)
-                    if os.path.exists(source_dll):
-                        shutil.copy2(source_dll, target)
+                    self._install_verified_bundled_file(
+                        f"Payload/{dll_name}",
+                        os.path.join(target, dll_name),
+                        dll_name,
+                    )
 
                 dlls_text_lines.append(dll_name)
 
@@ -1093,18 +1261,14 @@ class ModernWowSetupTool(WowSetupTool):
             # Optional client fixes, in the same order as the UI.
             no1600_var = self.optional_plugins["no1600x1200.dll"]
             if no1600_var.get():
-                try:
-                    remote_packages.install_no1600x1200(
-                        target,
-                        progress=self._report_download_progress,
-                    )
-                except Exception as exc:
-                    self._fallback_core_dll(
-                        payload_base,
-                        target,
-                        "no1600x1200.dll",
-                        exc,
-                    )
+                # No1600x1200 comes from an archive/mirror repository rather
+                # than a maintained release channel. Use the bundled,
+                # hash-verified known-good copy for predictable installs.
+                self._install_verified_bundled_file(
+                    "Payload/no1600x1200.dll",
+                    os.path.join(target, "no1600x1200.dll"),
+                    "no1600x1200.dll",
+                )
                 dlls_text_lines.append("no1600x1200.dll")
 
             if self.vmmfix_enabled.get():
@@ -1175,9 +1339,11 @@ class ModernWowSetupTool(WowSetupTool):
                         self._discord_broadcast_mask(),
                     )
                 else:
-                    source_dll = os.path.join(payload_weirdu, dll_name)
-                    if os.path.exists(source_dll):
-                        shutil.copy2(source_dll, target)
+                    self._install_verified_bundled_file(
+                        f"Payload/WeirdUtils/{dll_name}",
+                        os.path.join(target, dll_name),
+                        dll_name,
+                    )
 
                 dlls_text_lines.append(dll_name)
 
