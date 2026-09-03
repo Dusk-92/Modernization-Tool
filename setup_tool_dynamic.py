@@ -164,7 +164,10 @@ class ModernWowSetupTool(WowSetupTool):
                 or any(ch not in "0123456789abcdefABCDEF" for ch in blob_sha)
             ):
                 raise RuntimeError(f"Invalid bundled tree metadata for {label}.")
-            expected[path.replace("\\", "/").casefold()] = (size, blob_sha.lower())
+            key = path.replace("\\", "/").casefold()
+            if key in expected:
+                raise RuntimeError(f"Duplicate bundled tree metadata for {label}.")
+            expected[key] = (size, blob_sha.lower())
 
         actual = {}
         for current_root, dirs, files in os.walk(root):
