@@ -1395,6 +1395,171 @@ class BundledComponentSafetyTests(unittest.TestCase):
         revision = state.call_args.args[2]
         self.assertIn("superapi:abc1234", revision)
 
+    def test_package_cache_rejects_tampered_artifact(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "source.bin")
+            with open(source, "wb") as handle:
+                handle.write(b"validated fallback payload")
+
+            cached_path = remote_packages._store_cached_file(
+                root,
+                "example",
+                source,
+                "payload.bin",
+                revision="rev1",
+            )
+
+            loaded = remote_packages._load_cached_file(
+                root,
+                "example",
+                "payload.bin",
+                expected_revision="rev1",
+            )
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded[0], cached_path)
+
+            with open(cached_path, "ab") as handle:
+                handle.write(b"!")
+
+            self.assertIsNone(
+                remote_packages._load_cached_file(
+                    root,
+                    "example",
+                    "payload.bin",
+                    expected_revision="rev1",
+                )
+            )
+
+    def test_remote_mpq_uses_validated_cache_when_download_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "visual.mpq")
+            with open(source, "wb") as handle:
+                handle.write(b"MPQcached-visual")
+
+            remote_packages._store_cached_file(
+                root,
+                "visual_example",
+                source,
+                "payload.mpq",
+                revision="rev1",
+            )
+
+            with (
+                mock.patch.object(
+                    remote_packages,
+                    "_download",
+                    side_effect=remote_packages.RemotePackageError("offline"),
+                ),
+                mock.patch.object(
+                    remote_packages,
+                    "_install_managed_files",
+                ) as install,
+            ):
+                remote_packages._install_remote_mpq(
+                    root,
+                    "visual_example",
+                    "https://example.invalid/visual.mpq",
+                    os.path.join("Data", "patch-X.mpq"),
+                    revision="rev1",
+                )
+
+            cached = remote_packages._load_cached_file(
+                root,
+                "visual_example",
+                "payload.mpq",
+                expected_revision="rev1",
+            )
+            self.assertIsNotNone(cached)
+            self.assertEqual(
+                install.call_args.args[2][0][0],
+                cached[0],
+            )
+
+    def test_superwow_bundled_fallback_keeps_dll_and_superapi_paired(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool.addon_dependencies = {
+            "SuperWoWhook.dll": "SuperAPI",
+        }
+        tool._valid_x86_dll = mock.Mock(return_value=False)
+        tool._verified_bundled_file = mock.Mock()
+        tool._warn_offline = mock.Mock()
+
+        with tempfile.TemporaryDirectory() as root:
+            payload = os.path.join(root, "Payload")
+            addon = os.path.join(
+                payload,
+                "Interface",
+                "Addons",
+                "SuperAPI",
+            )
+            os.makedirs(addon)
+            dll = os.path.join(payload, "SuperWoWhook.dll")
+            with open(dll, "wb") as handle:
+                handle.write(b"fallback")
+            with open(os.path.join(addon, "SuperAPI.toc"), "w", encoding="utf-8") as handle:
+                handle.write("## Interface: 11200\n")
+
+            target = os.path.join(root, "game")
+            os.makedirs(target)
+            tool._verified_bundled_file.return_value = (dll, "a" * 64)
+
+            with mock.patch.object(
+                remote_packages,
+                "_transactional_replace_bundle",
+            ) as transaction:
+                tool._fallback_core_dll(
+                    payload,
+                    target,
+                    "SuperWoWhook.dll",
+                    RuntimeError("offline"),
+                )
+
+            transaction.assert_called_once()
+            items = transaction.call_args.args[0]
+            self.assertEqual([item[0] for item in items], ["file", "dir"])
+            self.assertEqual(os.path.basename(items[0][2]), "SuperWoWhook.dll")
+            self.assertEqual(os.path.basename(items[1][2]), "SuperAPI")
+            tool._verified_bundled_file.assert_called_once_with(
+                "Payload/SuperWoWhook.dll",
+                "SuperWoWhook.dll fallback",
+            )
+
+    def test_cached_wowpresence_can_install_without_online_release(self):
+        with tempfile.TemporaryDirectory() as root:
+            package = os.path.join(root, "WowPresence.zip")
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("WowPresence.dll", b"dummy-dll")
+                archive.writestr("WowPresence.exe", b"dummy-exe")
+
+            remote_packages._store_cached_file(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                package,
+                "WowPresence.zip",
+                revision="v1.3",
+            )
+
+            with (
+                mock.patch.object(remote_packages, "_verify_x86_pe"),
+                mock.patch.object(
+                    remote_packages,
+                    "_install_managed_files_transactional",
+                ) as install,
+                mock.patch.object(
+                    remote_packages,
+                    "_set_managed_manifest_values",
+                ),
+            ):
+                revision = remote_packages.install_cached_wowpresence(root)
+
+            self.assertEqual(revision, "v1.3")
+            install.assert_called_once()
+            mappings = install.call_args.args[2]
+            self.assertEqual(
+                sorted(relative for _, relative in mappings),
+                ["WowPresence.dll", "WowPresence.exe"],
+            )
+
     def test_branch_archive_download_can_be_pinned_to_resolved_revision(self):
         with (
             mock.patch.object(remote_packages, "_download", return_value="archive.zip") as download,
