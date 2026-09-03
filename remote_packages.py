@@ -353,6 +353,31 @@ def _remove_path(path):
     os.remove(path)
 
 
+def _cleanup_transaction_backups(target):
+    """Best-effort cleanup of stale backups once a valid live target exists."""
+    target = os.path.abspath(target)
+    if not os.path.lexists(target):
+        return
+
+    parent = os.path.dirname(target)
+    prefix = os.path.basename(target) + ".modernization-backup-"
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return
+
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        backup = os.path.join(parent, name)
+        try:
+            _remove_path(backup)
+        except OSError:
+            # The old file may still be locked by WoW/Windows. Keep it safe
+            # and retry automatically the next time this package is verified.
+            pass
+
+
 def _transactional_replace_bundle(items, label="component bundle"):
     """Replace a group of files/directories as one rollback-safe transaction.
 
@@ -469,15 +494,10 @@ def _transactional_replace_bundle(items, label="component bundle"):
         ) from exc
 
     else:
-        # Commit succeeded. Old copies are no longer needed.
+        # Commit succeeded. Old copies are no longer needed. Clean the current
+        # transaction backup plus any stale backup left by an earlier run.
         for record in records:
-            if record["backup_created"] and os.path.lexists(record["backup"]):
-                try:
-                    _remove_path(record["backup"])
-                except OSError:
-                    # A stale backup is harmless; never invalidate a successful
-                    # installation just because cleanup was denied.
-                    pass
+            _cleanup_transaction_backups(record["target"])
 
     finally:
         # Staged paths are safe to remove. Backups are intentionally not
@@ -1162,7 +1182,17 @@ def _package_state_is_current(target_dir, package_id, revision):
         current = _snapshot_package_paths(target_dir, paths.keys())
     except OSError:
         return False
-    return current == paths
+
+    is_current = current == paths
+    if is_current:
+        # A verified current package no longer needs rollback artifacts from
+        # earlier successful installs. Retry best-effort cleanup here so a
+        # Windows file lock does not leave them around indefinitely.
+        for relative_path in paths:
+            _cleanup_transaction_backups(
+                os.path.join(target_dir, relative_path)
+            )
+    return is_current
 
 
 def _record_package_state_safely(target_dir, package_id, revision, relative_paths):
