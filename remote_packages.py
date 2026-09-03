@@ -453,29 +453,6 @@ def _current_recorded_package_revision(target_dir, package_id):
     return None
 
 
-def _cache_current_managed_mpq(target_dir, mod_id, revision):
-    """Seed cache from a managed MPQ and report whether the install is current."""
-    if not managed_mpq_is_current(target_dir, mod_id, revision):
-        return False
-
-    files = _load_managed_manifest(target_dir, mod_id)
-    if len(files) != 1:
-        return False
-    source_path = os.path.join(target_dir, files[0])
-    try:
-        _verify_mpq(source_path)
-    except RemotePackageError:
-        return False
-
-    _seed_cached_file_from_installed(
-        target_dir,
-        mod_id,
-        source_path,
-        "payload.mpq",
-        revision=revision,
-        validator=_verify_mpq,
-    )
-    return True
 def _runtime_base_path():
     return getattr(
         sys,
@@ -2140,7 +2117,7 @@ def _install_remote_mpq(
     timeout=300,
     revision=None,
 ):
-    if revision is not None and _cache_current_managed_mpq(
+    if revision is not None and managed_mpq_is_current(
         target_dir,
         mod_id,
         revision,
@@ -2153,79 +2130,33 @@ def _install_remote_mpq(
         )
         return
 
-    downloaded_path = None
-    source_path = None
+    temp_path = _download(
+        url,
+        suffix=".mpq",
+        progress=progress,
+        label=label,
+        timeout=timeout,
+    )
     try:
-        downloaded_path = _download(
-            url,
-            suffix=".mpq",
-            progress=progress,
-            label=label,
-            timeout=timeout,
+        _verify_mpq(temp_path)
+        _emit_progress(
+            progress,
+            f"Installing {os.path.basename(destination)}...",
+            None,
+            None,
         )
-        _verify_mpq(downloaded_path)
-        source_path = downloaded_path
-    except Exception as download_error:
-        cached = _load_cached_file(
-            target_dir,
-            mod_id,
-            "payload.mpq",
-            expected_revision=revision,
-        )
-        if cached is not None:
-            source_path, _ = cached
-            _verify_mpq(source_path)
-            _emit_progress(
-                progress,
-                f"{label.replace('Downloading ', '')}: using cached offline fallback.",
-                None,
-                None,
-            )
-        else:
-            bundled = _load_bundled_remote_fallback(
-                mod_id,
-                "payload.mpq",
-                expected_revision=revision,
-            )
-            if bundled is None:
-                raise download_error
-            source_path, _ = bundled
-            _verify_mpq(source_path)
-            _emit_progress(
-                progress,
-                f"{label.replace('Downloading ', '')}: using bundled offline fallback.",
-                None,
-                None,
-            )
-
-    try:
-        _emit_progress(progress, f"Installing {os.path.basename(destination)}...", None, None)
         _install_managed_files(
             target_dir,
             mod_id,
-            [(source_path, destination)],
+            [(temp_path, destination)],
             revision=revision,
         )
-
-        if downloaded_path is not None and _store_cached_file_safely(
-            target_dir,
-            mod_id,
-            downloaded_path,
-            "payload.mpq",
-            revision=revision,
-        ) is None:
-            _emit_progress(
-                progress,
-                f"{label.replace('Downloading ', '')} installed; offline cache could not be refreshed.",
-                None,
-                None,
-            )
     finally:
-        if downloaded_path and os.path.exists(downloaded_path):
-            try:
-                os.remove(downloaded_path)
-            except OSError:
-                pass
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+
 
 def _google_drive_download_url(file_id):
     return (
@@ -2293,8 +2224,6 @@ def install_pink_herbs(target_dir, progress=None):
     mod_id = "visual_pink_herbs"
     destination = os.path.join("Data", "patch-V.mpq")
     target_path = os.path.join(target_dir, destination)
-    downloaded_path = None
-    source_path = None
     installed_revision = _current_recorded_package_revision(target_dir, mod_id)
 
     try:
@@ -2306,14 +2235,6 @@ def install_pink_herbs(target_dir, progress=None):
             except RemotePackageError:
                 installed_revision = None
             else:
-                _seed_cached_file_from_installed(
-                    target_dir,
-                    mod_id,
-                    target_path,
-                    "payload.mpq",
-                    revision=installed_revision,
-                    validator=_verify_mpq,
-                )
                 _emit_progress(
                     progress,
                     f"Pink Herbs {installed_revision[:7]} kept; update source unavailable.",
@@ -2321,122 +2242,49 @@ def install_pink_herbs(target_dir, progress=None):
                     None,
                 )
                 return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
+        raise revision_error
 
-        cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
-        if cached is not None:
-            source_path, metadata = cached
-            revision = str(metadata.get("revision") or "cached")
-            _verify_mpq(source_path)
-            _emit_progress(
-                progress,
-                "Pink Herbs: using cached offline fallback.",
-                None,
-                None,
-            )
+    if installed_revision == revision:
+        try:
+            _verify_mpq(target_path)
+        except RemotePackageError:
+            installed_revision = None
         else:
-            bundled = _load_bundled_remote_fallback(
-                mod_id,
-                "payload.mpq",
-            )
-            if bundled is None:
-                raise revision_error
-            source_path, metadata = bundled
-            revision = str(metadata.get("revision") or "bundled")
-            _verify_mpq(source_path)
             _emit_progress(
                 progress,
-                "Pink Herbs: using bundled offline fallback.",
+                f"Pink Herbs {revision[:7]} is already current.",
                 None,
                 None,
             )
-    else:
-        if installed_revision == revision:
+            return f"seacrabsam/patch-herb main@{revision[:7]}"
+
+    try:
+        temp_path = _download(
+            f"https://raw.githubusercontent.com/seacrabsam/patch-herb/{revision}/patch-H.mpq",
+            suffix=".mpq",
+            progress=progress,
+            label="Downloading Pink Herbs",
+            timeout=300,
+        )
+    except Exception as download_error:
+        if installed_revision is not None:
             try:
                 _verify_mpq(target_path)
             except RemotePackageError:
                 installed_revision = None
             else:
-                _seed_cached_file_from_installed(
-                    target_dir,
-                    mod_id,
-                    target_path,
-                    "payload.mpq",
-                    revision=revision,
-                    validator=_verify_mpq,
-                )
                 _emit_progress(
                     progress,
-                    f"Pink Herbs {revision[:7]} is already current.",
+                    f"Pink Herbs {installed_revision[:7]} kept; latest download unavailable.",
                     None,
                     None,
                 )
-                return f"seacrabsam/patch-herb main@{revision[:7]}"
-
-        try:
-            downloaded_path = _download(
-                f"https://raw.githubusercontent.com/seacrabsam/patch-herb/{revision}/patch-H.mpq",
-                suffix=".mpq",
-                progress=progress,
-                label="Downloading Pink Herbs",
-                timeout=300,
-            )
-            _verify_mpq(downloaded_path)
-            source_path = downloaded_path
-        except Exception as download_error:
-            # Never replace a valid installed revision with an older cache just
-            # because the newest remote payload is temporarily unavailable.
-            if installed_revision is not None:
-                try:
-                    _verify_mpq(target_path)
-                except RemotePackageError:
-                    installed_revision = None
-                else:
-                    _seed_cached_file_from_installed(
-                        target_dir,
-                        mod_id,
-                        target_path,
-                        "payload.mpq",
-                        revision=installed_revision,
-                        validator=_verify_mpq,
-                    )
-                    _emit_progress(
-                        progress,
-                        f"Pink Herbs {installed_revision[:7]} kept; latest download unavailable.",
-                        None,
-                        None,
-                    )
-                    return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
-
-            cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
-            if cached is not None:
-                source_path, metadata = cached
-                revision = str(metadata.get("revision") or revision)
-                _verify_mpq(source_path)
-                _emit_progress(
-                    progress,
-                    "Pink Herbs: using cached offline fallback.",
-                    None,
-                    None,
-                )
-            else:
-                bundled = _load_bundled_remote_fallback(
-                    mod_id,
-                    "payload.mpq",
-                )
-                if bundled is None:
-                    raise download_error
-                source_path, metadata = bundled
-                revision = str(metadata.get("revision") or revision)
-                _verify_mpq(source_path)
-                _emit_progress(
-                    progress,
-                    "Pink Herbs: using bundled offline fallback.",
-                    None,
-                    None,
-                )
+                return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
+        raise download_error
 
     try:
-        _migrate_legacy_pink_herbs_patch(target_dir, source_path, progress=progress)
+        _verify_mpq(temp_path)
+        _migrate_legacy_pink_herbs_patch(target_dir, temp_path, progress=progress)
         _emit_progress(
             progress,
             f"Installing {os.path.basename(destination)}...",
@@ -2446,7 +2294,7 @@ def install_pink_herbs(target_dir, progress=None):
         _install_managed_files(
             target_dir,
             mod_id,
-            [(source_path, destination)],
+            [(temp_path, destination)],
             revision=VISUAL_MOD_REVISIONS[mod_id],
         )
         _record_package_state_safely(
@@ -2455,29 +2303,14 @@ def install_pink_herbs(target_dir, progress=None):
             revision,
             [destination],
         )
-
-        if downloaded_path is not None and _store_cached_file_safely(
-            target_dir,
-            mod_id,
-            downloaded_path,
-            "payload.mpq",
-            revision=revision,
-        ) is None:
-            _emit_progress(
-                progress,
-                "Pink Herbs installed; offline cache could not be refreshed.",
-                None,
-                None,
-            )
     finally:
-        if downloaded_path and os.path.exists(downloaded_path):
-            try:
-                os.remove(downloaded_path)
-            except OSError:
-                pass
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
 
-    suffix = revision[:7] if len(revision) >= 7 else revision
-    return f"seacrabsam/patch-herb main@{suffix}"
+    return f"seacrabsam/patch-herb main@{revision[:7]}"
+
 
 def _download_github_branch_archive(
     repo,
