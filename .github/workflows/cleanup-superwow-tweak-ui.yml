@@ -59,14 +59,6 @@ jobs:
 
           dynamic = Path('setup_tool_dynamic.py')
           text = dynamic.read_text(encoding='utf-8')
-          callback = '''            command = (
-              self.update_superwow_managed_controls
-              if dll == "SuperWoWhook.dll"
-              else None
-          )
-'''
-          # Match indentation exactly as stored rather than relying on the
-          # callback being at a fixed line number.
           callback_re = re.compile(
               r'            command = \(\n'
               r'                self\.update_superwow_managed_controls\n'
