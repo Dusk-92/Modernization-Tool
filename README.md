@@ -60,36 +60,36 @@ Existing custom DirectX wrapper files are backed up rather than blindly deleted 
 
 ---
 
-# 🧩 Client Plugins
+# 🧩 Client Plugins & Sources
 
 ## Recommended Core
 
 The tool can install and configure several recommended client extensions:
 
-- **Nampower** — improves spell responsiveness and latency handling.
-- **UnitXP_SP3** — adds networking, targeting, Lua and client improvements.
-- **SuperWoW** — expands the Vanilla Lua API and improves addon compatibility.
-- **TransmogFix** — prevents performance drops caused by rapid appearance updates.
-- **PerfBoost** — provides additional unit rendering/performance controls.
-- **WeirdPerformance** — lightweight client optimizations aimed at improving FPS and reducing UI memory leaks for smoother gameplay.
-- **VanillaHelpers** — extends several Vanilla client limits.
-- **ClassicAPI** — adds newer WoW API functions for compatible addons.
-- **AuctionQueryThrottle** — removes the fixed delay between Auction House queries.
+- **[Nampower](https://github.com/brues-code/nampower)** — improves spell responsiveness and latency handling. Settings addon: [NampowerSettings](https://github.com/brues-code/NampowerSettings).
+- **[UnitXP_SP3](https://github.com/brues-code/UnitXP_SP3)** — adds networking, targeting, Lua and client improvements.
+- **[SuperWoW](https://github.com/balakethelock/SuperWoW)** — expands the Vanilla Lua API and improves addon compatibility. Its companion API addon is [SuperAPI](https://github.com/balakethelock/SuperAPI).
+- **[TransmogFix](https://codeberg.org/MarcelineVQ/WeirdUtils)** — prevents performance drops caused by rapid appearance updates.
+- **[PerfBoost](https://github.com/RetroCro/TurtleWoW-Mods)** — provides additional unit rendering/performance controls. Configuration addon: [PerfBoost Settings](https://gitea.com/avitasia/PerfBoostSettings).
+- **[WeirdPerformance](https://codeberg.org/Dusk92/WeirdUtils)** — lightweight client optimizations aimed at improving FPS and reducing UI memory leaks for smoother gameplay.
+- **[VanillaHelpers](https://github.com/isfir/VanillaHelpers)** — extends several Vanilla client limits.
+- **[ClassicAPI](https://github.com/brues-code/ClassicAPI)** — adds newer WoW API functions for compatible addons.
+- **[AuctionQueryThrottle](https://github.com/brues-code/AuctionQueryThrottle)** — removes the fixed delay between Auction House queries.
 
 ## Optional Plugins
 
 Optional client-side improvements include:
 
-- **VanillaMultiMonitorFix** — improved resolution, refresh-rate and monitor detection.
-- **Interact** — adds a modern Interact key for NPCs, objects, gathering nodes and loot.
-- **No1600x1200** — fixes the old Vanilla resolution limitation on some systems.
-- **BigCursor** — upscales the hardware cursor for better visibility on modern high-resolution displays without sacrificing sharpness.
-- **CustomAssets** — allows loose game files to be loaded directly from the `Data/` folder and supports custom multi-character patch names without repacking MPQ archives.
-- **LogSessions** — automatically organizes combat and chat logs into clean per-character, per-day files when you log in.
-- **MinimapIcons** — adds TBC/WotLK-style minimap tracking icons for NPCs and game objects, with a combined tracking menu and saved preferences.
-- **PNG Screenshots** — saves screenshots as compressed PNG files instead of the default uncompressed TGA format, using background processing to minimize frame-time impact.
-- **WorldMarkers** — lets party or raid leaders place up to five animated, Cataclysm-style colored world markers for positioning and tactical planning.
-- **Discord Rich Presence** — installs and keeps **WowPresence** up to date from [Dusk-92/WowPresence](https://github.com/Dusk-92/WowPresence). The Tool preconfigures the OctoWoW Discord Application ID and lets you choose which character details are shown on Discord, including **Name, Guild, Race, Faction, Class, Level and Zone**. Custom Discord Application IDs are preserved across updates.
+- **[VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)** — improved resolution, refresh-rate and monitor detection.
+- **[Interact](https://github.com/lookino/Interact)** — adds a modern Interact key for NPCs, objects, gathering nodes and loot.
+- **[No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)** — fixes the old Vanilla resolution limitation on some systems.
+- **[BigCursor](https://codeberg.org/MarcelineVQ/WeirdUtils)** — upscales the hardware cursor for better visibility on modern high-resolution displays without sacrificing sharpness.
+- **[CustomAssets](https://codeberg.org/MarcelineVQ/WeirdUtils)** — allows loose game files to be loaded directly from the `Data/` folder and supports custom multi-character patch names without repacking MPQ archives.
+- **[LogSessions](https://codeberg.org/MarcelineVQ/WeirdUtils)** — automatically organizes combat and chat logs into clean per-character, per-day files when you log in.
+- **[MinimapIcons](https://codeberg.org/MarcelineVQ/WeirdUtils)** — adds TBC/WotLK-style minimap tracking icons for NPCs and game objects, with a combined tracking menu and saved preferences.
+- **[PNG Screenshots](https://codeberg.org/MarcelineVQ/WeirdUtils)** — saves screenshots as compressed PNG files instead of the default uncompressed TGA format, using background processing to minimize frame-time impact.
+- **[WorldMarkers](https://codeberg.org/MarcelineVQ/WeirdUtils)** — lets party or raid leaders place up to five animated, Cataclysm-style colored world markers for positioning and tactical planning.
+- **[Discord Rich Presence](https://github.com/Dusk-92/WowPresence)** — installs and keeps **WowPresence** up to date. The Tool preconfigures the OctoWoW Discord Application ID and lets you choose which character details are shown on Discord, including **Name, Guild, Race, Faction, Class, Level and Zone**. Custom Discord Application IDs are preserved across updates.
 
 ---
 
@@ -200,34 +200,15 @@ Existing encryption keys are never replaced.
 
 ---
 
-# 🔗 Components & Upstream Sources
+# 🔗 Additional Upstream Sources
 
-Modernization Tool brings together work from several community projects and developers. These upstream links are kept as the reference instead of maintaining component version numbers in this README.
+The client plugin sources are linked directly in **Client Plugins & Sources** above. The remaining upstream projects used by Modernization Tool are listed here.
 
 ## Rendering & Client Patching
 
 - [VanillaFixes](https://github.com/hannesmann/vanillafixes)
 - [DXVK](https://github.com/doitsujin/dxvk)
 - [vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
-
-## Core Engine & API Plugins
-
-- [Nampower](https://github.com/brues-code/nampower)
-- [NampowerSettings](https://github.com/brues-code/NampowerSettings)
-- [UnitXP_SP3](https://github.com/brues-code/UnitXP_SP3)
-- [SuperWoW](https://github.com/balakethelock/SuperWoW)
-- [SuperAPI](https://github.com/balakethelock/SuperAPI)
-- [ClassicAPI](https://github.com/brues-code/ClassicAPI)
-- [AuctionQueryThrottle](https://github.com/brues-code/AuctionQueryThrottle)
-- [VanillaHelpers](https://github.com/isfir/VanillaHelpers)
-- [PerfBoost — RetroCro TurtleWoW Mods](https://github.com/RetroCro/TurtleWoW-Mods)
-- [PerfBoost Settings](https://gitea.com/avitasia/PerfBoostSettings)
-- [WeirdPerformance — Dusk-92/WeirdUtils](https://codeberg.org/Dusk92/WeirdUtils)
-- [WeirdUtils — TransmogFix and optional modules](https://codeberg.org/MarcelineVQ/WeirdUtils)
-- [No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)
-- [VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)
-- [Interact](https://github.com/lookino/Interact)
-- [WowPresence](https://github.com/Dusk-92/WowPresence)
 
 ## Visual & Audio Mods
 
@@ -282,7 +263,7 @@ Always download Modernization Tool from the official GitHub Releases page.
 
 # ❤️ Credits
 
-Modernization Tool builds on the work of the community projects and developers listed in **Components & Upstream Sources** above.
+Modernization Tool builds on the work of the community projects and developers linked throughout **Client Plugins & Sources** and **Additional Upstream Sources** above.
 
 Thank you to all upstream authors and contributors whose work makes this project possible. Additional attribution is available directly in the **Credits** tab of Modernization Tool.
 
