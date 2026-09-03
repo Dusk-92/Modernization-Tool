@@ -25,52 +25,8 @@ FALLBACKS = [
         "size": 141423,
         "sha256": "9b2dca9c69b5ab3b6dae3ef3b3efc9671779a227802ebb6ac98cb22bc6ea448a",
     },
-    {
-        "id": "visual_pink_herbs",
-        "filename": "payload.mpq",
-        "revision": "c252bbdc2aef1ac928eb237cf4d28edc21806ed8",
-        "url": "https://raw.githubusercontent.com/seacrabsam/patch-herb/c252bbdc2aef1ac928eb237cf4d28edc21806ed8/patch-H.mpq",
-        "kind": "mpq",
-        "size": 575628,
-        "sha256": "45b6b6795465a93104de213e0a36e1290b005a852cd6d03a8d21103efaefa0a7",
-    },
-    {
-        "id": "visual_darker_nights",
-        "filename": "payload.mpq",
-        "revision": "1",
-        "url": "https://pub-0f05631d243e4046993fc02ca7be9542.r2.dev/patches/patch-N.mpq",
-        "kind": "mpq",
-        "size": 201362,
-        "sha256": "31dcd9f779ef1f4e9c4e71b5da58948781989f72c0454fa59fdd173947d24084",
-    },
-    {
-        "id": "visual_pretty_night_sky",
-        "filename": "payload.mpq",
-        "revision": "1",
-        "url": "https://drive.usercontent.google.com/download?id=1qu99ZS-SQFfTtYodBmZWYiHmxL8QtUY4&export=download&confirm=t",
-        "kind": "mpq",
-        "size": 1390151,
-        "sha256": "b72e5837139772dff5e436c6a6375910fcb5c34ae5742512968463425c4520dd",
-    },
-    {
-        "id": "visual_epoch_water",
-        "filename": "payload.mpq",
-        "revision": "1",
-        "url": "https://drive.usercontent.google.com/download?id=1xRx9OrznbgbE1uBae3H3OGke9UoXtzmU&export=download&confirm=t",
-        "kind": "mpq",
-        "size": 20411526,
-        "sha256": "30a969c185cc082a0eb158a7901de889af815426c1e5baec373649688b3151aa",
-    },
-    {
-        "id": "visual_fog_pushback",
-        "filename": "payload.mpq",
-        "revision": "1",
-        "url": "https://drive.usercontent.google.com/download?id=14aHvyfr_ACL-UURbNa_fXRPcfQZoIw8n&export=download&confirm=t",
-        "kind": "mpq",
-        "size": 51281,
-        "sha256": "c59b87f7e9425ee890e2b869ea0d26cde84a68e3ee1004e18bb6a29b294c3e0d",
-    },
 ]
+
 
 
 def _sha256(path):
@@ -108,12 +64,6 @@ def _download(url, destination, retries=3):
             if attempt < retries:
                 time.sleep(attempt * 2)
     raise RuntimeError(f"Could not download {url}: {last_error}")
-
-
-def _verify_mpq(path):
-    with open(path, "rb") as handle:
-        if handle.read(3) != b"MPQ":
-            raise RuntimeError(f"{path} is not an MPQ file")
 
 
 def _verify_x86_pe_bytes(data, label):
@@ -159,9 +109,7 @@ def main():
         print(f"Preparing bundled fallback: {item['id']}", flush=True)
         _download(item["url"], destination)
 
-        if item["kind"] == "mpq":
-            _verify_mpq(destination)
-        elif item["kind"] == "wowpresence_zip":
+        if item["kind"] == "wowpresence_zip":
             _verify_wowpresence_zip(destination)
         else:
             raise RuntimeError(f"Unknown fallback kind: {item['kind']}")
