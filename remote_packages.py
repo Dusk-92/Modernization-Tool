@@ -261,6 +261,88 @@ def _atomic_replace_file(source, target):
                 pass
 
 
+def _package_cache_dir(target_dir, package_id):
+    return os.path.join(
+        target_dir,
+        ".modernization_tool",
+        "package_cache",
+        package_id,
+    )
+
+
+def _store_cached_file(target_dir, package_id, source_path, filename, revision=None):
+    """Persist one validated remote artifact as a local offline fallback."""
+    cache_dir = _package_cache_dir(target_dir, package_id)
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cached_path = os.path.join(cache_dir, filename)
+    _atomic_replace_file(source_path, cached_path)
+
+    metadata = {
+        "filename": filename,
+        "size": os.path.getsize(cached_path),
+        "sha256": _file_sha256(cached_path),
+        "revision": revision,
+    }
+    metadata_path = os.path.join(cache_dir, "metadata.json")
+    staged = metadata_path + ".new"
+    try:
+        with open(staged, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(metadata, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.replace(staged, metadata_path)
+    finally:
+        if os.path.exists(staged):
+            try:
+                os.remove(staged)
+            except OSError:
+                pass
+
+    return cached_path
+
+
+def _load_cached_file(target_dir, package_id, filename=None, expected_revision=None):
+    """Return a cached artifact only when its recorded integrity still matches."""
+    cache_dir = _package_cache_dir(target_dir, package_id)
+    metadata_path = os.path.join(cache_dir, "metadata.json")
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    recorded_name = metadata.get("filename")
+    if not isinstance(recorded_name, str) or not recorded_name:
+        return None
+    if filename is not None and recorded_name != filename:
+        return None
+
+    revision = metadata.get("revision")
+    if expected_revision is not None and str(revision) != str(expected_revision):
+        return None
+
+    cached_path = os.path.join(cache_dir, recorded_name)
+    if not os.path.isfile(cached_path):
+        return None
+
+    expected_size = metadata.get("size")
+    expected_sha = metadata.get("sha256")
+    if not isinstance(expected_size, int) or expected_size <= 0:
+        return None
+    if not isinstance(expected_sha, str) or len(expected_sha) != 64:
+        return None
+
+    try:
+        if os.path.getsize(cached_path) != expected_size:
+            return None
+        if _file_sha256(cached_path).lower() != expected_sha.lower():
+            return None
+    except OSError:
+        return None
+
+    return cached_path, metadata
+
+
 def _remove_tree(path):
     if not os.path.exists(path):
         return
@@ -807,6 +889,13 @@ def install_wowpresence(target_dir, progress=None):
         exe_path = _find_file(extract_root, "WowPresence.exe")
         _verify_x86_pe(dll_path, "WowPresence.dll")
         _verify_x86_pe(exe_path, "WowPresence.exe")
+        _store_cached_file(
+            target_dir,
+            WOWPRESENCE_MANAGED_ID,
+            zip_path,
+            "WowPresence.zip",
+            revision=revision,
+        )
 
         _emit_progress(progress, f"Installing WowPresence {revision}...", None, None)
         _install_managed_files_transactional(
@@ -840,6 +929,74 @@ def install_wowpresence(target_dir, progress=None):
 
     # Never overwrite user-editable settings with the copies bundled in the
     # release ZIP. The managed config folder remains owned by the user/tool.
+    ensure_wowpresence_config(target_dir)
+    return revision
+
+
+def install_cached_wowpresence(target_dir, progress=None):
+    """Install the last validated WowPresence package cached by this WoW install."""
+    cached = _load_cached_file(
+        target_dir,
+        WOWPRESENCE_MANAGED_ID,
+        "WowPresence.zip",
+    )
+    if cached is None:
+        raise RemotePackageError("No validated WowPresence offline fallback is cached.")
+
+    zip_path, metadata = cached
+    revision = str(metadata.get("revision") or "cached")
+
+    existing_manifest = _load_managed_manifest_data(
+        target_dir,
+        WOWPRESENCE_MANAGED_ID,
+    )
+    dlls_entry_preexisting = existing_manifest.get("dlls_entry_preexisting")
+    if not isinstance(dlls_entry_preexisting, bool):
+        if existing_manifest:
+            dlls_entry_preexisting = _managed_backup_exists(
+                target_dir,
+                WOWPRESENCE_MANAGED_ID,
+                "WowPresence.dll",
+            )
+        else:
+            dlls_entry_preexisting = _dlls_contains_entry(
+                target_dir,
+                "WowPresence.dll",
+            )
+
+    ensure_wowpresence_config(target_dir)
+    extract_root = tempfile.mkdtemp(prefix="modernization_wowpresence_cache_")
+    try:
+        _emit_progress(progress, "Loading cached WowPresence fallback...", None, None)
+        _safe_extract(zip_path, extract_root)
+        dll_path = _find_file(extract_root, "WowPresence.dll")
+        exe_path = _find_file(extract_root, "WowPresence.exe")
+        _verify_x86_pe(dll_path, "cached WowPresence.dll")
+        _verify_x86_pe(exe_path, "cached WowPresence.exe")
+
+        _install_managed_files_transactional(
+            target_dir,
+            WOWPRESENCE_MANAGED_ID,
+            [
+                (dll_path, "WowPresence.dll"),
+                (exe_path, "WowPresence.exe"),
+            ],
+            revision=revision,
+        )
+        _set_managed_manifest_values(
+            target_dir,
+            WOWPRESENCE_MANAGED_ID,
+            dlls_entry_preexisting=bool(dlls_entry_preexisting),
+            file_sha256={
+                "WowPresence.dll": _file_sha256(dll_path),
+                "WowPresence.exe": _file_sha256(exe_path),
+            },
+            package_digest=None,
+            package_revision=f"cache:{metadata.get('sha256', '')}",
+        )
+    finally:
+        shutil.rmtree(extract_root, ignore_errors=True)
+
     ensure_wowpresence_config(target_dir)
     return revision
 
@@ -1656,27 +1813,57 @@ def _install_remote_mpq(
     timeout=300,
     revision=None,
 ):
-    temp_path = _download(
-        url,
-        suffix=".mpq",
-        progress=progress,
-        label=label,
-        timeout=timeout,
-    )
+    downloaded_path = None
+    source_path = None
     try:
-        _verify_mpq(temp_path)
+        downloaded_path = _download(
+            url,
+            suffix=".mpq",
+            progress=progress,
+            label=label,
+            timeout=timeout,
+        )
+        _verify_mpq(downloaded_path)
+        _store_cached_file(
+            target_dir,
+            mod_id,
+            downloaded_path,
+            "payload.mpq",
+            revision=revision,
+        )
+        source_path = downloaded_path
+    except Exception as download_error:
+        cached = _load_cached_file(
+            target_dir,
+            mod_id,
+            "payload.mpq",
+            expected_revision=revision,
+        )
+        if cached is None:
+            raise download_error
+        source_path, _ = cached
+        _verify_mpq(source_path)
+        _emit_progress(
+            progress,
+            f"{label.replace('Downloading ', '')}: using cached offline fallback.",
+            None,
+            None,
+        )
+
+    try:
         _emit_progress(progress, f"Installing {os.path.basename(destination)}...", None, None)
         _install_managed_files(
             target_dir,
             mod_id,
-            [(temp_path, destination)],
+            [(source_path, destination)],
             revision=revision,
         )
     finally:
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
+        if downloaded_path and os.path.exists(downloaded_path):
+            try:
+                os.remove(downloaded_path)
+            except OSError:
+                pass
 
 
 def _google_drive_download_url(file_id):
@@ -1744,27 +1931,67 @@ def install_fog_pushback(target_dir, progress=None):
 def install_pink_herbs(target_dir, progress=None):
     mod_id = "visual_pink_herbs"
     destination = os.path.join("Data", "patch-V.mpq")
-    revision = _branch_head_sha("seacrabsam/patch-herb", "main")
+    downloaded_path = None
+    source_path = None
 
-    if _package_state_is_current(target_dir, mod_id, revision):
+    try:
+        revision = _branch_head_sha("seacrabsam/patch-herb", "main")
+    except Exception as revision_error:
+        cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
+        if cached is None:
+            raise revision_error
+        source_path, metadata = cached
+        revision = str(metadata.get("revision") or "cached")
+        _verify_mpq(source_path)
         _emit_progress(
             progress,
-            f"Pink Herbs {revision[:7]} is already current.",
+            "Pink Herbs: using cached offline fallback.",
             None,
             None,
         )
-        return f"seacrabsam/patch-herb main@{revision[:7]}"
+    else:
+        if _package_state_is_current(target_dir, mod_id, revision):
+            _emit_progress(
+                progress,
+                f"Pink Herbs {revision[:7]} is already current.",
+                None,
+                None,
+            )
+            return f"seacrabsam/patch-herb main@{revision[:7]}"
 
-    temp_path = _download(
-        f"https://raw.githubusercontent.com/seacrabsam/patch-herb/{revision}/patch-H.mpq",
-        suffix=".mpq",
-        progress=progress,
-        label="Downloading Pink Herbs",
-        timeout=300,
-    )
+        try:
+            downloaded_path = _download(
+                f"https://raw.githubusercontent.com/seacrabsam/patch-herb/{revision}/patch-H.mpq",
+                suffix=".mpq",
+                progress=progress,
+                label="Downloading Pink Herbs",
+                timeout=300,
+            )
+            _verify_mpq(downloaded_path)
+            _store_cached_file(
+                target_dir,
+                mod_id,
+                downloaded_path,
+                "payload.mpq",
+                revision=revision,
+            )
+            source_path = downloaded_path
+        except Exception as download_error:
+            cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
+            if cached is None:
+                raise download_error
+            source_path, metadata = cached
+            revision = str(metadata.get("revision") or revision)
+            _verify_mpq(source_path)
+            _emit_progress(
+                progress,
+                "Pink Herbs: using cached offline fallback.",
+                None,
+                None,
+            )
+
     try:
-        _verify_mpq(temp_path)
-        _migrate_legacy_pink_herbs_patch(target_dir, temp_path, progress=progress)
+        _migrate_legacy_pink_herbs_patch(target_dir, source_path, progress=progress)
         _emit_progress(
             progress,
             f"Installing {os.path.basename(destination)}...",
@@ -1774,7 +2001,7 @@ def install_pink_herbs(target_dir, progress=None):
         _install_managed_files(
             target_dir,
             mod_id,
-            [(temp_path, destination)],
+            [(source_path, destination)],
             revision=VISUAL_MOD_REVISIONS[mod_id],
         )
         _record_package_state_safely(
@@ -1784,12 +2011,14 @@ def install_pink_herbs(target_dir, progress=None):
             [destination],
         )
     finally:
-        try:
-            os.remove(temp_path)
-        except OSError:
-            pass
+        if downloaded_path and os.path.exists(downloaded_path):
+            try:
+                os.remove(downloaded_path)
+            except OSError:
+                pass
 
-    return f"seacrabsam/patch-herb main@{revision[:7]}"
+    suffix = revision[:7] if len(revision) >= 7 else revision
+    return f"seacrabsam/patch-herb main@{suffix}"
 
 
 def _download_github_branch_archive(
