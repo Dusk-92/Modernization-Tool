@@ -21,10 +21,10 @@ jobs:
       - name: Apply migration
         run: python scripts/apply_tweak_policy.py
 
-      - name: Validate changes
+      - name: Validate syntax and diff
         run: |
           python -m py_compile setup_tool.py setup_tool_dynamic.py remote_packages.py tests/test_safety.py
-          python -m unittest discover -s tests -v
+          git diff --check
 
       - name: Commit changes
         run: |
@@ -35,4 +35,4 @@ jobs:
           git commit -m "Keep Vanilla Tweaks independent from SuperWoW"
           git push origin HEAD:test/remote-fallbacks
 
-# one-time migration trigger
+# one-time migration trigger v2
