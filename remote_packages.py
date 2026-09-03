@@ -262,11 +262,17 @@ def _atomic_replace_file(source, target):
 
 
 def _package_cache_dir(target_dir, package_id):
+    safe_id = "".join(
+        ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+        for ch in str(package_id)
+    )
+    if safe_id in ("", ".", ".."):
+        raise RemotePackageError("Invalid package-cache ID.")
     return os.path.join(
         target_dir,
         ".modernization_tool",
         "package_cache",
-        str(package_id),
+        safe_id,
     )
 
 
