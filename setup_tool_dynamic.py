@@ -1318,10 +1318,21 @@ class ModernWowSetupTool(WowSetupTool):
                                 exc,
                             )
                         else:
-                            raise RuntimeError(
-                                "Could not install WowPresence from "
-                                "https://github.com/Dusk-92/WowPresence releases."
-                            ) from exc
+                            try:
+                                remote_packages.install_cached_wowpresence(
+                                    target,
+                                    progress=self._report_download_progress,
+                                )
+                            except Exception as fallback_exc:
+                                raise RuntimeError(
+                                    "Could not install WowPresence from its online source "
+                                    "and no validated local fallback is available."
+                                ) from fallback_exc
+                            self._warn_offline(
+                                "WowPresence",
+                                "The last validated cached WowPresence package was installed instead.",
+                                exc,
+                            )
 
                     # Remove the old test-branch filenames after a successful
                     # migration. The legacy config directory is intentionally
