@@ -604,6 +604,93 @@
           "sha256": "bd214b32c878649e94ce654835946bd05e0ce7710e8f01bae10d8ab50a89351d",
           "size": 1000448
         }
+      ],
+      "superapi_files": [
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/README.md",
+          "size": 1020,
+          "git_blob_sha1": "9f38a6a316516de3614e7526b28823cc823a4406"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/SuperAPI.lua",
+          "size": 6904,
+          "git_blob_sha1": "0161abda07898691885a2612e881332d783e6345"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/SuperAPI.toc",
+          "size": 741,
+          "git_blob_sha1": "3204821da231172087cff33848924991ced8e9bc"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/SuperAPIOptions.lua",
+          "size": 10908,
+          "git_blob_sha1": "3fabab494f706814b5fa02c0e0d1b9221d52d0"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceAddon-2.0/AceAddon-2.0.lua",
+          "size": 34783,
+          "git_blob_sha1": "1c5e2d59c71e09ca05e5ebe4e7f03ddd3e417f65"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceConsole-2.0/AceConsole-2.0.lua",
+          "size": 67656,
+          "git_blob_sha1": "d4d2f2a43aca30bdf6eb7b8266a0802e6e1fe717"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceDB-2.0/AceDB-2.0.lua",
+          "size": 45257,
+          "git_blob_sha1": "a6bbd10a83bce8682f563c4d0315b246ec554b9b"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceDebug-2.0/AceDebug-2.0.lua",
+          "size": 8049,
+          "git_blob_sha1": "8683c8c76cf91f527fb5f815e762470da96d87ca"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceEvent-2.0/AceEvent-2.0.lua",
+          "size": 28954,
+          "git_blob_sha1": "c6545688770d0a5669ce3948bf649fd4fdb47694"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceHook-2.1/AceHook-2.1.lua",
+          "size": 16946,
+          "git_blob_sha1": "8beaf6607d905b494d9d1e01785156aca86c9f43"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceLibrary/AceLibrary.lua",
+          "size": 23114,
+          "git_blob_sha1": "0f2b2378859a0245d33daecf112cd409594ecb3e"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceLocale-2.2/AceLocale-2.2.lua",
+          "size": 15957,
+          "git_blob_sha1": "fbf9c87306fd7d40d53bd8290a320e73a25e1f12"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceModuleCore-2.0/AceModuleCore-2.0.lua",
+          "size": 13981,
+          "git_blob_sha1": "32c89fb8535f7badc20781178073fd1626f390ec"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/AceOO-2.0/AceOO-2.0.lua",
+          "size": 30469,
+          "git_blob_sha1": "cd372b49650b1943b0ac72f0793c9b22fc1213ff"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/Dewdrop/Dewdrop-2.0.lua",
+          "size": 82495,
+          "git_blob_sha1": "bc72ba607679866c860bcdbcd3000b7faf8df3a0"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/FuBarPlugin/FuBarPlugin-2.0.lua",
+          "size": 44995,
+          "git_blob_sha1": "292c8fcdfa4aa642a159c4a17abbc8d882c2a6af"
+        },
+        {
+          "path": "Payload/Interface/Addons/SuperAPI/libs/Tablet/Tablet-2.0.lua",
+          "size": 83748,
+          "git_blob_sha1": "70f340d9172c30eb7a153d675ed69f1e1f07dbe4"
+        }
       ]
     }
   }
