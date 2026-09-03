@@ -1558,6 +1558,58 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 )
             )
 
+    def test_visual_mpq_cache_cleanup_does_not_touch_installed_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            cache_dir = remote_packages._package_cache_dir(
+                root,
+                "visual_example",
+            )
+            os.makedirs(cache_dir)
+            with open(os.path.join(cache_dir, "payload.mpq"), "wb") as handle:
+                handle.write(b"MPQcached")
+
+            installed = os.path.join(root, "Data", "patch-X.mpq")
+            os.makedirs(os.path.dirname(installed))
+            with open(installed, "wb") as handle:
+                handle.write(b"MPQinstalled")
+
+            remote_packages.remove_package_cache(root, "visual_example")
+
+            self.assertFalse(os.path.exists(cache_dir))
+            self.assertTrue(os.path.isfile(installed))
+
+    def test_managed_mpq_usable_rejects_corrupt_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            relative = os.path.join("Data", "patch-X.mpq")
+            target = os.path.join(root, relative)
+            os.makedirs(os.path.dirname(target))
+            with open(target, "wb") as handle:
+                handle.write(b"not-an-mpq")
+
+            remote_packages._write_managed_manifest(
+                root,
+                "visual_example",
+                [relative],
+                revision="1",
+            )
+
+            self.assertFalse(
+                remote_packages.managed_mpq_is_usable(
+                    root,
+                    "visual_example",
+                )
+            )
+
+            with open(target, "wb") as handle:
+                handle.write(b"MPQvalid")
+
+            self.assertTrue(
+                remote_packages.managed_mpq_is_usable(
+                    root,
+                    "visual_example",
+                )
+            )
+
     def test_remote_mpq_has_no_offline_fallback(self):
         with tempfile.TemporaryDirectory() as root:
             with mock.patch.object(
