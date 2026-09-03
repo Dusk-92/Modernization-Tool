@@ -960,48 +960,66 @@ def write_wowpresence_broadcast_flags(target_dir, value):
 
 
 
-def cache_installed_wowpresence(target_dir, revision=None):
-    """Best-effort cache seed from a hash-verified managed WowPresence install."""
-    dll_path = os.path.join(target_dir, "WowPresence.dll")
-    exe_path = os.path.join(target_dir, "WowPresence.exe")
-    required = ("WowPresence.dll", "WowPresence.exe")
+def wowpresence_install_trust_state(target_dir):
+    """Classify the installed WowPresence pair without trusting PE validity alone.
 
+    Returns one of:
+    - "unmanaged": no Modernization Tool manifest exists;
+    - "managed_verified": recorded hashes match both managed binaries;
+    - "managed_modified": recorded hashes exist but the managed install differs;
+    - "managed_unverified": a legacy/incomplete managed manifest has no usable hashes.
+    """
     manifest = _load_managed_manifest_data(
         target_dir,
         WOWPRESENCE_MANAGED_ID,
     )
     if not isinstance(manifest, dict) or not manifest:
-        return False
+        return "unmanaged"
 
+    required = ("WowPresence.dll", "WowPresence.exe")
     managed_files = {
         rel.replace("\\", "/").casefold()
         for rel in _load_managed_manifest(target_dir, WOWPRESENCE_MANAGED_ID)
     }
     if any(name.casefold() not in managed_files for name in required):
-        return False
+        return "managed_modified"
 
     saved_hashes = manifest.get("file_sha256")
     if not isinstance(saved_hashes, dict):
-        return False
+        return "managed_unverified"
 
-    for filename, path in (
-        ("WowPresence.dll", dll_path),
-        ("WowPresence.exe", exe_path),
-    ):
+    normalized_hashes = {}
+    for filename in required:
         expected = saved_hashes.get(filename)
         if (
             not isinstance(expected, str)
             or len(expected.strip()) != 64
             or any(ch not in "0123456789abcdefABCDEF" for ch in expected.strip())
         ):
-            return False
+            return "managed_unverified"
+        normalized_hashes[filename] = expected.strip().lower()
+
+    for filename in required:
+        path = os.path.join(target_dir, filename)
         try:
-            if _file_sha256(path) != expected.strip().lower():
-                return False
+            if _file_sha256(path) != normalized_hashes[filename]:
+                return "managed_modified"
             _verify_x86_pe(path, f"installed {filename}")
         except (OSError, RemotePackageError):
-            return False
+            return "managed_modified"
 
+    return "managed_verified"
+
+
+def cache_installed_wowpresence(target_dir, revision=None):
+    """Best-effort cache seed from a hash-verified managed WowPresence install."""
+    if wowpresence_install_trust_state(target_dir) != "managed_verified":
+        return False
+
+    manifest = _load_managed_manifest_data(
+        target_dir,
+        WOWPRESENCE_MANAGED_ID,
+    )
     if revision is None:
         revision = manifest.get("revision")
     if revision in (None, ""):
@@ -1016,6 +1034,8 @@ def cache_installed_wowpresence(target_dir, revision=None):
     ) is not None:
         return True
 
+    dll_path = os.path.join(target_dir, "WowPresence.dll")
+    exe_path = os.path.join(target_dir, "WowPresence.exe")
     fd, zip_path = tempfile.mkstemp(prefix="modernization_wowpresence_seed_", suffix=".zip")
     os.close(fd)
     try:
