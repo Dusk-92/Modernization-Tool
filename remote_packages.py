@@ -4,6 +4,7 @@ import os
 import shutil
 import stat
 import struct
+import sys
 import tempfile
 import time
 import urllib.error
@@ -475,6 +476,96 @@ def _cache_current_managed_mpq(target_dir, mod_id, revision):
         validator=_verify_mpq,
     )
     return True
+def _runtime_base_path():
+    return getattr(
+        sys,
+        "_MEIPASS",
+        os.path.dirname(os.path.abspath(__file__)),
+    )
+
+
+def _load_bundled_remote_fallback(
+    package_id,
+    filename=None,
+    expected_revision=None,
+):
+    """Return a release-bundled remote fallback after strict integrity checks."""
+    safe_id = "".join(
+        ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+        for ch in str(package_id)
+    )
+    if safe_id in ("", ".", ".."):
+        return None
+
+    base = _runtime_base_path()
+    manifest_path = os.path.join(
+        base,
+        "Payload",
+        "Fallback",
+        "remote_fallbacks.json",
+    )
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        return None
+
+    fallbacks = manifest.get("fallbacks") if isinstance(manifest, dict) else None
+    if not isinstance(fallbacks, dict):
+        return None
+    record = fallbacks.get(safe_id)
+    if not isinstance(record, dict):
+        return None
+
+    recorded_name = record.get("filename")
+    try:
+        recorded_name = _safe_cache_filename(recorded_name)
+    except RemotePackageError:
+        return None
+    if filename is not None:
+        try:
+            filename = _safe_cache_filename(filename)
+        except RemotePackageError:
+            return None
+        if recorded_name != filename:
+            return None
+
+    revision = record.get("revision")
+    if expected_revision is not None and str(revision) != str(expected_revision):
+        return None
+
+    expected_size = record.get("size")
+    expected_sha = record.get("sha256")
+    if not isinstance(expected_size, int) or expected_size <= 0:
+        return None
+    if (
+        not isinstance(expected_sha, str)
+        or len(expected_sha) != 64
+        or any(ch not in "0123456789abcdefABCDEF" for ch in expected_sha)
+    ):
+        return None
+
+    path = os.path.join(
+        base,
+        "Payload",
+        "Fallback",
+        "Remote",
+        safe_id,
+        recorded_name,
+    )
+    if not os.path.isfile(path):
+        return None
+    try:
+        if os.path.getsize(path) != expected_size:
+            return None
+        if _file_sha256(path) != expected_sha.lower():
+            return None
+    except OSError:
+        return None
+
+    return path, record
+
+
 
 def _remove_tree(path):
     if not os.path.exists(path):
@@ -1120,19 +1211,13 @@ def install_wowpresence(target_dir, progress=None):
     return revision
 
 
-def install_cached_wowpresence(target_dir, progress=None):
-    """Install the last validated WowPresence package cached by this WoW install."""
-    cached = _load_cached_file(
-        target_dir,
-        WOWPRESENCE_MANAGED_ID,
-        "WowPresence.zip",
-    )
-    if cached is None:
-        raise RemotePackageError("No validated WowPresence offline fallback is cached.")
-
-    zip_path, metadata = cached
-    revision = str(metadata.get("revision") or "cached")
-
+def _install_wowpresence_fallback_archive(
+    target_dir,
+    zip_path,
+    revision,
+    package_revision,
+    progress=None,
+):
     existing_manifest = _load_managed_manifest_data(
         target_dir,
         WOWPRESENCE_MANAGED_ID,
@@ -1152,14 +1237,13 @@ def install_cached_wowpresence(target_dir, progress=None):
             )
 
     ensure_wowpresence_config(target_dir)
-    extract_root = tempfile.mkdtemp(prefix="modernization_wowpresence_cache_")
+    extract_root = tempfile.mkdtemp(prefix="modernization_wowpresence_fallback_")
     try:
-        _emit_progress(progress, "Loading cached WowPresence fallback...", None, None)
         _safe_extract(zip_path, extract_root)
         dll_path = _find_file(extract_root, "WowPresence.dll")
         exe_path = _find_file(extract_root, "WowPresence.exe")
-        _verify_x86_pe(dll_path, "cached WowPresence.dll")
-        _verify_x86_pe(exe_path, "cached WowPresence.exe")
+        _verify_x86_pe(dll_path, "fallback WowPresence.dll")
+        _verify_x86_pe(exe_path, "fallback WowPresence.exe")
 
         _install_managed_files_transactional(
             target_dir,
@@ -1179,7 +1263,7 @@ def install_cached_wowpresence(target_dir, progress=None):
                 "WowPresence.exe": _file_sha256(exe_path),
             },
             package_digest=None,
-            package_revision=f"cache:{metadata.get('sha256', '')}",
+            package_revision=package_revision,
         )
     finally:
         shutil.rmtree(extract_root, ignore_errors=True)
@@ -1187,6 +1271,48 @@ def install_cached_wowpresence(target_dir, progress=None):
     ensure_wowpresence_config(target_dir)
     return revision
 
+
+def install_cached_wowpresence(target_dir, progress=None):
+    """Install the last validated WowPresence package cached by this WoW install."""
+    cached = _load_cached_file(
+        target_dir,
+        WOWPRESENCE_MANAGED_ID,
+        "WowPresence.zip",
+    )
+    if cached is None:
+        raise RemotePackageError("No validated WowPresence offline fallback is cached.")
+
+    zip_path, metadata = cached
+    revision = str(metadata.get("revision") or "cached")
+    _emit_progress(progress, "Loading cached WowPresence fallback...", None, None)
+    return _install_wowpresence_fallback_archive(
+        target_dir,
+        zip_path,
+        revision,
+        f"cache:{metadata.get('sha256', '')}",
+        progress=progress,
+    )
+
+
+def install_bundled_wowpresence(target_dir, progress=None):
+    """Install the release-bundled known-good WowPresence fallback."""
+    bundled = _load_bundled_remote_fallback(
+        WOWPRESENCE_MANAGED_ID,
+        "WowPresence.zip",
+    )
+    if bundled is None:
+        raise RemotePackageError("Bundled WowPresence fallback is unavailable.")
+
+    zip_path, metadata = bundled
+    revision = str(metadata.get("revision") or "bundled")
+    _emit_progress(progress, "Loading bundled WowPresence fallback...", None, None)
+    return _install_wowpresence_fallback_archive(
+        target_dir,
+        zip_path,
+        revision,
+        f"bundled:{metadata.get('sha256', '')}",
+        progress=progress,
+    )
 
 def install_interact(target_dir, progress=None):
     _emit_progress(progress, "Checking Interact release...", None, None)
@@ -2046,16 +2172,31 @@ def _install_remote_mpq(
             "payload.mpq",
             expected_revision=revision,
         )
-        if cached is None:
-            raise download_error
-        source_path, _ = cached
-        _verify_mpq(source_path)
-        _emit_progress(
-            progress,
-            f"{label.replace('Downloading ', '')}: using cached offline fallback.",
-            None,
-            None,
-        )
+        if cached is not None:
+            source_path, _ = cached
+            _verify_mpq(source_path)
+            _emit_progress(
+                progress,
+                f"{label.replace('Downloading ', '')}: using cached offline fallback.",
+                None,
+                None,
+            )
+        else:
+            bundled = _load_bundled_remote_fallback(
+                mod_id,
+                "payload.mpq",
+                expected_revision=revision,
+            )
+            if bundled is None:
+                raise download_error
+            source_path, _ = bundled
+            _verify_mpq(source_path)
+            _emit_progress(
+                progress,
+                f"{label.replace('Downloading ', '')}: using bundled offline fallback.",
+                None,
+                None,
+            )
 
     try:
         _emit_progress(progress, f"Installing {os.path.basename(destination)}...", None, None)
@@ -2182,17 +2323,32 @@ def install_pink_herbs(target_dir, progress=None):
                 return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
 
         cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
-        if cached is None:
-            raise revision_error
-        source_path, metadata = cached
-        revision = str(metadata.get("revision") or "cached")
-        _verify_mpq(source_path)
-        _emit_progress(
-            progress,
-            "Pink Herbs: using cached offline fallback.",
-            None,
-            None,
-        )
+        if cached is not None:
+            source_path, metadata = cached
+            revision = str(metadata.get("revision") or "cached")
+            _verify_mpq(source_path)
+            _emit_progress(
+                progress,
+                "Pink Herbs: using cached offline fallback.",
+                None,
+                None,
+            )
+        else:
+            bundled = _load_bundled_remote_fallback(
+                mod_id,
+                "payload.mpq",
+            )
+            if bundled is None:
+                raise revision_error
+            source_path, metadata = bundled
+            revision = str(metadata.get("revision") or "bundled")
+            _verify_mpq(source_path)
+            _emit_progress(
+                progress,
+                "Pink Herbs: using bundled offline fallback.",
+                None,
+                None,
+            )
     else:
         if installed_revision == revision:
             try:
@@ -2252,17 +2408,32 @@ def install_pink_herbs(target_dir, progress=None):
                     return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
 
             cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
-            if cached is None:
-                raise download_error
-            source_path, metadata = cached
-            revision = str(metadata.get("revision") or revision)
-            _verify_mpq(source_path)
-            _emit_progress(
-                progress,
-                "Pink Herbs: using cached offline fallback.",
-                None,
-                None,
-            )
+            if cached is not None:
+                source_path, metadata = cached
+                revision = str(metadata.get("revision") or revision)
+                _verify_mpq(source_path)
+                _emit_progress(
+                    progress,
+                    "Pink Herbs: using cached offline fallback.",
+                    None,
+                    None,
+                )
+            else:
+                bundled = _load_bundled_remote_fallback(
+                    mod_id,
+                    "payload.mpq",
+                )
+                if bundled is None:
+                    raise download_error
+                source_path, metadata = bundled
+                revision = str(metadata.get("revision") or revision)
+                _verify_mpq(source_path)
+                _emit_progress(
+                    progress,
+                    "Pink Herbs: using bundled offline fallback.",
+                    None,
+                    None,
+                )
 
     try:
         _migrate_legacy_pink_herbs_patch(target_dir, source_path, progress=progress)
