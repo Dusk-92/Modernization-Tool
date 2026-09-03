@@ -1483,6 +1483,7 @@ class BundledComponentSafetyTests(unittest.TestCase):
         }
         tool._valid_x86_dll = mock.Mock(return_value=False)
         tool._verified_bundled_file = mock.Mock()
+        tool._verified_bundled_tree = mock.Mock()
         tool._warn_offline = mock.Mock()
 
         with tempfile.TemporaryDirectory() as root:
@@ -1503,6 +1504,7 @@ class BundledComponentSafetyTests(unittest.TestCase):
             target = os.path.join(root, "game")
             os.makedirs(target)
             tool._verified_bundled_file.return_value = (dll, "a" * 64)
+            tool._verified_bundled_tree.return_value = addon
 
             with mock.patch.object(
                 remote_packages,
