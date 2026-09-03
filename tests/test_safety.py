@@ -4,6 +4,7 @@ import os
 import struct
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from unittest import mock
 
@@ -1615,9 +1616,9 @@ class BundledComponentSafetyTests(unittest.TestCase):
             with mock.patch.object(
                 remote_packages,
                 "_download",
-                side_effect=remote_packages.RemotePackageError("offline"),
+                side_effect=urllib.error.URLError("offline"),
             ):
-                with self.assertRaises(remote_packages.RemotePackageError):
+                with self.assertRaises(remote_packages.RemoteSourceUnavailable):
                     remote_packages._install_remote_mpq(
                         root,
                         "visual_example",
@@ -1633,6 +1634,53 @@ class BundledComponentSafetyTests(unittest.TestCase):
                     "payload.mpq",
                 )
             )
+
+    def test_remote_mpq_local_install_error_is_not_source_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            downloaded = os.path.join(root, "downloaded.mpq")
+            with open(downloaded, "wb") as handle:
+                handle.write(b"MPQvalid")
+
+            with (
+                mock.patch.object(
+                    remote_packages,
+                    "_download",
+                    return_value=downloaded,
+                ),
+                mock.patch.object(
+                    remote_packages,
+                    "_install_managed_files",
+                    side_effect=OSError("file locked"),
+                ),
+            ):
+                with self.assertRaises(OSError):
+                    remote_packages._install_remote_mpq(
+                        root,
+                        "visual_example",
+                        "https://example.invalid/visual.mpq",
+                        os.path.join("Data", "patch-X.mpq"),
+                        revision="1",
+                    )
+
+    def test_remote_mpq_invalid_download_is_source_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            downloaded = os.path.join(root, "downloaded.mpq")
+            with open(downloaded, "wb") as handle:
+                handle.write(b"not-an-mpq")
+
+            with mock.patch.object(
+                remote_packages,
+                "_download",
+                return_value=downloaded,
+            ):
+                with self.assertRaises(remote_packages.RemoteSourceUnavailable):
+                    remote_packages._install_remote_mpq(
+                        root,
+                        "visual_example",
+                        "https://example.invalid/visual.mpq",
+                        os.path.join("Data", "patch-X.mpq"),
+                        revision="1",
+                    )
 
     def test_pink_herbs_keeps_valid_installed_revision_when_update_download_fails(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1658,7 +1706,7 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 mock.patch.object(
                     remote_packages,
                     "_download",
-                    side_effect=remote_packages.RemotePackageError("offline"),
+                    side_effect=urllib.error.URLError("offline"),
                 ),
                 mock.patch.object(
                     remote_packages,
@@ -1674,9 +1722,24 @@ class BundledComponentSafetyTests(unittest.TestCase):
 
     def test_installed_wowpresence_can_seed_offline_cache(self):
         with tempfile.TemporaryDirectory() as root:
+            hashes = {}
             for filename in ("WowPresence.dll", "WowPresence.exe"):
-                with open(os.path.join(root, filename), "wb") as handle:
+                path = os.path.join(root, filename)
+                with open(path, "wb") as handle:
                     handle.write(filename.encode("ascii"))
+                hashes[filename] = remote_packages._file_sha256(path)
+
+            remote_packages._write_managed_manifest(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                ["WowPresence.dll", "WowPresence.exe"],
+                revision="v1.3",
+            )
+            remote_packages._set_managed_manifest_values(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                file_sha256=hashes,
+            )
 
             with mock.patch.object(remote_packages, "_verify_x86_pe"):
                 self.assertTrue(
@@ -1693,6 +1756,65 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 expected_revision="v1.3",
             )
             self.assertIsNotNone(cached)
+
+    def test_manual_wowpresence_is_not_promoted_to_validated_cache(self):
+        with tempfile.TemporaryDirectory() as root:
+            for filename in ("WowPresence.dll", "WowPresence.exe"):
+                with open(os.path.join(root, filename), "wb") as handle:
+                    handle.write(filename.encode("ascii"))
+
+            with mock.patch.object(remote_packages, "_verify_x86_pe"):
+                self.assertFalse(
+                    remote_packages.cache_installed_wowpresence(
+                        root,
+                        revision="v1.3",
+                    )
+                )
+
+            self.assertIsNone(
+                remote_packages._load_cached_file(
+                    root,
+                    remote_packages.WOWPRESENCE_MANAGED_ID,
+                    "WowPresence.zip",
+                )
+            )
+
+    def test_modified_managed_wowpresence_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as root:
+            hashes = {}
+            for filename in ("WowPresence.dll", "WowPresence.exe"):
+                path = os.path.join(root, filename)
+                with open(path, "wb") as handle:
+                    handle.write(filename.encode("ascii"))
+                hashes[filename] = remote_packages._file_sha256(path)
+
+            remote_packages._write_managed_manifest(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                ["WowPresence.dll", "WowPresence.exe"],
+                revision="v1.3",
+            )
+            remote_packages._set_managed_manifest_values(
+                root,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                file_sha256=hashes,
+            )
+
+            with open(os.path.join(root, "WowPresence.dll"), "ab") as handle:
+                handle.write(b"modified")
+
+            with mock.patch.object(remote_packages, "_verify_x86_pe"):
+                self.assertFalse(
+                    remote_packages.cache_installed_wowpresence(root)
+                )
+
+            self.assertIsNone(
+                remote_packages._load_cached_file(
+                    root,
+                    remote_packages.WOWPRESENCE_MANAGED_ID,
+                    "WowPresence.zip",
+                )
+            )
 
     def test_superapi_bundled_tree_rejects_tampering(self):
         tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
