@@ -641,18 +641,12 @@ class ModernWowSetupTool(WowSetupTool):
                 dll,
                 (os.path.splitext(dll)[0], "")
             )
-            command = (
-                self.update_superwow_managed_controls
-                if dll == "SuperWoWhook.dll"
-                else None
-            )
             self._plugin_row(
                 left_frame,
                 display_name,
                 var,
                 attribution,
                 self.descriptions.get(dll, ""),
-                command=command,
             )
 
         self._plugin_row(

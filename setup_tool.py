@@ -544,7 +544,6 @@ class WowSetupTool:
                 self._load_legacy_install_state(target_dir)
                 self._normalize_plugin_conflicts()
                 self.toggle_safety_limits()
-                self.update_superwow_managed_controls()
                 return False
 
             try:
@@ -562,7 +561,6 @@ class WowSetupTool:
 
             self._normalize_plugin_conflicts()
             self.toggle_safety_limits()
-            self.update_superwow_managed_controls()
 
             if recovered_from_damage:
                 messagebox.showwarning(
@@ -719,48 +717,7 @@ class WowSetupTool:
             cb.pack(anchor='w', padx=10, pady=4)
             ToolTip(cb, self.descriptions.get(dll, "")) 
 
-    def _superwow_enabled(self):
-        var = self.core_plugins.get("SuperWoWhook.dll")
-        return bool(var is not None and var.get())
-
-    def update_superwow_managed_controls(self):
-        """Keep Vanilla Tweaks controls independent from SuperWoW."""
-        if hasattr(self, "superwow_notice"):
-            try:
-                self.superwow_notice.pack_forget()
-            except tk.TclError:
-                pass
-
-        if hasattr(self, "fov_ratio_combo"):
-            self.fov_ratio_combo.configure(state="readonly")
-        if hasattr(self, "fov_entry"):
-            self.fov_entry.configure(state="normal")
-        if hasattr(self, "sound_scale"):
-            self.sound_scale.configure(state="normal")
-        if hasattr(self, "sound_entry"):
-            self.sound_entry.configure(state="normal")
-        if hasattr(self, "cb_loot"):
-            self.cb_loot.configure(state="normal")
-        if hasattr(self, "cb_bg"):
-            self.cb_bg.configure(state="normal")
-
     def build_tweaks_tab(self, parent):
-        self.superwow_notice = tk.Label(
-            parent,
-            text="",
-            background="#EAF4FF",
-            foreground="#005A9E",
-            font=("Segoe UI", 9, "bold"),
-            relief="solid",
-            borderwidth=1,
-            padx=8,
-            pady=4,
-            anchor="w",
-            justify="left",
-            wraplength=620,
-        )
-        self.superwow_notice.pack(fill="x", padx=10, pady=(5, 2))
-
         fov_frame = ttk.LabelFrame(parent, text="Field of View (FoV) Calculator")
         fov_frame.pack(fill='x', padx=10, pady=5)
 
@@ -857,8 +814,6 @@ class WowSetupTool:
         )
         cb_clear_wdb.grid(row=4, column=0, sticky='w', padx=10, pady=2)
         ToolTip(cb_clear_wdb, self.descriptions["clear_wdb"])
-
-        self.update_superwow_managed_controls()
 
 
     def build_visual_audio_tab(self, parent):

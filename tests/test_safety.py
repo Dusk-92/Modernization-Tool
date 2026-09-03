@@ -839,26 +839,6 @@ class SmartUpdateTests(unittest.TestCase):
         self.assertTrue(signature_with_superwow["quickloot"])
         self.assertTrue(signature_with_superwow["background_sound"])
 
-    def test_superwow_keeps_vanilla_tweaks_controls_enabled(self):
-        tool = WowSetupTool.__new__(WowSetupTool)
-        tool.superwow_notice = mock.Mock()
-        tool.fov_ratio_combo = mock.Mock()
-        tool.fov_entry = mock.Mock()
-        tool.sound_scale = mock.Mock()
-        tool.sound_entry = mock.Mock()
-        tool.cb_loot = mock.Mock()
-        tool.cb_bg = mock.Mock()
-
-        tool.update_superwow_managed_controls()
-
-        tool.superwow_notice.pack_forget.assert_called_once()
-        tool.fov_ratio_combo.configure.assert_called_once_with(state="readonly")
-        tool.fov_entry.configure.assert_called_once_with(state="normal")
-        tool.sound_scale.configure.assert_called_once_with(state="normal")
-        tool.sound_entry.configure.assert_called_once_with(state="normal")
-        tool.cb_loot.configure.assert_called_once_with(state="normal")
-        tool.cb_bg.configure.assert_called_once_with(state="normal")
-
     def test_superwow_modern_cli_keeps_selected_fov_sound_loot_and_background(self):
         tool = WowSetupTool.__new__(WowSetupTool)
         tool.core_plugins = {"SuperWoWhook.dll": FakeVar(True)}
