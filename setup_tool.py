@@ -2540,6 +2540,42 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             signature["superwow_managed_patch_reset"] = 1
         return signature
 
+    def _reset_superwow_managed_exe_patches(self, path):
+        """Undo inherited vanilla-tweaks patches that SuperWoW/SuperAPI own."""
+        with open(path, "rb") as handle:
+            data = bytearray(handle.read())
+
+        required_size = 0x435D3C
+        if len(data) < required_size:
+            raise RuntimeError("WoW executable is too small to normalize SuperWoW-managed patches.")
+
+        for offset in (0x0C1ECF, 0x0C2B25):
+            if data[offset] not in (0x74, 0x75):
+                raise RuntimeError(
+                    f"Unexpected QuickLoot opcode at 0x{offset:X}; refusing to alter an unknown client."
+                )
+            data[offset] = 0x74
+
+        if data[0x3A4869] not in (0x14, 0x27):
+            raise RuntimeError(
+                "Unexpected Background Sound byte; refusing to alter an unknown client."
+            )
+        data[0x3A4869] = 0x14
+        data[0x4089B4:0x4089B8] = struct.pack("<f", 1.5708)
+        data[0x435D38:0x435D3C] = b"12\x00\x00"
+
+        staged = path + ".superwow-reset"
+        try:
+            with open(staged, "wb") as handle:
+                handle.write(data)
+            os.replace(staged, path)
+        finally:
+            if os.path.exists(staged):
+                try:
+                    os.remove(staged)
+                except OSError:
+                    pass
+
     def run_vanilla_tweaks(self, target, tweaks_exe=None, modern_cli=False):
         """Patch a copy of WoW.exe while preserving the original executable."""
         wow_exe = os.path.join(target, "WoW.exe")
@@ -2664,6 +2700,9 @@ WScript.Echo oWS.SpecialFolders("Desktop")
 
         try:
             subprocess.run(args, check=True)
+
+            if superwow_active:
+                self._reset_superwow_managed_exe_patches(staged_output)
 
             valid_pe, reason = self._inspect_wow_executable(staged_output)
             if not valid_pe:
