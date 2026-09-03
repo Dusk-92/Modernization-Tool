@@ -17,8 +17,6 @@ Download the latest version from:
 
 **[GitHub Releases](https://github.com/Dusk-92/Modernization-Tool/releases/latest)**
 
-Current major release: **v2.2**
-
 No installation is required. Download and run:
 
 `WoW_Modernization_Tool.exe`
@@ -56,9 +54,7 @@ Uses WoW's native DirectX 9 renderer together with VanillaFixes.
 
 Uses DXVK to translate DirectX 9 to Vulkan.
 
-The bundled version is currently:
-
-**DXVK 2.6.1 x86**
+DXVK is bundled with the tool and can be selected directly from the renderer options.
 
 Existing custom DirectX wrapper files are backed up rather than blindly deleted when switching renderers.
 
@@ -204,6 +200,54 @@ Existing encryption keys are never replaced.
 
 ---
 
+# 🔗 Components & Upstream Sources
+
+Modernization Tool brings together work from several community projects and developers. These upstream links are kept as the reference instead of maintaining component version numbers in this README.
+
+## Rendering & Client Patching
+
+- [VanillaFixes](https://github.com/hannesmann/vanillafixes)
+- [DXVK](https://github.com/doitsujin/dxvk)
+- [vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
+
+## Core Engine & API Plugins
+
+- [Nampower](https://github.com/brues-code/nampower)
+- [NampowerSettings](https://github.com/brues-code/NampowerSettings)
+- [UnitXP_SP3](https://github.com/brues-code/UnitXP_SP3)
+- [SuperWoW](https://github.com/balakethelock/SuperWoW)
+- [SuperAPI](https://github.com/balakethelock/SuperAPI)
+- [ClassicAPI](https://github.com/brues-code/ClassicAPI)
+- [AuctionQueryThrottle](https://github.com/brues-code/AuctionQueryThrottle)
+- [VanillaHelpers](https://github.com/isfir/VanillaHelpers)
+- [PerfBoost — RetroCro TurtleWoW Mods](https://github.com/RetroCro/TurtleWoW-Mods)
+- [PerfBoost Settings](https://gitea.com/avitasia/PerfBoostSettings)
+- [WeirdPerformance — Dusk-92/WeirdUtils](https://codeberg.org/Dusk92/WeirdUtils)
+- [WeirdUtils — TransmogFix and optional modules](https://codeberg.org/MarcelineVQ/WeirdUtils)
+- [No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)
+- [VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)
+- [Interact](https://github.com/lookino/Interact)
+- [WowPresence](https://github.com/Dusk-92/WowPresence)
+
+## Visual & Audio Mods
+
+- [Bluemoon Patch via vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
+- [Darker Nights — Project Reforged](https://projectreforged.github.io/vanilla/downloads/turtle/)
+- [Pretty Night Sky / Epoch Water / Fog Pushback — RetroCro TurtleWoW Mods](https://github.com/RetroCro/TurtleWoW-Mods)
+- [Pink Herbs](https://github.com/seacrabsam/patch-herb)
+- [NoErrorSounds](https://github.com/Macumbafeh/NoErrorSounds)
+- [FishPing](https://github.com/notsureawake/FishPing)
+- [Warlock Muted Demons](https://github.com/spzilyk/Warlock-Muted-Demons)
+
+## Other Tools & Enhancements
+
+- [Vanilla AutoLogin](https://github.com/MarcelineVQ/turtle-autologin)
+- [Automatic WDB management guide](https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow)
+
+Additional attribution is available directly in the **Credits** tab of Modernization Tool.
+
+---
+
 # 📝 Updating Modernization Tool
 
 Updating from an older version does **not** require reinstalling WoW.
@@ -221,7 +265,9 @@ Your per-installation settings will be restored automatically.
 
 # 🛡️ Antivirus Notice
 
-Because Modernization Tool modifies a game executable and installs client-side DLL plugins, some antivirus products may flag the executable or some included components.
+Because Modernization Tool creates a patched `WoW_Modernized.exe` and installs client-side DLL plugins, some antivirus products may flag the executable or some included components.
+
+The original `WoW.exe` is not modified in place.
 
 Always download Modernization Tool from the official GitHub Releases page.
 
@@ -230,54 +276,15 @@ Always download Modernization Tool from the official GitHub Releases page.
 # 🔗 Useful Links
 
 - **[Latest Release](https://github.com/Dusk-92/Modernization-Tool/releases/latest)**
-- **[v2.2 Release Notes](https://github.com/Dusk-92/Modernization-Tool/releases/tag/v2.2)**
 - **[OctoWoW Installation & Modernization Guide](https://octowow.st/forum/viewtopic.php?t=831)**
 
 ---
 
 # ❤️ Credits
 
-Modernization Tool brings together work from several community projects and developers.
+Modernization Tool builds on the work of the community projects and developers listed in **Components & Upstream Sources** above.
 
-## Rendering & Client Patching
-
-- [VanillaFixes](https://github.com/hannesmann/vanillafixes)
-- [DXVK](https://github.com/doitsujin/dxvk)
-- [vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
-
-## Core Engine & API Plugins
-
-- [VanillaHelpers](https://github.com/isfir/VanillaHelpers)
-- [PerfBoost Settings](https://gitea.com/avitasia/PerfBoostSettings)
-- [UnitXP_SP3](https://github.com/brues-code/UnitXP_SP3)
-- [SuperWoW](https://github.com/balakethelock/SuperWoW)
-- [SuperAPI](https://github.com/balakethelock/SuperAPI)
-- [ClassicAPI](https://github.com/brues-code/ClassicAPI)
-- [AuctionQueryThrottle](https://github.com/brues-code/AuctionQueryThrottle)
-- [Nampower](https://github.com/brues-code/nampower)
-- [NampowerSettings](https://github.com/brues-code/NampowerSettings)
-- [No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)
-- [VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)
-- [Interact](https://github.com/lookino/Interact)
-- [WowPresence](https://github.com/Dusk-92/WowPresence)
-
-## Visual & Audio Mods
-
-- [Bluemoon Patch via vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
-- [Darker Nights — Project Reforged](https://projectreforged.github.io/vanilla/downloads/turtle/)
-- [Pretty Night Sky / Epoch Water / Fog Pushback — RetroCro TurtleWoW Mods](https://github.com/RetroCro/TurtleWoW-Mods)
-- [Pink Herbs](https://github.com/seacrabsam/patch-herb)
-- [NoErrorSounds](https://github.com/Macumbafeh/NoErrorSounds)
-- [FishPing](https://github.com/notsureawake/FishPing)
-- [Warlock Muted Demons](https://github.com/spzilyk/Warlock-Muted-Demons)
-- [Automatic WDB management guide](https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow)
-
-## Other Bundled Enhancements
-
-- [Vanilla AutoLogin](https://github.com/MarcelineVQ/turtle-autologin)
-- [WeirdUtils](https://codeberg.org/Dusk92/WeirdUtils)
-
-Additional attribution and source links are available directly in the **Credits** tab of Modernization Tool.
+Thank you to all upstream authors and contributors whose work makes this project possible. Additional attribution is available directly in the **Credits** tab of Modernization Tool.
 
 ---
 
