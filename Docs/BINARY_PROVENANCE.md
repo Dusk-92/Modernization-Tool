@@ -21,10 +21,10 @@ No remaining payload binary was modified during this provenance pass.
 | ClassicAPI | bundled fallback + online update | brues-code/ClassicAPI | GPL v3 verified |
 | AuctionQueryThrottle | bundled fallback + online update | brues-code/AuctionQueryThrottle | GPL v3 verified |
 | SuperWoW | **upstream-only** | balakethelock/SuperWoW release | redistribution restricted upstream |
-| SuperAPI | **upstream-only** | balakethelock/SuperAPI master | no bundled copy after this audit |
+| SuperAPI | **upstream-only** | balakethelock/SuperAPI master | no bundled copy; current master revision is resolved before download |
 | UnitXP_SP3 | bundled fallback + online update | brues-code/UnitXP_SP3 v90 | project-wide license not independently located |
 | Interact | bundled fallback + online update | lookino/Interact v1.0.4 | project-wide license not independently located |
-| No1600x1200 | bundled fallback + online update | RetroCro/TurtleWoW-Mods | project-wide license not independently located |
+| No1600x1200 | **bundled known-good only** | RetroCro/TurtleWoW-Mods archive source | project-wide license not independently located |
 | PerfBoost | bundled | RetroCro/TurtleWoW-Mods backup source | project-wide license not independently located |
 | WeirdPerformance | bundled | Dusk92/WeirdUtils 0.7.3 | provenance recorded; license record pending |
 | WeirdUtils modules | bundled | MarcelineVQ/WeirdUtils releases | provenance recorded; license record pending |
@@ -46,8 +46,8 @@ That bundled fallback is removed by this audit because the current upstream
 license restricts redistribution without express written permission.
 
 The installation feature itself is retained: `remote_packages.install_superwow`
-already downloads the official upstream release and downloads SuperAPI directly
-from its upstream repository.
+downloads the official SuperWoW release and the current SuperAPI master
+revision directly from its upstream repository.
 
 ## SuperAPI change
 

@@ -17,8 +17,6 @@ Download the latest version from:
 
 **[GitHub Releases](https://github.com/Dusk-92/Modernization-Tool/releases/latest)**
 
-Current major release: **v2.2**
-
 No installation is required. Download and run:
 
 `WoW_Modernization_Tool.exe`
@@ -46,60 +44,58 @@ The launcher shortcut is automatically created:
 
 Two rendering modes are available:
 
-### VanillaFixes — DirectX 9
+### [VanillaFixes](https://github.com/hannesmann/vanillafixes) — DirectX 9
 
 The default option.
 
 Uses WoW's native DirectX 9 renderer together with VanillaFixes.
 
-### VanillaFixes + DXVK — Vulkan
+### VanillaFixes + [DXVK](https://github.com/doitsujin/dxvk) — Vulkan
 
 Uses DXVK to translate DirectX 9 to Vulkan.
 
-The bundled version is currently:
-
-**DXVK 2.6.1 x86**
+DXVK is bundled with the tool and can be selected directly from the renderer options.
 
 Existing custom DirectX wrapper files are backed up rather than blindly deleted when switching renderers.
 
 ---
 
-# 🧩 Client Plugins
+# 🧩 Client Plugins & Sources
 
 ## Recommended Core
 
 The tool can install and configure several recommended client extensions:
 
-- **Nampower** — improves spell responsiveness and latency handling.
-- **UnitXP_SP3** — adds networking, targeting, Lua and client improvements.
-- **SuperWoW** — expands the Vanilla Lua API and improves addon compatibility.
-- **TransmogFix** — prevents performance drops caused by rapid appearance updates.
-- **PerfBoost** — provides additional unit rendering/performance controls.
-- **WeirdPerformance** — lightweight client optimizations aimed at improving FPS and reducing UI memory leaks for smoother gameplay.
-- **VanillaHelpers** — extends several Vanilla client limits.
-- **ClassicAPI** — adds newer WoW API functions for compatible addons.
-- **AuctionQueryThrottle** — removes the fixed delay between Auction House queries.
+- **[Nampower](https://github.com/brues-code/nampower)** — improves spell responsiveness and latency handling. Settings addon: [NampowerSettings](https://github.com/brues-code/NampowerSettings).
+- **[UnitXP_SP3](https://github.com/brues-code/UnitXP_SP3)** — adds networking, targeting, Lua and client improvements.
+- **[SuperWoW](https://github.com/balakethelock/SuperWoW)** — expands the Vanilla Lua API and improves addon compatibility. Its companion API addon is [SuperAPI](https://github.com/balakethelock/SuperAPI).
+- **[TransmogFix](https://codeberg.org/MarcelineVQ/WeirdUtils)** — prevents performance drops caused by rapid appearance updates.
+- **[PerfBoost](https://github.com/RetroCro/TurtleWoW-Mods)** — provides additional unit rendering/performance controls. Configuration addon: [PerfBoost Settings](https://gitea.com/avitasia/PerfBoostSettings).
+- **[WeirdPerformance](https://codeberg.org/Dusk92/WeirdUtils)** — lightweight client optimizations aimed at improving FPS and reducing UI memory leaks for smoother gameplay.
+- **[VanillaHelpers](https://github.com/isfir/VanillaHelpers)** — extends several Vanilla client limits.
+- **[ClassicAPI](https://github.com/brues-code/ClassicAPI)** — adds newer WoW API functions for compatible addons.
+- **[AuctionQueryThrottle](https://github.com/brues-code/AuctionQueryThrottle)** — removes the fixed delay between Auction House queries.
 
 ## Optional Plugins
 
 Optional client-side improvements include:
 
-- **VanillaMultiMonitorFix** — improved resolution, refresh-rate and monitor detection.
-- **Interact** — adds a modern Interact key for NPCs, objects, gathering nodes and loot.
-- **No1600x1200** — fixes the old Vanilla resolution limitation on some systems.
-- **BigCursor** — upscales the hardware cursor for better visibility on modern high-resolution displays without sacrificing sharpness.
-- **CustomAssets** — allows loose game files to be loaded directly from the `Data/` folder and supports custom multi-character patch names without repacking MPQ archives.
-- **LogSessions** — automatically organizes combat and chat logs into clean per-character, per-day files when you log in.
-- **MinimapIcons** — adds TBC/WotLK-style minimap tracking icons for NPCs and game objects, with a combined tracking menu and saved preferences.
-- **PNG Screenshots** — saves screenshots as compressed PNG files instead of the default uncompressed TGA format, using background processing to minimize frame-time impact.
-- **WorldMarkers** — lets party or raid leaders place up to five animated, Cataclysm-style colored world markers for positioning and tactical planning.
-- **Discord Rich Presence** — installs and keeps **WowPresence** up to date from [Dusk-92/WowPresence](https://github.com/Dusk-92/WowPresence). The Tool preconfigures the OctoWoW Discord Application ID and lets you choose which character details are shown on Discord, including **Name, Guild, Race, Faction, Class, Level and Zone**. Custom Discord Application IDs are preserved across updates.
+- **[VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)** — improved resolution, refresh-rate and monitor detection.
+- **[Interact](https://github.com/lookino/Interact)** — adds a modern Interact key for NPCs, objects, gathering nodes and loot.
+- **[No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)** — fixes the old Vanilla resolution limitation on some systems.
+- **[BigCursor](https://codeberg.org/MarcelineVQ/WeirdUtils)** — upscales the hardware cursor for better visibility on modern high-resolution displays without sacrificing sharpness.
+- **[CustomAssets](https://codeberg.org/MarcelineVQ/WeirdUtils)** — allows loose game files to be loaded directly from the `Data/` folder and supports custom multi-character patch names without repacking MPQ archives.
+- **[LogSessions](https://codeberg.org/MarcelineVQ/WeirdUtils)** — automatically organizes combat and chat logs into clean per-character, per-day files when you log in.
+- **[MinimapIcons](https://codeberg.org/MarcelineVQ/WeirdUtils)** — adds TBC/WotLK-style minimap tracking icons for NPCs and game objects, with a combined tracking menu and saved preferences.
+- **[PNG Screenshots](https://codeberg.org/MarcelineVQ/WeirdUtils)** — saves screenshots as compressed PNG files instead of the default uncompressed TGA format, using background processing to minimize frame-time impact.
+- **[WorldMarkers](https://codeberg.org/MarcelineVQ/WeirdUtils)** — lets party or raid leaders place up to five animated, Cataclysm-style colored world markers for positioning and tactical planning.
+- **[Discord Rich Presence](https://github.com/Dusk-92/WowPresence)** — installs and keeps **WowPresence** up to date. The Tool preconfigures the OctoWoW Discord Application ID and lets you choose which character details are shown on Discord, including **Name, Guild, Race, Faction, Class, Level and Zone**. Custom Discord Application IDs are preserved across updates.
 
 ---
 
 # ⚙️ Vanilla Tweaks
 
-Modernization Tool integrates the modern **tubtubs/vanilla-tweaks** patcher.
+Modernization Tool integrates the modern **[tubtubs/vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)** patcher.
 
 Available settings include:
 
@@ -117,7 +113,7 @@ Available settings include:
 - Unlimited AddOn Script Memory
 - Cross-Faction Resurrection Fix
 - Custom Glues Patch
-- Automatic WDB management
+- [Automatic WDB management](https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow)
 
 When **SuperWoW** already provides a feature, the equivalent vanilla-tweaks patch is automatically skipped to avoid duplicate modifications.
 
@@ -127,12 +123,12 @@ When **SuperWoW** already provides a feature, the equivalent vanilla-tweaks patc
 
 Optional visual modifications are available directly from the tool:
 
-- **Bluemoon Patch** — restores the rare blue moon effect.
-- **Darker Nights** — darker and more atmospheric nights.
-- **Pretty Night Sky** — improved starry night sky.
-- **Epoch Water** — alternative water textures.
-- **Fog Pushback** — moves environmental fog farther away.
-- **Pink Herbs** — makes herb nodes much easier to spot.
+- **[Bluemoon Patch](https://github.com/tubtubs/vanilla-tweaks)** — restores the rare blue moon effect.
+- **[Darker Nights](https://projectreforged.github.io/vanilla/downloads/turtle/)** — darker and more atmospheric nights.
+- **[Pretty Night Sky](https://github.com/RetroCro/TurtleWoW-Mods)** — improved starry night sky.
+- **[Epoch Water](https://github.com/RetroCro/TurtleWoW-Mods)** — alternative water textures.
+- **[Fog Pushback](https://github.com/RetroCro/TurtleWoW-Mods)** — moves environmental fog farther away.
+- **[Pink Herbs](https://github.com/seacrabsam/patch-herb)** — makes herb nodes much easier to spot.
 
 All visual mods are **disabled by default**.
 
@@ -142,9 +138,9 @@ All visual mods are **disabled by default**.
 
 Optional sound replacements include:
 
-- **NoErrorSounds** — removes repetitive error/fizzle and interface sounds.
-- **FishPing** — replaces the fishing bite sound with a clearer ping.
-- **Warlock Muted Demons** — mutes repetitive Warlock demon voice lines.
+- **[NoErrorSounds](https://github.com/Macumbafeh/NoErrorSounds)** — removes repetitive error/fizzle and interface sounds.
+- **[FishPing](https://github.com/notsureawake/FishPing)** — replaces the fishing bite sound with a clearer ping.
+- **[Warlock Muted Demons](https://github.com/spzilyk/Warlock-Muted-Demons)** — mutes repetitive Warlock demon voice lines.
 
 All audio mods are **disabled by default**.
 
@@ -162,11 +158,15 @@ Depending on the component, the tool can:
 - use a bundled known-good fallback where redistribution terms allow it;
 - avoid re-downloading files that are already current.
 
-**SuperWoW and SuperAPI are upstream-only:** they are downloaded directly from
-their official upstream projects when enabled and are not bundled as offline
-fallbacks. A first-time SuperWoW installation therefore requires network access.
+**SuperWoW and SuperAPI are upstream-only:** SuperWoW is downloaded from its
+official stable release and SuperAPI follows the current upstream `master`
+revision. They are not bundled as offline fallbacks, so a first-time SuperWoW
+installation requires network access.
 
-Downloaded DLLs are also validated before installation.
+**No1600x1200 uses the bundled known-good copy** instead of following the
+RetroCro archive repository automatically.
+
+Downloaded and bundled DLLs are validated before installation.
 
 ---
 
@@ -188,7 +188,7 @@ It also:
 
 # 🔐 AutoLogin
 
-AutoLogin can optionally save account and character shortcuts on the login screen.
+[Vanilla AutoLogin](https://github.com/MarcelineVQ/turtle-autologin) can optionally save account and character shortcuts on the login screen.
 
 When **AutoLogin + Nampower** are enabled together, Modernization Tool automatically creates or reuses the Windows user encryption key required by Nampower.
 
@@ -197,27 +197,6 @@ Password encryption is enabled by default when available.
 Existing encryption keys are never replaced.
 
 > 🔒 Your encryption key is stored in the Windows user environment and is not written to the WoW folder.
-
----
-
-# 📦 Current Notable Versions
-
-| Component | Version |
-|---|---|
-| VanillaFixes | 1.5.3 |
-| DXVK | 2.6.1 x86 |
-| Nampower | 4.6.1 |
-| ClassicAPI | 1.13.3 |
-| AuctionQueryThrottle | 1.2.0 |
-| UnitXP_SP3 | v90 |
-| SuperWoW | 2.2 |
-| VanillaHelpers | 1.1.2 |
-| WeirdPerformance | 0.7.3 |
-| WorldMarkers | 0.7.1 |
-| VanillaMultiMonitorFix | 0.2 |
-| Interact | 1.0.4 |
-
-Where supported, the tool will attempt to obtain the latest compatible upstream version automatically.
 
 ---
 
@@ -238,7 +217,9 @@ Your per-installation settings will be restored automatically.
 
 # 🛡️ Antivirus Notice
 
-Because Modernization Tool modifies a game executable and installs client-side DLL plugins, some antivirus products may flag the executable or some included components.
+Because Modernization Tool creates a patched `WoW_Modernized.exe` and installs client-side DLL plugins, some antivirus products may flag the executable or some included components.
+
+The original `WoW.exe` is not modified in place.
 
 Always download Modernization Tool from the official GitHub Releases page.
 
@@ -247,54 +228,15 @@ Always download Modernization Tool from the official GitHub Releases page.
 # 🔗 Useful Links
 
 - **[Latest Release](https://github.com/Dusk-92/Modernization-Tool/releases/latest)**
-- **[v2.2 Release Notes](https://github.com/Dusk-92/Modernization-Tool/releases/tag/v2.2)**
 - **[OctoWoW Installation & Modernization Guide](https://octowow.st/forum/viewtopic.php?t=831)**
 
 ---
 
 # ❤️ Credits
 
-Modernization Tool brings together work from several community projects and developers.
+Modernization Tool builds on the work of the community projects and developers linked throughout this README.
 
-## Rendering & Client Patching
-
-- [VanillaFixes](https://github.com/hannesmann/vanillafixes)
-- [DXVK](https://github.com/doitsujin/dxvk)
-- [vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
-
-## Core Engine & API Plugins
-
-- [VanillaHelpers](https://github.com/isfir/VanillaHelpers)
-- [PerfBoost Settings](https://gitea.com/avitasia/PerfBoostSettings)
-- [UnitXP_SP3](https://github.com/brues-code/UnitXP_SP3)
-- [SuperWoW](https://github.com/balakethelock/SuperWoW)
-- [SuperAPI](https://github.com/balakethelock/SuperAPI)
-- [ClassicAPI](https://github.com/brues-code/ClassicAPI)
-- [AuctionQueryThrottle](https://github.com/brues-code/AuctionQueryThrottle)
-- [Nampower](https://github.com/brues-code/nampower)
-- [NampowerSettings](https://github.com/brues-code/NampowerSettings)
-- [No1600x1200](https://github.com/RetroCro/TurtleWoW-Mods#no1600x1200)
-- [VanillaMultiMonitorFix](https://github.com/Mates1500/VanillaMultiMonitorFix)
-- [Interact](https://github.com/lookino/Interact)
-- [WowPresence](https://github.com/Dusk-92/WowPresence)
-
-## Visual & Audio Mods
-
-- [Bluemoon Patch via vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
-- [Darker Nights — Project Reforged](https://projectreforged.github.io/vanilla/downloads/turtle/)
-- [Pretty Night Sky / Epoch Water / Fog Pushback — RetroCro TurtleWoW Mods](https://github.com/RetroCro/TurtleWoW-Mods)
-- [Pink Herbs](https://github.com/seacrabsam/patch-herb)
-- [NoErrorSounds](https://github.com/Macumbafeh/NoErrorSounds)
-- [FishPing](https://github.com/notsureawake/FishPing)
-- [Warlock Muted Demons](https://github.com/spzilyk/Warlock-Muted-Demons)
-- [Automatic WDB management guide](https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow)
-
-## Other Bundled Enhancements
-
-- [Vanilla AutoLogin](https://github.com/MarcelineVQ/turtle-autologin)
-- [WeirdUtils](https://codeberg.org/Dusk92/WeirdUtils)
-
-Additional attribution and source links are available directly in the **Credits** tab of Modernization Tool.
+Thank you to all upstream authors and contributors whose work makes this project possible. Additional attribution is available directly in the **Credits** tab of Modernization Tool.
 
 ---
 
@@ -311,8 +253,8 @@ For detailed redistribution and provenance information, see:
 - [Docs/ASSET_PROVENANCE.md](Docs/ASSET_PROVENANCE.md)
 - [LICENSES/](LICENSES/)
 
-SuperWoW and SuperAPI are downloaded directly from their upstream projects and
-are not bundled as offline fallbacks.
+SuperWoW and the current SuperAPI master revision are downloaded directly from
+their upstream projects and are not bundled as offline fallbacks.
 
 ---
 

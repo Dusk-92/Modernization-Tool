@@ -353,6 +353,31 @@ def _remove_path(path):
     os.remove(path)
 
 
+def _cleanup_transaction_backups(target):
+    """Best-effort cleanup of stale backups once a valid live target exists."""
+    target = os.path.abspath(target)
+    if not os.path.lexists(target):
+        return
+
+    parent = os.path.dirname(target)
+    prefix = os.path.basename(target) + ".modernization-backup-"
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return
+
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        backup = os.path.join(parent, name)
+        try:
+            _remove_path(backup)
+        except OSError:
+            # The old file may still be locked by WoW/Windows. Keep it safe
+            # and retry automatically the next time this package is verified.
+            pass
+
+
 def _transactional_replace_bundle(items, label="component bundle"):
     """Replace a group of files/directories as one rollback-safe transaction.
 
@@ -469,15 +494,10 @@ def _transactional_replace_bundle(items, label="component bundle"):
         ) from exc
 
     else:
-        # Commit succeeded. Old copies are no longer needed.
+        # Commit succeeded. Old copies are no longer needed. Clean the current
+        # transaction backup plus any stale backup left by an earlier run.
         for record in records:
-            if record["backup_created"] and os.path.lexists(record["backup"]):
-                try:
-                    _remove_path(record["backup"])
-                except OSError:
-                    # A stale backup is harmless; never invalidate a successful
-                    # installation just because cleanup was denied.
-                    pass
+            _cleanup_transaction_backups(record["target"])
 
     finally:
         # Staged paths are safe to remove. Backups are intentionally not
@@ -1162,7 +1182,17 @@ def _package_state_is_current(target_dir, package_id, revision):
         current = _snapshot_package_paths(target_dir, paths.keys())
     except OSError:
         return False
-    return current == paths
+
+    is_current = current == paths
+    if is_current:
+        # A verified current package no longer needs rollback artifacts from
+        # earlier successful installs. Retry best-effort cleanup here so a
+        # Windows file lock does not leave them around indefinitely.
+        for relative_path in paths:
+            _cleanup_transaction_backups(
+                os.path.join(target_dir, relative_path)
+            )
+    return is_current
 
 
 def _record_package_state_safely(target_dir, package_id, revision, relative_paths):
@@ -1726,7 +1756,7 @@ def install_pink_herbs(target_dir, progress=None):
         return f"seacrabsam/patch-herb main@{revision[:7]}"
 
     temp_path = _download(
-        "https://raw.githubusercontent.com/seacrabsam/patch-herb/main/patch-H.mpq",
+        f"https://raw.githubusercontent.com/seacrabsam/patch-herb/{revision}/patch-H.mpq",
         suffix=".mpq",
         progress=progress,
         label="Downloading Pink Herbs",
@@ -1762,8 +1792,15 @@ def install_pink_herbs(target_dir, progress=None):
     return f"seacrabsam/patch-herb main@{revision[:7]}"
 
 
-def _download_github_branch_archive(repo, branch, progress=None, label="Downloading sound mod"):
-    url = f"https://codeload.github.com/{repo}/zip/refs/heads/{branch}"
+def _download_github_branch_archive(
+    repo,
+    branch,
+    progress=None,
+    label="Downloading sound mod",
+    revision=None,
+):
+    revision = revision or _branch_head_sha(repo, branch)
+    url = f"https://codeload.github.com/{repo}/zip/{revision}"
     return _download(
         url,
         suffix=".zip",
@@ -1812,6 +1849,7 @@ def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, 
         branch,
         progress=progress,
         label=label,
+        revision=revision,
     )
     extract_root = tempfile.mkdtemp(prefix=f"modernization_{mod_id}_")
     try:
@@ -1992,7 +2030,7 @@ def install_no1600x1200(target_dir, progress=None):
 
     url = (
         "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/"
-        "refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll"
+        f"{revision}/Archive/DLL%20BACKUP/no1600x1200.dll"
     )
     temp_path = _download(
         url,
@@ -2198,7 +2236,7 @@ def install_superwow(target_dir, progress=None):
         # Prepare SuperAPI completely before changing the installed DLL.
         _emit_progress(progress, "Preparing SuperAPI update...", None, None)
         superapi_zip = _download(
-            "https://codeload.github.com/balakethelock/SuperAPI/zip/refs/heads/master",
+            f"https://codeload.github.com/balakethelock/SuperAPI/zip/{superapi_revision}",
             suffix=".zip",
             progress=progress,
             label="Downloading SuperAPI addon",
