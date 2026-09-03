@@ -1431,51 +1431,6 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 )
             )
 
-    def test_remote_mpq_uses_validated_cache_when_download_fails(self):
-        with tempfile.TemporaryDirectory() as root:
-            source = os.path.join(root, "visual.mpq")
-            with open(source, "wb") as handle:
-                handle.write(b"MPQcached-visual")
-
-            remote_packages._store_cached_file(
-                root,
-                "visual_example",
-                source,
-                "payload.mpq",
-                revision="rev1",
-            )
-
-            with (
-                mock.patch.object(
-                    remote_packages,
-                    "_download",
-                    side_effect=remote_packages.RemotePackageError("offline"),
-                ),
-                mock.patch.object(
-                    remote_packages,
-                    "_install_managed_files",
-                ) as install,
-            ):
-                remote_packages._install_remote_mpq(
-                    root,
-                    "visual_example",
-                    "https://example.invalid/visual.mpq",
-                    os.path.join("Data", "patch-X.mpq"),
-                    revision="rev1",
-                )
-
-            cached = remote_packages._load_cached_file(
-                root,
-                "visual_example",
-                "payload.mpq",
-                expected_revision="rev1",
-            )
-            self.assertIsNotNone(cached)
-            self.assertEqual(
-                install.call_args.args[2][0][0],
-                cached[0],
-            )
-
     def test_superwow_bundled_fallback_keeps_dll_and_superapi_paired(self):
         tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
         tool.addon_dependencies = {
@@ -1603,70 +1558,29 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 )
             )
 
-    def test_current_managed_mpq_seeds_cache_without_network(self):
+    def test_remote_mpq_has_no_offline_fallback(self):
         with tempfile.TemporaryDirectory() as root:
-            relative = os.path.join("Data", "patch-X.mpq")
-            target = os.path.join(root, relative)
-            os.makedirs(os.path.dirname(target))
-            with open(target, "wb") as handle:
-                handle.write(b"MPQalready-current")
-
-            remote_packages._write_managed_manifest(
-                root,
-                "visual_example",
-                [relative],
-                revision="1",
-            )
-
-            with mock.patch.object(remote_packages, "_download") as download:
-                remote_packages._install_remote_mpq(
-                    root,
-                    "visual_example",
-                    "https://example.invalid/visual.mpq",
-                    relative,
-                    revision="1",
-                )
-
-            download.assert_not_called()
-            cached = remote_packages._load_cached_file(
-                root,
-                "visual_example",
-                "payload.mpq",
-                expected_revision="1",
-            )
-            self.assertIsNotNone(cached)
-
-    def test_cache_write_failure_does_not_break_online_mpq_install(self):
-        with tempfile.TemporaryDirectory() as root:
-            downloaded = os.path.join(root, "downloaded.mpq")
-            with open(downloaded, "wb") as handle:
-                handle.write(b"MPQdownloaded")
-
-            with (
-                mock.patch.object(
-                    remote_packages,
-                    "_download",
-                    return_value=downloaded,
-                ),
-                mock.patch.object(
-                    remote_packages,
-                    "_install_managed_files",
-                ) as install,
-                mock.patch.object(
-                    remote_packages,
-                    "_store_cached_file_safely",
-                    return_value=None,
-                ),
+            with mock.patch.object(
+                remote_packages,
+                "_download",
+                side_effect=remote_packages.RemotePackageError("offline"),
             ):
-                remote_packages._install_remote_mpq(
+                with self.assertRaises(remote_packages.RemotePackageError):
+                    remote_packages._install_remote_mpq(
+                        root,
+                        "visual_example",
+                        "https://example.invalid/visual.mpq",
+                        os.path.join("Data", "patch-X.mpq"),
+                        revision="1",
+                    )
+
+            self.assertIsNone(
+                remote_packages._load_cached_file(
                     root,
                     "visual_example",
-                    "https://example.invalid/visual.mpq",
-                    os.path.join("Data", "patch-X.mpq"),
-                    revision="2",
+                    "payload.mpq",
                 )
-
-            install.assert_called_once()
+            )
 
     def test_pink_herbs_keeps_valid_installed_revision_when_update_download_fails(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1830,67 +1744,6 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 handle.write("-- lib\n")
 
             self.assertTrue(tool._valid_superapi_addon(addon))
-
-    def test_bundled_remote_mpq_fallback_is_verified_and_used(self):
-        with tempfile.TemporaryDirectory() as runtime_root, tempfile.TemporaryDirectory() as game:
-            fallback_dir = os.path.join(
-                runtime_root,
-                "Payload",
-                "Fallback",
-                "Remote",
-                "visual_example",
-            )
-            os.makedirs(fallback_dir)
-            payload = os.path.join(fallback_dir, "payload.mpq")
-            with open(payload, "wb") as handle:
-                handle.write(b"MPQbundled")
-
-            manifest_path = os.path.join(
-                runtime_root,
-                "Payload",
-                "Fallback",
-                "remote_fallbacks.json",
-            )
-            with open(manifest_path, "w", encoding="utf-8") as handle:
-                json.dump(
-                    {
-                        "fallbacks": {
-                            "visual_example": {
-                                "filename": "payload.mpq",
-                                "revision": "1",
-                                "size": os.path.getsize(payload),
-                                "sha256": hashlib.sha256(b"MPQbundled").hexdigest(),
-                            }
-                        }
-                    },
-                    handle,
-                )
-
-            with (
-                mock.patch.object(
-                    remote_packages,
-                    "_runtime_base_path",
-                    return_value=runtime_root,
-                ),
-                mock.patch.object(
-                    remote_packages,
-                    "_download",
-                    side_effect=remote_packages.RemotePackageError("offline"),
-                ),
-                mock.patch.object(
-                    remote_packages,
-                    "_install_managed_files",
-                ) as install,
-            ):
-                remote_packages._install_remote_mpq(
-                    game,
-                    "visual_example",
-                    "https://example.invalid/visual.mpq",
-                    os.path.join("Data", "patch-X.mpq"),
-                    revision="1",
-                )
-
-            self.assertEqual(install.call_args.args[2][0][0], payload)
 
     def test_bundled_wowpresence_can_install_without_cache(self):
         with tempfile.TemporaryDirectory() as runtime_root, tempfile.TemporaryDirectory() as game:
