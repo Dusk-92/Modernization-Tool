@@ -204,27 +204,6 @@ Existing encryption keys are never replaced.
 
 ---
 
-# 📦 Current Notable Versions
-
-| Component | Version |
-|---|---|
-| VanillaFixes | 1.5.3 |
-| DXVK | 2.6.1 x86 |
-| Nampower | 4.6.1 |
-| ClassicAPI | 1.13.3 |
-| AuctionQueryThrottle | 1.2.0 |
-| UnitXP_SP3 | v90 |
-| SuperWoW | 2.2 |
-| VanillaHelpers | 1.1.2 |
-| WeirdPerformance | 0.7.3 |
-| WorldMarkers | 0.7.1 |
-| VanillaMultiMonitorFix | 0.2 |
-| Interact | 1.0.4 |
-
-Where supported, the tool will attempt to obtain the latest compatible upstream version automatically.
-
----
-
 # 📝 Updating Modernization Tool
 
 Updating from an older version does **not** require reinstalling WoW.
