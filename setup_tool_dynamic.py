@@ -43,15 +43,13 @@ class ModernWowSetupTool(WowSetupTool):
         self._download_indeterminate = False
         super().__init__(root)
 
-    def _bundled_manifest_record(self, relative_path):
-        """Return the expected size/hash record for one bundled payload file."""
+    def _bundled_manifest_components(self):
         metadata_path = os.path.join(
             get_base_path(),
             "Payload",
             "Fallback",
             "versions.json",
         )
-        wanted = relative_path.replace("\\", "/").casefold()
         try:
             with open(metadata_path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -63,8 +61,12 @@ class ModernWowSetupTool(WowSetupTool):
         components = data.get("components") if isinstance(data, dict) else None
         if not isinstance(components, dict):
             raise RuntimeError("Bundled component integrity metadata is invalid.")
+        return components
 
-        for component in components.values():
+    def _bundled_manifest_record(self, relative_path):
+        """Return the expected size/hash record for one bundled payload file."""
+        wanted = relative_path.replace("\\", "/").casefold()
+        for component in self._bundled_manifest_components().values():
             files = component.get("files") if isinstance(component, dict) else None
             if not isinstance(files, list):
                 continue
@@ -78,6 +80,14 @@ class ModernWowSetupTool(WowSetupTool):
         raise RuntimeError(
             f"No integrity record exists for bundled file {relative_path}."
         )
+
+    def _bundled_manifest_component(self, component_name):
+        component = self._bundled_manifest_components().get(component_name)
+        if not isinstance(component, dict):
+            raise RuntimeError(
+                f"No bundled integrity metadata exists for {component_name}."
+            )
+        return component
 
     def _verified_bundled_file(self, relative_path, label):
         """Validate a bundled file before it is allowed to touch the WoW folder."""
@@ -115,6 +125,74 @@ class ModernWowSetupTool(WowSetupTool):
             remote_packages._verify_x86_pe(source, f"bundled {label}")
 
         return source, expected_sha
+
+    def _verified_bundled_tree(
+        self,
+        component_name,
+        records_key,
+        root_relative_path,
+        label,
+    ):
+        """Verify an exact bundled file tree using recorded canonical Git blob IDs."""
+        component = self._bundled_manifest_component(component_name)
+        records = component.get(records_key)
+        if not isinstance(records, list) or not records:
+            raise RuntimeError(f"Missing bundled tree metadata for {label}.")
+
+        root = os.path.join(
+            get_base_path(),
+            *root_relative_path.replace("\\", "/").split("/"),
+        )
+        if not os.path.isdir(root):
+            raise RuntimeError(f"Bundled {label} folder is missing.")
+
+        expected = {}
+        prefix = root_relative_path.replace("\\", "/").rstrip("/") + "/"
+        for record in records:
+            if not isinstance(record, dict):
+                raise RuntimeError(f"Invalid bundled tree metadata for {label}.")
+            path = record.get("path")
+            size = record.get("size")
+            blob_sha = record.get("git_blob_sha1")
+            if (
+                not isinstance(path, str)
+                or not path.replace("\\", "/").startswith(prefix)
+                or not isinstance(size, int)
+                or size < 0
+                or not isinstance(blob_sha, str)
+                or len(blob_sha) != 40
+                or any(ch not in "0123456789abcdefABCDEF" for ch in blob_sha)
+            ):
+                raise RuntimeError(f"Invalid bundled tree metadata for {label}.")
+            expected[path.replace("\\", "/").casefold()] = (size, blob_sha.lower())
+
+        actual = {}
+        for current_root, dirs, files in os.walk(root):
+            dirs.sort(key=str.casefold)
+            files.sort(key=str.casefold)
+            for filename in files:
+                full_path = os.path.join(current_root, filename)
+                rel_from_root = os.path.relpath(full_path, root).replace(os.sep, "/")
+                manifest_path = prefix + rel_from_root
+                actual[manifest_path.casefold()] = full_path
+
+        if set(actual) != set(expected):
+            raise RuntimeError(
+                f"Bundled {label} file set does not match its integrity metadata."
+            )
+
+        for key, full_path in actual.items():
+            expected_size, expected_blob_sha = expected[key]
+            if os.path.getsize(full_path) != expected_size:
+                raise RuntimeError(
+                    f"Bundled {label} contains a file with an unexpected size."
+                )
+            if remote_packages._git_blob_sha1(full_path) != expected_blob_sha:
+                raise RuntimeError(
+                    f"Bundled {label} failed its exact file integrity check."
+                )
+
+        return root
 
     def _install_verified_bundled_file(self, relative_path, target_path, label):
         source, expected_sha = self._verified_bundled_file(relative_path, label)
@@ -705,6 +783,39 @@ class ModernWowSetupTool(WowSetupTool):
         except Exception:
             return False
 
+    def _valid_superapi_addon(self, addon_path):
+        """Reject empty/partial SuperAPI folders before treating them as usable."""
+        required = (
+            "SuperAPI.toc",
+            "SuperAPI.lua",
+            "SuperAPIOptions.lua",
+        )
+        if not os.path.isdir(addon_path):
+            return False
+        if any(not os.path.isfile(os.path.join(addon_path, name)) for name in required):
+            return False
+
+        toc_path = os.path.join(addon_path, "SuperAPI.toc")
+        try:
+            with open(toc_path, "r", encoding="utf-8", errors="ignore") as handle:
+                lines = handle.readlines()
+        except OSError:
+            return False
+
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            normalized = line.replace("\\", os.sep).replace("/", os.sep)
+            if normalized.startswith(".." + os.sep) or os.path.isabs(normalized):
+                return False
+            extension = os.path.splitext(normalized)[1].lower()
+            if extension in (".lua", ".xml") and not os.path.isfile(
+                os.path.join(addon_path, normalized)
+            ):
+                return False
+        return True
+
     def _fallback_core_dll(self, payload_base, target, dll_name, error):
         source_dll = os.path.join(payload_base, dll_name)
         target_dll = os.path.join(target, dll_name)
@@ -717,12 +828,18 @@ class ModernWowSetupTool(WowSetupTool):
 
         # Never downgrade a complete existing install because an upstream link
         # happens to be unavailable during an update.
+        addon_complete = (
+            target_addon is None
+            or (
+                self._valid_superapi_addon(target_addon)
+                if addon_folder == "SuperAPI"
+                else os.path.isdir(target_addon)
+            )
+        )
         existing_complete = self._valid_x86_dll(
             target_dll,
             f"installed {dll_name}",
-        ) and (
-            target_addon is None or os.path.isdir(target_addon)
-        )
+        ) and addon_complete
         if existing_complete:
             self._warn_offline(
                 dll_name,
@@ -749,6 +866,13 @@ class ModernWowSetupTool(WowSetupTool):
                     f"Could not download the latest {dll_name}, and its bundled fallback addon "
                     f"{addon_folder} is missing.\n\n{error}"
                 ) from error
+            if addon_folder == "SuperAPI":
+                source_addon = self._verified_bundled_tree(
+                    "SuperWoW fallback",
+                    "superapi_files",
+                    "Payload/Interface/Addons/SuperAPI",
+                    "SuperAPI fallback",
+                )
 
         if addon_folder and source_addon:
             remote_packages._transactional_replace_bundle(
@@ -1312,6 +1436,7 @@ class ModernWowSetupTool(WowSetupTool):
                             and self._valid_x86_dll(existing_exe, "WowPresence.exe")
                         ):
                             remote_packages.ensure_wowpresence_config(target)
+                            remote_packages.cache_installed_wowpresence(target)
                             self._warn_offline(
                                 "WowPresence",
                                 "Keeping the currently installed WowPresence binaries.",
