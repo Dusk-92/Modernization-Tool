@@ -277,6 +277,19 @@ def _package_cache_dir(target_dir, package_id):
     )
 
 
+def remove_package_cache(target_dir, package_id):
+    """Remove one tool-owned package cache without touching installed files."""
+    cache_dir = _package_cache_dir(target_dir, package_id)
+    if os.path.isdir(cache_dir):
+        shutil.rmtree(cache_dir, ignore_errors=True)
+
+    parent = os.path.dirname(cache_dir)
+    try:
+        os.rmdir(parent)
+    except OSError:
+        pass
+
+
 def _safe_cache_filename(filename):
     if not isinstance(filename, str) or not filename:
         raise RemotePackageError("Invalid package-cache filename.")
@@ -1768,6 +1781,21 @@ def managed_mod_is_current(target_dir, mod_id, revision):
         installed_revision = "1"
 
     return str(installed_revision) == str(revision)
+
+
+def managed_mpq_is_usable(target_dir, mod_id):
+    """True when a managed single-file MPQ still has a valid MPQ header."""
+    if not managed_mod_is_installed(target_dir, mod_id):
+        return False
+    files = _load_managed_manifest(target_dir, mod_id)
+    if len(files) != 1:
+        return False
+    path = os.path.join(target_dir, files[0])
+    try:
+        _verify_mpq(path)
+        return True
+    except RemotePackageError:
+        return False
 
 
 def managed_mpq_is_current(target_dir, mod_id, revision):
