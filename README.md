@@ -44,13 +44,13 @@ The launcher shortcut is automatically created:
 
 Two rendering modes are available:
 
-### VanillaFixes — DirectX 9
+### [VanillaFixes](https://github.com/hannesmann/vanillafixes) — DirectX 9
 
 The default option.
 
 Uses WoW's native DirectX 9 renderer together with VanillaFixes.
 
-### VanillaFixes + DXVK — Vulkan
+### VanillaFixes + [DXVK](https://github.com/doitsujin/dxvk) — Vulkan
 
 Uses DXVK to translate DirectX 9 to Vulkan.
 
@@ -95,7 +95,7 @@ Optional client-side improvements include:
 
 # ⚙️ Vanilla Tweaks
 
-Modernization Tool integrates the modern **tubtubs/vanilla-tweaks** patcher.
+Modernization Tool integrates the modern **[tubtubs/vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)** patcher.
 
 Available settings include:
 
@@ -113,7 +113,7 @@ Available settings include:
 - Unlimited AddOn Script Memory
 - Cross-Faction Resurrection Fix
 - Custom Glues Patch
-- Automatic WDB management
+- [Automatic WDB management](https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow)
 
 When **SuperWoW** already provides a feature, the equivalent vanilla-tweaks patch is automatically skipped to avoid duplicate modifications.
 
@@ -123,12 +123,12 @@ When **SuperWoW** already provides a feature, the equivalent vanilla-tweaks patc
 
 Optional visual modifications are available directly from the tool:
 
-- **Bluemoon Patch** — restores the rare blue moon effect.
-- **Darker Nights** — darker and more atmospheric nights.
-- **Pretty Night Sky** — improved starry night sky.
-- **Epoch Water** — alternative water textures.
-- **Fog Pushback** — moves environmental fog farther away.
-- **Pink Herbs** — makes herb nodes much easier to spot.
+- **[Bluemoon Patch](https://github.com/tubtubs/vanilla-tweaks)** — restores the rare blue moon effect.
+- **[Darker Nights](https://projectreforged.github.io/vanilla/downloads/turtle/)** — darker and more atmospheric nights.
+- **[Pretty Night Sky](https://github.com/RetroCro/TurtleWoW-Mods)** — improved starry night sky.
+- **[Epoch Water](https://github.com/RetroCro/TurtleWoW-Mods)** — alternative water textures.
+- **[Fog Pushback](https://github.com/RetroCro/TurtleWoW-Mods)** — moves environmental fog farther away.
+- **[Pink Herbs](https://github.com/seacrabsam/patch-herb)** — makes herb nodes much easier to spot.
 
 All visual mods are **disabled by default**.
 
@@ -138,9 +138,9 @@ All visual mods are **disabled by default**.
 
 Optional sound replacements include:
 
-- **NoErrorSounds** — removes repetitive error/fizzle and interface sounds.
-- **FishPing** — replaces the fishing bite sound with a clearer ping.
-- **Warlock Muted Demons** — mutes repetitive Warlock demon voice lines.
+- **[NoErrorSounds](https://github.com/Macumbafeh/NoErrorSounds)** — removes repetitive error/fizzle and interface sounds.
+- **[FishPing](https://github.com/notsureawake/FishPing)** — replaces the fishing bite sound with a clearer ping.
+- **[Warlock Muted Demons](https://github.com/spzilyk/Warlock-Muted-Demons)** — mutes repetitive Warlock demon voice lines.
 
 All audio mods are **disabled by default**.
 
@@ -188,7 +188,7 @@ It also:
 
 # 🔐 AutoLogin
 
-AutoLogin can optionally save account and character shortcuts on the login screen.
+[Vanilla AutoLogin](https://github.com/MarcelineVQ/turtle-autologin) can optionally save account and character shortcuts on the login screen.
 
 When **AutoLogin + Nampower** are enabled together, Modernization Tool automatically creates or reuses the Windows user encryption key required by Nampower.
 
@@ -197,35 +197,6 @@ Password encryption is enabled by default when available.
 Existing encryption keys are never replaced.
 
 > 🔒 Your encryption key is stored in the Windows user environment and is not written to the WoW folder.
-
----
-
-# 🔗 Additional Upstream Sources
-
-The client plugin sources are linked directly in **Client Plugins & Sources** above. The remaining upstream projects used by Modernization Tool are listed here.
-
-## Rendering & Client Patching
-
-- [VanillaFixes](https://github.com/hannesmann/vanillafixes)
-- [DXVK](https://github.com/doitsujin/dxvk)
-- [vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
-
-## Visual & Audio Mods
-
-- [Bluemoon Patch via vanilla-tweaks](https://github.com/tubtubs/vanilla-tweaks)
-- [Darker Nights — Project Reforged](https://projectreforged.github.io/vanilla/downloads/turtle/)
-- [Pretty Night Sky / Epoch Water / Fog Pushback — RetroCro TurtleWoW Mods](https://github.com/RetroCro/TurtleWoW-Mods)
-- [Pink Herbs](https://github.com/seacrabsam/patch-herb)
-- [NoErrorSounds](https://github.com/Macumbafeh/NoErrorSounds)
-- [FishPing](https://github.com/notsureawake/FishPing)
-- [Warlock Muted Demons](https://github.com/spzilyk/Warlock-Muted-Demons)
-
-## Other Tools & Enhancements
-
-- [Vanilla AutoLogin](https://github.com/MarcelineVQ/turtle-autologin)
-- [Automatic WDB management guide](https://github.com/RetroCro/TurtleWoW-Mods#automatically-clear-wdb-folder-every-time-you-launch-turtle-wow)
-
-Additional attribution is available directly in the **Credits** tab of Modernization Tool.
 
 ---
 
@@ -263,7 +234,7 @@ Always download Modernization Tool from the official GitHub Releases page.
 
 # ❤️ Credits
 
-Modernization Tool builds on the work of the community projects and developers linked throughout **Client Plugins & Sources** and **Additional Upstream Sources** above.
+Modernization Tool builds on the work of the community projects and developers linked throughout this README.
 
 Thank you to all upstream authors and contributors whose work makes this project possible. Additional attribution is available directly in the **Credits** tab of Modernization Tool.
 
