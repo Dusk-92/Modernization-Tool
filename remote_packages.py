@@ -14,6 +14,10 @@ import zipfile
 USER_AGENT = "Modernization-Tool/1.0 (+https://github.com/Dusk-92/Modernization-Tool)"
 GITHUB_API = "https://api.github.com"
 NETWORK_TIMEOUT = 30
+
+# SuperAPI has no stable release/tag channel. Keep Modernization Tool builds
+# reproducible by using the revision validated with the current SuperWoW setup.
+SUPERAPI_TESTED_REVISION = "901322dc88890a2ea10610b8228fb43c9c2a3610"
 WOWPRESENCE_REPO = "Dusk-92/WowPresence"
 WOWPRESENCE_MANAGED_ID = "wowpresence"
 WOWPRESENCE_DEFAULT_APPLICATION_ID = "1544072796098011176"
@@ -1726,7 +1730,7 @@ def install_pink_herbs(target_dir, progress=None):
         return f"seacrabsam/patch-herb main@{revision[:7]}"
 
     temp_path = _download(
-        "https://raw.githubusercontent.com/seacrabsam/patch-herb/main/patch-H.mpq",
+        f"https://raw.githubusercontent.com/seacrabsam/patch-herb/{revision}/patch-H.mpq",
         suffix=".mpq",
         progress=progress,
         label="Downloading Pink Herbs",
@@ -1762,8 +1766,15 @@ def install_pink_herbs(target_dir, progress=None):
     return f"seacrabsam/patch-herb main@{revision[:7]}"
 
 
-def _download_github_branch_archive(repo, branch, progress=None, label="Downloading sound mod"):
-    url = f"https://codeload.github.com/{repo}/zip/refs/heads/{branch}"
+def _download_github_branch_archive(
+    repo,
+    branch,
+    progress=None,
+    label="Downloading sound mod",
+    revision=None,
+):
+    revision = revision or _branch_head_sha(repo, branch)
+    url = f"https://codeload.github.com/{repo}/zip/{revision}"
     return _download(
         url,
         suffix=".zip",
@@ -1812,6 +1823,7 @@ def _install_github_sound_pack(target_dir, mod_id, repo, branch, source_folder, 
         branch,
         progress=progress,
         label=label,
+        revision=revision,
     )
     extract_root = tempfile.mkdtemp(prefix=f"modernization_{mod_id}_")
     try:
@@ -1992,7 +2004,7 @@ def install_no1600x1200(target_dir, progress=None):
 
     url = (
         "https://raw.githubusercontent.com/RetroCro/TurtleWoW-Mods/"
-        "refs/heads/main/Archive/DLL%20BACKUP/no1600x1200.dll"
+        f"{revision}/Archive/DLL%20BACKUP/no1600x1200.dll"
     )
     temp_path = _download(
         url,
@@ -2165,8 +2177,8 @@ def install_superwow(target_dir, progress=None):
     )
     release_asset_revision = _release_asset_revision(release, asset)
 
-    _emit_progress(progress, "Checking SuperAPI revision...", None, None)
-    superapi_revision = _branch_head_sha("balakethelock/SuperAPI", "master")
+    _emit_progress(progress, "Checking tested SuperAPI revision...", None, None)
+    superapi_revision = SUPERAPI_TESTED_REVISION
     revision = f"{release_asset_revision}|superapi:{superapi_revision}"
     package_id = "superwow"
 
@@ -2198,7 +2210,7 @@ def install_superwow(target_dir, progress=None):
         # Prepare SuperAPI completely before changing the installed DLL.
         _emit_progress(progress, "Preparing SuperAPI update...", None, None)
         superapi_zip = _download(
-            "https://codeload.github.com/balakethelock/SuperAPI/zip/refs/heads/master",
+            f"https://codeload.github.com/balakethelock/SuperAPI/zip/{superapi_revision}",
             suffix=".zip",
             progress=progress,
             label="Downloading SuperAPI addon",
