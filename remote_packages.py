@@ -407,42 +407,6 @@ def _load_cached_file(target_dir, package_id, filename=None, expected_revision=N
     return cached_path, metadata
 
 
-def _seed_cached_file_from_installed(
-    target_dir,
-    package_id,
-    source_path,
-    filename,
-    revision=None,
-    validator=None,
-):
-    """Best-effort cache seeding from an already validated installed file."""
-    cached = _load_cached_file(
-        target_dir,
-        package_id,
-        filename,
-        expected_revision=revision,
-    )
-    if cached is not None:
-        return True
-
-    try:
-        if callable(validator):
-            validator(source_path)
-    except Exception:
-        return False
-
-    return (
-        _store_cached_file_safely(
-            target_dir,
-            package_id,
-            source_path,
-            filename,
-            revision=revision,
-        )
-        is not None
-    )
-
-
 def _current_recorded_package_revision(target_dir, package_id):
     data = _load_package_state(target_dir, package_id)
     revision = data.get("revision") if isinstance(data, dict) else None
