@@ -1,6 +1,6 @@
 # Modernization Tool third-party notices
 
-Audit date: 2026-08-31
+Audit date: 2026-09-03
 
 Modernization Tool combines an original installer/configuration layer with
 third-party client fixes, patchers, addons, DLLs, visual/audio modifications,
