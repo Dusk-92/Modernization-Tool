@@ -266,21 +266,43 @@ def _package_cache_dir(target_dir, package_id):
         target_dir,
         ".modernization_tool",
         "package_cache",
-        package_id,
+        str(package_id),
     )
+
+
+def _safe_cache_filename(filename):
+    if not isinstance(filename, str) or not filename:
+        raise RemotePackageError("Invalid package-cache filename.")
+    normalized = filename.replace("\\", "/")
+    if (
+        normalized in (".", "..")
+        or "/" in normalized
+        or ":" in normalized
+        or os.path.basename(filename) != filename
+    ):
+        raise RemotePackageError(f"Unsafe package-cache filename: {filename}")
+    return filename
 
 
 def _store_cached_file(target_dir, package_id, source_path, filename, revision=None):
     """Persist one validated remote artifact as a local offline fallback."""
+    filename = _safe_cache_filename(filename)
+    if not os.path.isfile(source_path):
+        raise RemotePackageError(f"Package-cache source is missing: {source_path}")
+
     cache_dir = _package_cache_dir(target_dir, package_id)
     os.makedirs(cache_dir, exist_ok=True)
 
     cached_path = os.path.join(cache_dir, filename)
     _atomic_replace_file(source_path, cached_path)
 
+    size = os.path.getsize(cached_path)
+    if size <= 0:
+        raise RemotePackageError("Refusing to cache an empty package artifact.")
+
     metadata = {
         "filename": filename,
-        "size": os.path.getsize(cached_path),
+        "size": size,
         "sha256": _file_sha256(cached_path),
         "revision": revision,
     }
@@ -301,6 +323,26 @@ def _store_cached_file(target_dir, package_id, source_path, filename, revision=N
     return cached_path
 
 
+def _store_cached_file_safely(
+    target_dir,
+    package_id,
+    source_path,
+    filename,
+    revision=None,
+):
+    """Best-effort cache refresh that can never make a valid install fail."""
+    try:
+        return _store_cached_file(
+            target_dir,
+            package_id,
+            source_path,
+            filename,
+            revision=revision,
+        )
+    except (OSError, RemotePackageError, ValueError, TypeError):
+        return None
+
+
 def _load_cached_file(target_dir, package_id, filename=None, expected_revision=None):
     """Return a cached artifact only when its recorded integrity still matches."""
     cache_dir = _package_cache_dir(target_dir, package_id)
@@ -308,14 +350,25 @@ def _load_cached_file(target_dir, package_id, filename=None, expected_revision=N
     try:
         with open(metadata_path, "r", encoding="utf-8") as handle:
             metadata = json.load(handle)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        return None
+
+    if not isinstance(metadata, dict):
         return None
 
     recorded_name = metadata.get("filename")
-    if not isinstance(recorded_name, str) or not recorded_name:
+    try:
+        recorded_name = _safe_cache_filename(recorded_name)
+    except RemotePackageError:
         return None
-    if filename is not None and recorded_name != filename:
-        return None
+
+    if filename is not None:
+        try:
+            filename = _safe_cache_filename(filename)
+        except RemotePackageError:
+            return None
+        if recorded_name != filename:
+            return None
 
     revision = metadata.get("revision")
     if expected_revision is not None and str(revision) != str(expected_revision):
@@ -329,7 +382,11 @@ def _load_cached_file(target_dir, package_id, filename=None, expected_revision=N
     expected_sha = metadata.get("sha256")
     if not isinstance(expected_size, int) or expected_size <= 0:
         return None
-    if not isinstance(expected_sha, str) or len(expected_sha) != 64:
+    if (
+        not isinstance(expected_sha, str)
+        or len(expected_sha) != 64
+        or any(ch not in "0123456789abcdefABCDEF" for ch in expected_sha)
+    ):
         return None
 
     try:
@@ -342,6 +399,76 @@ def _load_cached_file(target_dir, package_id, filename=None, expected_revision=N
 
     return cached_path, metadata
 
+
+def _seed_cached_file_from_installed(
+    target_dir,
+    package_id,
+    source_path,
+    filename,
+    revision=None,
+    validator=None,
+):
+    """Best-effort cache seeding from an already validated installed file."""
+    cached = _load_cached_file(
+        target_dir,
+        package_id,
+        filename,
+        expected_revision=revision,
+    )
+    if cached is not None:
+        return True
+
+    try:
+        if callable(validator):
+            validator(source_path)
+    except Exception:
+        return False
+
+    return (
+        _store_cached_file_safely(
+            target_dir,
+            package_id,
+            source_path,
+            filename,
+            revision=revision,
+        )
+        is not None
+    )
+
+
+def _current_recorded_package_revision(target_dir, package_id):
+    data = _load_package_state(target_dir, package_id)
+    revision = data.get("revision") if isinstance(data, dict) else None
+    if revision in (None, ""):
+        return None
+    if _package_state_is_current(target_dir, package_id, revision):
+        return str(revision)
+    return None
+
+
+def _cache_current_managed_mpq(target_dir, mod_id, revision):
+    """Seed cache from a managed MPQ and report whether the install is current."""
+    if not managed_mpq_is_current(target_dir, mod_id, revision):
+        return False
+
+    files = _load_managed_manifest(target_dir, mod_id)
+    if len(files) != 1:
+        return False
+    source_path = os.path.join(target_dir, files[0])
+    try:
+        _verify_mpq(source_path)
+    except RemotePackageError:
+        return False
+
+    _seed_cached_file_from_installed(
+        target_dir,
+        mod_id,
+        source_path,
+        "payload.mpq",
+        revision=revision,
+        validator=_verify_mpq,
+    )
+    return True
 
 def _remove_tree(path):
     if not os.path.exists(path):
@@ -778,6 +905,53 @@ def write_wowpresence_broadcast_flags(target_dir, value):
 
 
 
+def cache_installed_wowpresence(target_dir, revision=None):
+    """Best-effort cache seed from an already valid WowPresence installation."""
+    dll_path = os.path.join(target_dir, "WowPresence.dll")
+    exe_path = os.path.join(target_dir, "WowPresence.exe")
+    try:
+        _verify_x86_pe(dll_path, "installed WowPresence.dll")
+        _verify_x86_pe(exe_path, "installed WowPresence.exe")
+    except RemotePackageError:
+        return False
+
+    if revision is None:
+        manifest = _load_managed_manifest_data(target_dir, WOWPRESENCE_MANAGED_ID)
+        revision = manifest.get("revision") if isinstance(manifest, dict) else None
+
+    if _load_cached_file(
+        target_dir,
+        WOWPRESENCE_MANAGED_ID,
+        "WowPresence.zip",
+        expected_revision=revision,
+    ) is not None:
+        return True
+
+    fd, zip_path = tempfile.mkstemp(prefix="modernization_wowpresence_seed_", suffix=".zip")
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(dll_path, "WowPresence.dll")
+            archive.write(exe_path, "WowPresence.exe")
+        return (
+            _store_cached_file_safely(
+                target_dir,
+                WOWPRESENCE_MANAGED_ID,
+                zip_path,
+                "WowPresence.zip",
+                revision=revision,
+            )
+            is not None
+        )
+    except (OSError, zipfile.BadZipFile):
+        return False
+    finally:
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+
+
 def install_wowpresence(target_dir, progress=None):
     """Install or update WowPresence from its latest stable GitHub release ZIP."""
     _emit_progress(progress, "Checking WowPresence release...", None, None)
@@ -859,6 +1033,7 @@ def install_wowpresence(target_dir, progress=None):
                 package_revision=package_revision,
                 package_digest=current_digest,
             )
+            cache_installed_wowpresence(target_dir, revision=revision)
             _emit_progress(
                 progress,
                 f"WowPresence {revision} is already current.",
@@ -889,13 +1064,6 @@ def install_wowpresence(target_dir, progress=None):
         exe_path = _find_file(extract_root, "WowPresence.exe")
         _verify_x86_pe(dll_path, "WowPresence.dll")
         _verify_x86_pe(exe_path, "WowPresence.exe")
-        _store_cached_file(
-            target_dir,
-            WOWPRESENCE_MANAGED_ID,
-            zip_path,
-            "WowPresence.zip",
-            revision=revision,
-        )
 
         _emit_progress(progress, f"Installing WowPresence {revision}...", None, None)
         _install_managed_files_transactional(
@@ -918,6 +1086,19 @@ def install_wowpresence(target_dir, progress=None):
             package_digest=package_asset.get("digest"),
             package_revision=package_revision,
         )
+        if _store_cached_file_safely(
+            target_dir,
+            WOWPRESENCE_MANAGED_ID,
+            zip_path,
+            "WowPresence.zip",
+            revision=revision,
+        ) is None:
+            _emit_progress(
+                progress,
+                "WowPresence installed; offline cache could not be refreshed.",
+                None,
+                None,
+            )
     finally:
         if zip_path and os.path.exists(zip_path):
             try:
@@ -1219,6 +1400,20 @@ def _asset_sha256(asset):
 
 def _file_sha256(path):
     digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest().lower()
+
+
+def _git_blob_sha1(path):
+    """Compute the canonical Git blob SHA-1 for exact bundled-tree verification."""
+    size = os.path.getsize(path)
+    digest = hashlib.sha1()
+    digest.update(f"blob {size}\0".encode("ascii"))
     with open(path, "rb") as handle:
         while True:
             chunk = handle.read(1024 * 1024)
@@ -1813,6 +2008,19 @@ def _install_remote_mpq(
     timeout=300,
     revision=None,
 ):
+    if revision is not None and _cache_current_managed_mpq(
+        target_dir,
+        mod_id,
+        revision,
+    ):
+        _emit_progress(
+            progress,
+            f"{label.replace('Downloading ', '')} is already current.",
+            None,
+            None,
+        )
+        return
+
     downloaded_path = None
     source_path = None
     try:
@@ -1824,13 +2032,6 @@ def _install_remote_mpq(
             timeout=timeout,
         )
         _verify_mpq(downloaded_path)
-        _store_cached_file(
-            target_dir,
-            mod_id,
-            downloaded_path,
-            "payload.mpq",
-            revision=revision,
-        )
         source_path = downloaded_path
     except Exception as download_error:
         cached = _load_cached_file(
@@ -1858,13 +2059,26 @@ def _install_remote_mpq(
             [(source_path, destination)],
             revision=revision,
         )
+
+        if downloaded_path is not None and _store_cached_file_safely(
+            target_dir,
+            mod_id,
+            downloaded_path,
+            "payload.mpq",
+            revision=revision,
+        ) is None:
+            _emit_progress(
+                progress,
+                f"{label.replace('Downloading ', '')} installed; offline cache could not be refreshed.",
+                None,
+                None,
+            )
     finally:
         if downloaded_path and os.path.exists(downloaded_path):
             try:
                 os.remove(downloaded_path)
             except OSError:
                 pass
-
 
 def _google_drive_download_url(file_id):
     return (
@@ -1931,12 +2145,36 @@ def install_fog_pushback(target_dir, progress=None):
 def install_pink_herbs(target_dir, progress=None):
     mod_id = "visual_pink_herbs"
     destination = os.path.join("Data", "patch-V.mpq")
+    target_path = os.path.join(target_dir, destination)
     downloaded_path = None
     source_path = None
+    installed_revision = _current_recorded_package_revision(target_dir, mod_id)
 
     try:
         revision = _branch_head_sha("seacrabsam/patch-herb", "main")
     except Exception as revision_error:
+        if installed_revision is not None:
+            try:
+                _verify_mpq(target_path)
+            except RemotePackageError:
+                installed_revision = None
+            else:
+                _seed_cached_file_from_installed(
+                    target_dir,
+                    mod_id,
+                    target_path,
+                    "payload.mpq",
+                    revision=installed_revision,
+                    validator=_verify_mpq,
+                )
+                _emit_progress(
+                    progress,
+                    f"Pink Herbs {installed_revision[:7]} kept; update source unavailable.",
+                    None,
+                    None,
+                )
+                return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
+
         cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
         if cached is None:
             raise revision_error
@@ -1950,14 +2188,27 @@ def install_pink_herbs(target_dir, progress=None):
             None,
         )
     else:
-        if _package_state_is_current(target_dir, mod_id, revision):
-            _emit_progress(
-                progress,
-                f"Pink Herbs {revision[:7]} is already current.",
-                None,
-                None,
-            )
-            return f"seacrabsam/patch-herb main@{revision[:7]}"
+        if installed_revision == revision:
+            try:
+                _verify_mpq(target_path)
+            except RemotePackageError:
+                installed_revision = None
+            else:
+                _seed_cached_file_from_installed(
+                    target_dir,
+                    mod_id,
+                    target_path,
+                    "payload.mpq",
+                    revision=revision,
+                    validator=_verify_mpq,
+                )
+                _emit_progress(
+                    progress,
+                    f"Pink Herbs {revision[:7]} is already current.",
+                    None,
+                    None,
+                )
+                return f"seacrabsam/patch-herb main@{revision[:7]}"
 
         try:
             downloaded_path = _download(
@@ -1968,15 +2219,32 @@ def install_pink_herbs(target_dir, progress=None):
                 timeout=300,
             )
             _verify_mpq(downloaded_path)
-            _store_cached_file(
-                target_dir,
-                mod_id,
-                downloaded_path,
-                "payload.mpq",
-                revision=revision,
-            )
             source_path = downloaded_path
         except Exception as download_error:
+            # Never replace a valid installed revision with an older cache just
+            # because the newest remote payload is temporarily unavailable.
+            if installed_revision is not None:
+                try:
+                    _verify_mpq(target_path)
+                except RemotePackageError:
+                    installed_revision = None
+                else:
+                    _seed_cached_file_from_installed(
+                        target_dir,
+                        mod_id,
+                        target_path,
+                        "payload.mpq",
+                        revision=installed_revision,
+                        validator=_verify_mpq,
+                    )
+                    _emit_progress(
+                        progress,
+                        f"Pink Herbs {installed_revision[:7]} kept; latest download unavailable.",
+                        None,
+                        None,
+                    )
+                    return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
+
             cached = _load_cached_file(target_dir, mod_id, "payload.mpq")
             if cached is None:
                 raise download_error
@@ -2010,6 +2278,20 @@ def install_pink_herbs(target_dir, progress=None):
             revision,
             [destination],
         )
+
+        if downloaded_path is not None and _store_cached_file_safely(
+            target_dir,
+            mod_id,
+            downloaded_path,
+            "payload.mpq",
+            revision=revision,
+        ) is None:
+            _emit_progress(
+                progress,
+                "Pink Herbs installed; offline cache could not be refreshed.",
+                None,
+                None,
+            )
     finally:
         if downloaded_path and os.path.exists(downloaded_path):
             try:
@@ -2019,7 +2301,6 @@ def install_pink_herbs(target_dir, progress=None):
 
     suffix = revision[:7] if len(revision) >= 7 else revision
     return f"seacrabsam/patch-herb main@{suffix}"
-
 
 def _download_github_branch_archive(
     repo,
