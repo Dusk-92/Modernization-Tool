@@ -4,6 +4,7 @@ import os
 import struct
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 import remote_packages
