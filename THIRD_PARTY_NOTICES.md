@@ -23,7 +23,8 @@ own terms.
 - Source: https://github.com/Dusk-92/WowPresence
 - Maintained by Dusk-92
 - Installed and updated from its GitHub Releases when Discord Rich Presence is selected
-- `WowPresence.dll` and `WowPresence.exe` are not bundled in the Modernization Tool payload
+- Release builds include a verified `WowPresence.zip` offline fallback prepared from the v1.3 release
+- The source repository does not store duplicate WowPresence binaries; the fallback is fetched and verified during the release build
 - User configuration under `.modernization_tool/WowPresence/` is preserved across binary updates
 - See the WowPresence repository and its `THIRD_PARTY_NOTICES.md` for component-specific provenance
 
@@ -156,6 +157,12 @@ trademark considerations separate from software licenses.
 See `Docs/ASSET_PROVENANCE.md` for project branding and game-facing asset
 notes. Source paths for bundled audio fallbacks remain recorded in
 `Payload/Fallback/versions.json`.
+
+Release builds also prepare verified offline fallback copies for Pink Herbs,
+Darker Nights, Pretty Night Sky, Epoch Water and Fog Pushback. These large files
+are fetched from their documented sources during the build instead of being
+duplicated in Git history. Their build-time size and SHA-256 records are stored
+in `Payload/Fallback/remote_fallbacks.json` inside the packaged Tool.
 
 ## Blizzard / World of Warcraft
 
