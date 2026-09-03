@@ -646,6 +646,62 @@ class SmartUpdateTests(unittest.TestCase):
                 remote_packages._package_state_is_current(root, "example", "v1")
             )
 
+    def test_current_package_cleans_stale_transaction_backup(self):
+        with tempfile.TemporaryDirectory() as root:
+            dll = os.path.join(root, "UnitXP_SP3.dll")
+            with open(dll, "wb") as handle:
+                handle.write(b"current-unitxp")
+
+            remote_packages._record_package_state(
+                root,
+                "unitxp_sp3",
+                "v90",
+                ["UnitXP_SP3.dll"],
+            )
+
+            stale_backup = dll + ".modernization-backup-941614e28c62"
+            with open(stale_backup, "wb") as handle:
+                handle.write(b"old-unitxp")
+
+            self.assertTrue(
+                remote_packages._package_state_is_current(
+                    root,
+                    "unitxp_sp3",
+                    "v90",
+                )
+            )
+            self.assertFalse(os.path.exists(stale_backup))
+            self.assertTrue(os.path.isfile(dll))
+
+    def test_non_current_package_keeps_transaction_backup_for_recovery(self):
+        with tempfile.TemporaryDirectory() as root:
+            dll = os.path.join(root, "UnitXP_SP3.dll")
+            with open(dll, "wb") as handle:
+                handle.write(b"current-unitxp")
+
+            remote_packages._record_package_state(
+                root,
+                "unitxp_sp3",
+                "v90",
+                ["UnitXP_SP3.dll"],
+            )
+
+            stale_backup = dll + ".modernization-backup-recovery"
+            with open(stale_backup, "wb") as handle:
+                handle.write(b"old-unitxp")
+
+            with open(dll, "wb") as handle:
+                handle.write(b"modified-after-state")
+
+            self.assertFalse(
+                remote_packages._package_state_is_current(
+                    root,
+                    "unitxp_sp3",
+                    "v90",
+                )
+            )
+            self.assertTrue(os.path.exists(stale_backup))
+
     def test_release_asset_revision_detects_replaced_asset_under_same_tag(self):
         release_a = {
             "tag_name": "Release",
