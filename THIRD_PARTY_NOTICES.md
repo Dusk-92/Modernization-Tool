@@ -158,11 +158,11 @@ See `Docs/ASSET_PROVENANCE.md` for project branding and game-facing asset
 notes. Source paths for bundled audio fallbacks remain recorded in
 `Payload/Fallback/versions.json`.
 
-Release builds also prepare verified offline fallback copies for Pink Herbs,
-Darker Nights, Pretty Night Sky, Epoch Water and Fog Pushback. These large files
-are fetched from their documented sources during the build instead of being
-duplicated in Git history. Their build-time size and SHA-256 records are stored
-in `Payload/Fallback/remote_fallbacks.json` inside the packaged Tool.
+Visual MPQ mods such as Pink Herbs, Darker Nights, Pretty Night Sky, Epoch
+Water and Fog Pushback are not redistributed as offline fallbacks. Their
+original sources remain authoritative. If an already installed managed MPQ is
+still valid and its source is temporarily unavailable, the Tool preserves that
+installed copy unchanged.
 
 ## Blizzard / World of Warcraft
 
