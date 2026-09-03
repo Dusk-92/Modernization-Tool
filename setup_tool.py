@@ -2549,12 +2549,22 @@ WScript.Echo oWS.SpecialFolders("Desktop")
         if len(data) < required_size:
             raise RuntimeError("WoW executable is too small to normalize SuperWoW-managed patches.")
 
-        for offset in (0x0C1ECF, 0x0C2B25):
-            if data[offset] not in (0x74, 0x75):
+        quickloot_sites = (
+            (0x0C1ECF, b"\x74\x10"),
+            (0x0C2B25, b"\x74\x0B"),
+        )
+        for offset, vanilla_bytes in quickloot_sites:
+            current = bytes(data[offset:offset + 2])
+            known_variants = (
+                vanilla_bytes,
+                bytes((0x75, vanilla_bytes[1])),
+                b"\x90\x90",
+            )
+            if current not in known_variants:
                 raise RuntimeError(
-                    f"Unexpected QuickLoot opcode at 0x{offset:X}; refusing to alter an unknown client."
+                    f"Unexpected QuickLoot bytes at 0x{offset:X}; refusing to alter an unknown client."
                 )
-            data[offset] = 0x74
+            data[offset:offset + 2] = vanilla_bytes
 
         if data[0x3A4869] not in (0x14, 0x27):
             raise RuntimeError(
