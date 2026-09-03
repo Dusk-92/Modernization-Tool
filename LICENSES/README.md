@@ -18,7 +18,7 @@ Preserved files:
 - `VanillaMultiMonitorFix-MIT.txt`
 - `GPL-3.0.txt` — reference copy for GPL-v3 components such as ClassicAPI and
   AuctionQueryThrottle
-- `SuperWoW-LICENSE.txt` — preserved for the upstream-only SuperWoW component
+- `SuperWoW-LICENSE.txt` — preserved for the SuperWoW component and bundled fallback
 
 See `../THIRD_PARTY_NOTICES.md` and `../Docs/BINARY_PROVENANCE.md` for the
 scope, distribution mode, and source of each component.
