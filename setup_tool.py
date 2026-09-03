@@ -1719,6 +1719,11 @@ class WowSetupTool:
             ),
         ]
 
+        # MPQ fallbacks were intentionally removed. Clean caches created by
+        # earlier test builds so they cannot be reused later.
+        for _, managed_id, _, _ in visual_defs:
+            remote_packages.remove_package_cache(target, managed_id)
+
         try:
             # Visual installers own their current-version checks.
             # Already valid MPQs are reused without a download.
@@ -1727,7 +1732,7 @@ class WowSetupTool:
                     try:
                         installer(target, progress=progress)
                     except Exception as exc:
-                        if remote_packages.managed_mod_is_installed(target, managed_id):
+                        if remote_packages.managed_mpq_is_usable(target, managed_id):
                             warnings.append(
                                 f"{display_name}: update source unavailable; existing installed copy kept."
                             )
