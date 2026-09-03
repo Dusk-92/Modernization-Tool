@@ -163,9 +163,9 @@ Depending on the component, the tool can:
 - avoid re-downloading files that are already current.
 
 **SuperWoW and SuperAPI are upstream-only:** SuperWoW is downloaded from its
-official stable release and SuperAPI is downloaded from the revision tested
-with the current Modernization Tool build. They are not bundled as offline
-fallbacks, so a first-time SuperWoW installation requires network access.
+official stable release and SuperAPI follows the current upstream `master`
+revision. They are not bundled as offline fallbacks, so a first-time SuperWoW
+installation requires network access.
 
 **No1600x1200 uses the bundled known-good copy** instead of following the
 RetroCro archive repository automatically.
@@ -315,8 +315,8 @@ For detailed redistribution and provenance information, see:
 - [Docs/ASSET_PROVENANCE.md](Docs/ASSET_PROVENANCE.md)
 - [LICENSES/](LICENSES/)
 
-SuperWoW and the tested SuperAPI revision are downloaded directly from their
-upstream projects and are not bundled as offline fallbacks.
+SuperWoW and the current SuperAPI master revision are downloaded directly from
+their upstream projects and are not bundled as offline fallbacks.
 
 ---
 
