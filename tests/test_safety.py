@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import struct
@@ -1184,12 +1185,9 @@ class BundledComponentSafetyTests(unittest.TestCase):
             with open(source, "wb") as handle:
                 handle.write(b"known bundled component")
 
-            expected_sha = setup_tool_dynamic.hashlib.sha256(
+            expected_sha = hashlib.sha256(
                 b"known bundled component"
-            ).hexdigest() if hasattr(setup_tool_dynamic, "hashlib") else None
-            if expected_sha is None:
-                import hashlib
-                expected_sha = hashlib.sha256(b"known bundled component").hexdigest()
+            ).hexdigest()
 
             with open(
                 os.path.join(fallback, "versions.json"),
