@@ -21,7 +21,7 @@ No remaining payload binary was modified during this provenance pass.
 | ClassicAPI | bundled fallback + online update | brues-code/ClassicAPI | GPL v3 verified |
 | AuctionQueryThrottle | bundled fallback + online update | brues-code/AuctionQueryThrottle | GPL v3 verified |
 | SuperWoW | **upstream-only** | balakethelock/SuperWoW release | redistribution restricted upstream |
-| SuperAPI | **upstream-only, tested revision** | balakethelock/SuperAPI `901322dc88890a2ea10610b8228fb43c9c2a3610` | no bundled copy; revision pinned for reproducible installs |
+| SuperAPI | **upstream-only** | balakethelock/SuperAPI master | no bundled copy; current master revision is resolved before download |
 | UnitXP_SP3 | bundled fallback + online update | brues-code/UnitXP_SP3 v90 | project-wide license not independently located |
 | Interact | bundled fallback + online update | lookino/Interact v1.0.4 | project-wide license not independently located |
 | No1600x1200 | **bundled known-good only** | RetroCro/TurtleWoW-Mods archive source | project-wide license not independently located |
@@ -46,8 +46,8 @@ That bundled fallback is removed by this audit because the current upstream
 license restricts redistribution without express written permission.
 
 The installation feature itself is retained: `remote_packages.install_superwow`
-downloads the official SuperWoW release and the Modernization Tool-tested
-SuperAPI revision directly from its upstream repository.
+downloads the official SuperWoW release and the current SuperAPI master
+revision directly from its upstream repository.
 
 ## SuperAPI change
 
