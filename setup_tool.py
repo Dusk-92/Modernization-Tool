@@ -1720,9 +1720,8 @@ class WowSetupTool:
         ]
 
         try:
-            # Visual installers own their current-version and cache checks.
-            # Already valid MPQs are reused without a download and can seed the
-            # local offline cache on upgrades from older Tool releases.
+            # Visual installers own their current-version checks.
+            # Already valid MPQs are reused without a download.
             for key, managed_id, display_name, installer in visual_defs:
                 if self.visual_mods[key].get():
                     try:
@@ -1734,7 +1733,7 @@ class WowSetupTool:
                             )
                         else:
                             raise RuntimeError(
-                                f"{display_name} installation failed and no usable cached or bundled fallback is available:\n{exc}"
+                                f"{display_name} installation failed and no valid installed copy can be kept:\n{exc}"
                             ) from exc
                 else:
                     remote_packages.remove_managed_mod(target, managed_id)
