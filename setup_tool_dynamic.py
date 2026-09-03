@@ -1269,7 +1269,7 @@ class ModernWowSetupTool(WowSetupTool):
         try:
             # Core plugins are refreshed from their upstream sources where supported.
             # Bundled fallbacks are used only for components whose redistribution
-            # model allows it. SuperWoW/SuperAPI are upstream-only.
+            # model allows it. SuperWoW/SuperAPI also have a bundled fallback.
             for dll_name, var in self.core_plugins.items():
                 if not var.get():
                     continue
