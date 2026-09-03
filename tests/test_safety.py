@@ -1172,5 +1172,189 @@ class SettingsRecoveryTests(unittest.TestCase):
                 self.assertEqual(handle.read(), damaged)
 
 
+class BundledComponentSafetyTests(unittest.TestCase):
+    def test_bundled_integrity_uses_recorded_sha256_and_size(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+
+        with tempfile.TemporaryDirectory() as root:
+            payload = os.path.join(root, "Payload")
+            fallback = os.path.join(payload, "Fallback")
+            os.makedirs(fallback)
+            source = os.path.join(payload, "component.bin")
+            with open(source, "wb") as handle:
+                handle.write(b"known bundled component")
+
+            expected_sha = setup_tool_dynamic.hashlib.sha256(
+                b"known bundled component"
+            ).hexdigest() if hasattr(setup_tool_dynamic, "hashlib") else None
+            if expected_sha is None:
+                import hashlib
+                expected_sha = hashlib.sha256(b"known bundled component").hexdigest()
+
+            with open(
+                os.path.join(fallback, "versions.json"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                json.dump(
+                    {
+                        "components": {
+                            "test": {
+                                "files": [
+                                    {
+                                        "path": "Payload/component.bin",
+                                        "size": os.path.getsize(source),
+                                        "sha256": expected_sha,
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    handle,
+                )
+
+            with mock.patch("setup_tool_dynamic.get_base_path", return_value=root):
+                verified, digest = tool._verified_bundled_file(
+                    "Payload/component.bin",
+                    "test component",
+                )
+                self.assertEqual(verified, source)
+                self.assertEqual(digest, expected_sha)
+
+                with open(source, "ab") as handle:
+                    handle.write(b"!")
+
+                with self.assertRaises(RuntimeError):
+                    tool._verified_bundled_file(
+                        "Payload/component.bin",
+                        "test component",
+                    )
+
+    def test_copy_base_files_does_not_copy_component_addons(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool.install_autologin = FakeVar(False)
+
+        with tempfile.TemporaryDirectory() as root:
+            payload = os.path.join(root, "Payload")
+            os.makedirs(os.path.join(payload, "Interface", "Addons", "nampowersettings"))
+            vanilla_fixes = os.path.join(payload, "VanillaFixes.exe")
+            vf_patcher = os.path.join(payload, "VfPatcher.dll")
+            for path in (vanilla_fixes, vf_patcher):
+                with open(path, "wb") as handle:
+                    handle.write(b"test")
+
+            tool._verified_bundled_file = mock.Mock(
+                side_effect=[
+                    (vanilla_fixes, "a" * 64),
+                    (vf_patcher, "b" * 64),
+                ]
+            )
+
+            target = os.path.join(root, "game")
+            os.makedirs(target)
+
+            with (
+                mock.patch("setup_tool_dynamic.get_base_path", return_value=root),
+                mock.patch.object(
+                    remote_packages,
+                    "_transactional_replace_bundle",
+                ) as transaction,
+            ):
+                tool.copy_base_files(target)
+
+            self.assertFalse(os.path.exists(os.path.join(target, "Interface")))
+            transaction.assert_called_once()
+            items = transaction.call_args.args[0]
+            self.assertEqual(
+                [os.path.basename(item[2]) for item in items],
+                ["VanillaFixes.exe", "VfPatcher.dll"],
+            )
+
+    def test_no1600_uses_bundled_copy_without_online_update(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool.rendering_mode = FakeVar("directx9")
+        tool.core_plugins = {}
+        tool.classicapi_enabled = FakeVar(False)
+        tool.auction_throttle_enabled = FakeVar(False)
+        tool.addon_dependencies = {}
+        tool.optional_plugins = {
+            "no1600x1200.dll": FakeVar(True),
+        }
+        tool.vmmfix_enabled = FakeVar(False)
+        tool.interact_enabled = FakeVar(False)
+        tool._install_verified_bundled_file = mock.Mock()
+        tool._write_dlls_file = mock.Mock()
+        tool._close_download_progress = mock.Mock()
+        tool._report_download_progress = mock.Mock()
+
+        with tempfile.TemporaryDirectory() as root:
+            with mock.patch.object(
+                remote_packages,
+                "install_no1600x1200",
+            ) as online_installer:
+                tool.configure_plugins(root)
+
+        online_installer.assert_not_called()
+        tool._install_verified_bundled_file.assert_called_once_with(
+            "Payload/no1600x1200.dll",
+            mock.ANY,
+            "no1600x1200.dll",
+        )
+        self.assertEqual(
+            os.path.basename(
+                tool._install_verified_bundled_file.call_args.args[1]
+            ),
+            "no1600x1200.dll",
+        )
+
+    def test_superapi_uses_tested_revision_without_querying_master(self):
+        release = {
+            "name": "SuperWoW 2.2",
+            "tag_name": "Release",
+            "id": 1,
+            "assets": [
+                {
+                    "name": "SuperWoW.zip",
+                    "id": 2,
+                    "updated_at": "2026-07-16T00:00:00Z",
+                    "size": 123,
+                }
+            ],
+        }
+
+        with (
+            mock.patch.object(remote_packages, "_latest_release", return_value=release),
+            mock.patch.object(
+                remote_packages,
+                "_package_state_is_current",
+                return_value=True,
+            ) as state,
+            mock.patch.object(remote_packages, "_branch_head_sha") as branch_head,
+        ):
+            remote_packages.install_superwow("C:/WoW")
+
+        branch_head.assert_not_called()
+        revision = state.call_args.args[2]
+        self.assertIn(remote_packages.SUPERAPI_TESTED_REVISION, revision)
+
+    def test_branch_archive_download_can_be_pinned_to_resolved_revision(self):
+        with (
+            mock.patch.object(remote_packages, "_download", return_value="archive.zip") as download,
+            mock.patch.object(remote_packages, "_branch_head_sha") as branch_head,
+        ):
+            result = remote_packages._download_github_branch_archive(
+                "owner/repo",
+                "main",
+                revision="abc1234",
+            )
+
+        self.assertEqual(result, "archive.zip")
+        branch_head.assert_not_called()
+        self.assertEqual(
+            download.call_args.args[0],
+            "https://codeload.github.com/owner/repo/zip/abc1234",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
