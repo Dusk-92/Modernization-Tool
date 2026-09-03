@@ -1791,6 +1791,25 @@ class BundledComponentSafetyTests(unittest.TestCase):
                         "test SuperAPI",
                     )
 
+    def test_real_superwow_superapi_fallback_matches_manifest(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+
+        dll_path, _ = tool._verified_bundled_file(
+            "Payload/SuperWoWhook.dll",
+            "SuperWoW fallback",
+        )
+        self.assertTrue(os.path.isfile(dll_path))
+
+        addon_path = tool._verified_bundled_tree(
+            "SuperWoW fallback",
+            "superapi_files",
+            "Payload/Interface/Addons/SuperAPI",
+            "SuperAPI fallback",
+        )
+        self.assertTrue(
+            tool._valid_superapi_addon(addon_path)
+        )
+
     def test_superapi_existing_folder_must_be_complete(self):
         tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
 
