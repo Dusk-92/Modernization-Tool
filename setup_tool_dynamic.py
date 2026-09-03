@@ -786,6 +786,67 @@ class ModernWowSetupTool(WowSetupTool):
         except Exception:
             return False
 
+    def _recover_wowpresence_offline(self, target, error):
+        """Preserve only trusted/manual-valid WowPresence; repair modified managed files."""
+        trust_state = remote_packages.wowpresence_install_trust_state(target)
+        existing_dll = os.path.join(target, "WowPresence.dll")
+        existing_exe = os.path.join(target, "WowPresence.exe")
+        existing_pair_valid = (
+            self._valid_x86_dll(existing_dll, "WowPresence.dll")
+            and self._valid_x86_dll(existing_exe, "WowPresence.exe")
+        )
+
+        if trust_state == "managed_verified":
+            remote_packages.ensure_wowpresence_config(target)
+            remote_packages.cache_installed_wowpresence(target)
+            self._warn_offline(
+                "WowPresence",
+                "Keeping the hash-verified WowPresence binaries already managed by the Tool.",
+                error,
+            )
+            return
+
+        if trust_state in ("unmanaged", "managed_unverified") and existing_pair_valid:
+            remote_packages.ensure_wowpresence_config(target)
+            self._warn_offline(
+                "WowPresence",
+                (
+                    "Keeping the existing valid WowPresence binaries unchanged. "
+                    "They were not promoted into the validated fallback cache."
+                ),
+                error,
+            )
+            return
+
+        try:
+            remote_packages.install_cached_wowpresence(
+                target,
+                progress=self._report_download_progress,
+            )
+            fallback_action = (
+                "The last validated cached WowPresence package was installed instead."
+            )
+        except Exception:
+            try:
+                remote_packages.install_bundled_wowpresence(
+                    target,
+                    progress=self._report_download_progress,
+                )
+                fallback_action = (
+                    "The bundled known-good WowPresence fallback was installed instead."
+                )
+            except Exception as bundled_exc:
+                raise RuntimeError(
+                    "Could not install WowPresence from its online source, "
+                    "local cache or bundled fallback."
+                ) from bundled_exc
+
+        self._warn_offline(
+            "WowPresence",
+            fallback_action,
+            error,
+        )
+
     def _valid_superapi_addon(self, addon_path):
         """Reject empty/partial SuperAPI folders before treating them as usable."""
         required = (
@@ -1432,47 +1493,7 @@ class ModernWowSetupTool(WowSetupTool):
                             progress=self._report_download_progress,
                         )
                     except Exception as exc:
-                        existing_dll = os.path.join(target, "WowPresence.dll")
-                        existing_exe = os.path.join(target, "WowPresence.exe")
-                        if (
-                            self._valid_x86_dll(existing_dll, "WowPresence.dll")
-                            and self._valid_x86_dll(existing_exe, "WowPresence.exe")
-                        ):
-                            remote_packages.ensure_wowpresence_config(target)
-                            remote_packages.cache_installed_wowpresence(target)
-                            self._warn_offline(
-                                "WowPresence",
-                                "Keeping the currently installed WowPresence binaries.",
-                                exc,
-                            )
-                        else:
-                            try:
-                                remote_packages.install_cached_wowpresence(
-                                    target,
-                                    progress=self._report_download_progress,
-                                )
-                                fallback_action = (
-                                    "The last validated cached WowPresence package was installed instead."
-                                )
-                            except Exception:
-                                try:
-                                    remote_packages.install_bundled_wowpresence(
-                                        target,
-                                        progress=self._report_download_progress,
-                                    )
-                                    fallback_action = (
-                                        "The bundled known-good WowPresence fallback was installed instead."
-                                    )
-                                except Exception as bundled_exc:
-                                    raise RuntimeError(
-                                        "Could not install WowPresence from its online source, "
-                                        "local cache or bundled fallback."
-                                    ) from bundled_exc
-                            self._warn_offline(
-                                "WowPresence",
-                                fallback_action,
-                                exc,
-                            )
+                        self._recover_wowpresence_offline(target, exc)
 
                     # Remove the old test-branch filenames after a successful
                     # migration. The legacy config directory is intentionally
