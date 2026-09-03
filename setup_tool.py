@@ -1734,7 +1734,7 @@ class WowSetupTool:
                             )
                         else:
                             raise RuntimeError(
-                                f"{display_name} installation failed and no usable cached fallback is available:\n{exc}"
+                                f"{display_name} installation failed and no usable cached or bundled fallback is available:\n{exc}"
                             ) from exc
                 else:
                     remote_packages.remove_managed_mod(target, managed_id)
