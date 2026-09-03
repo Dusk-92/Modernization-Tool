@@ -34,6 +34,10 @@ class RemotePackageError(RuntimeError):
     pass
 
 
+class RemoteSourceUnavailable(RemotePackageError):
+    """Remote source could not provide a usable package."""
+
+
 def _emit_progress(callback, message, current=None, total=None):
     if callback is None:
         return
@@ -957,18 +961,52 @@ def write_wowpresence_broadcast_flags(target_dir, value):
 
 
 def cache_installed_wowpresence(target_dir, revision=None):
-    """Best-effort cache seed from an already valid WowPresence installation."""
+    """Best-effort cache seed from a hash-verified managed WowPresence install."""
     dll_path = os.path.join(target_dir, "WowPresence.dll")
     exe_path = os.path.join(target_dir, "WowPresence.exe")
-    try:
-        _verify_x86_pe(dll_path, "installed WowPresence.dll")
-        _verify_x86_pe(exe_path, "installed WowPresence.exe")
-    except RemotePackageError:
+    required = ("WowPresence.dll", "WowPresence.exe")
+
+    manifest = _load_managed_manifest_data(
+        target_dir,
+        WOWPRESENCE_MANAGED_ID,
+    )
+    if not isinstance(manifest, dict) or not manifest:
         return False
 
+    managed_files = {
+        rel.replace("\\", "/").casefold()
+        for rel in _load_managed_manifest(target_dir, WOWPRESENCE_MANAGED_ID)
+    }
+    if any(name.casefold() not in managed_files for name in required):
+        return False
+
+    saved_hashes = manifest.get("file_sha256")
+    if not isinstance(saved_hashes, dict):
+        return False
+
+    for filename, path in (
+        ("WowPresence.dll", dll_path),
+        ("WowPresence.exe", exe_path),
+    ):
+        expected = saved_hashes.get(filename)
+        if (
+            not isinstance(expected, str)
+            or len(expected.strip()) != 64
+            or any(ch not in "0123456789abcdefABCDEF" for ch in expected.strip())
+        ):
+            return False
+        try:
+            if _file_sha256(path) != expected.strip().lower():
+                return False
+            _verify_x86_pe(path, f"installed {filename}")
+        except (OSError, RemotePackageError):
+            return False
+
     if revision is None:
-        manifest = _load_managed_manifest_data(target_dir, WOWPRESENCE_MANAGED_ID)
-        revision = manifest.get("revision") if isinstance(manifest, dict) else None
+        revision = manifest.get("revision")
+    if revision in (None, ""):
+        return False
+    revision = str(revision)
 
     if _load_cached_file(
         target_dir,
@@ -1001,7 +1039,6 @@ def cache_installed_wowpresence(target_dir, revision=None):
             os.remove(zip_path)
         except OSError:
             pass
-
 
 def install_wowpresence(target_dir, progress=None):
     """Install or update WowPresence from its latest stable GitHub release ZIP."""
@@ -2099,6 +2136,48 @@ def _migrate_legacy_pink_herbs_patch(target_dir, downloaded_path, progress=None)
         revision=data.get("revision"),
     )
 
+def _download_remote_mpq(
+    url,
+    progress=None,
+    label="Downloading visual mod",
+    timeout=300,
+):
+    """Download an MPQ while distinguishing source failures from local I/O."""
+    try:
+        temp_path = _download(
+            url,
+            suffix=".mpq",
+            progress=progress,
+            label=label,
+            timeout=timeout,
+        )
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+        raise RemoteSourceUnavailable(
+            f"{label}: remote source is unavailable ({exc})."
+        ) from exc
+
+    try:
+        with open(temp_path, "rb") as handle:
+            magic = handle.read(3)
+    except OSError:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise
+
+    if magic != b"MPQ":
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise RemoteSourceUnavailable(
+            f"{label}: remote source returned an invalid MPQ package."
+        )
+
+    return temp_path
+
+
 def _install_remote_mpq(
     target_dir,
     mod_id,
@@ -2122,15 +2201,13 @@ def _install_remote_mpq(
         )
         return
 
-    temp_path = _download(
+    temp_path = _download_remote_mpq(
         url,
-        suffix=".mpq",
         progress=progress,
         label=label,
         timeout=timeout,
     )
     try:
-        _verify_mpq(temp_path)
         _emit_progress(
             progress,
             f"Installing {os.path.basename(destination)}...",
@@ -2220,7 +2297,10 @@ def install_pink_herbs(target_dir, progress=None):
 
     try:
         revision = _branch_head_sha("seacrabsam/patch-herb", "main")
-    except Exception as revision_error:
+    except RemotePackageError as revision_error:
+        source_error = RemoteSourceUnavailable(
+            f"Pink Herbs: could not resolve the upstream revision ({revision_error})."
+        )
         if installed_revision is not None:
             try:
                 _verify_mpq(target_path)
@@ -2234,7 +2314,7 @@ def install_pink_herbs(target_dir, progress=None):
                     None,
                 )
                 return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
-        raise revision_error
+        raise source_error from revision_error
 
     if installed_revision == revision:
         try:
@@ -2251,14 +2331,13 @@ def install_pink_herbs(target_dir, progress=None):
             return f"seacrabsam/patch-herb main@{revision[:7]}"
 
     try:
-        temp_path = _download(
+        temp_path = _download_remote_mpq(
             f"https://raw.githubusercontent.com/seacrabsam/patch-herb/{revision}/patch-H.mpq",
-            suffix=".mpq",
             progress=progress,
             label="Downloading Pink Herbs",
             timeout=300,
         )
-    except Exception as download_error:
+    except RemoteSourceUnavailable as download_error:
         if installed_revision is not None:
             try:
                 _verify_mpq(target_path)
@@ -2272,10 +2351,9 @@ def install_pink_herbs(target_dir, progress=None):
                     None,
                 )
                 return f"seacrabsam/patch-herb main@{installed_revision[:7]}"
-        raise download_error
+        raise
 
     try:
-        _verify_mpq(temp_path)
         _migrate_legacy_pink_herbs_patch(target_dir, temp_path, progress=progress)
         _emit_progress(
             progress,
