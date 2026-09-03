@@ -207,7 +207,7 @@ Existing encryption keys are never replaced.
 | VanillaFixes | 1.5.3 |
 | DXVK | 2.6.1 x86 |
 | Nampower | 4.6.1 |
-| ClassicAPI | 1.12.7 |
+| ClassicAPI | 1.13.3 |
 | AuctionQueryThrottle | 1.2.0 |
 | UnitXP_SP3 | v90 |
 | SuperWoW | 2.2 |
