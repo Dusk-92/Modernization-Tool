@@ -158,15 +158,19 @@ Depending on the component, the tool can:
 - use a bundled known-good fallback where redistribution terms allow it;
 - avoid re-downloading files that are already current.
 
-**SuperWoW and SuperAPI are upstream-only:** SuperWoW is downloaded from its
-official stable release and SuperAPI follows the current upstream `master`
-revision. They are not bundled as offline fallbacks, so a first-time SuperWoW
-installation requires network access.
+**SuperWoW and SuperAPI prefer their upstream sources:** SuperWoW is downloaded
+from its official stable release and SuperAPI follows the current upstream
+`master` revision. If either online source is unavailable, the tool can install
+the bundled known-good SuperWoW + SuperAPI fallback instead.
+
+**WowPresence and remote visual mods keep a validated local cache** after a
+successful download. That cache can be reused automatically for repair or
+reinstallation when the online source is temporarily unavailable.
 
 **No1600x1200 uses the bundled known-good copy** instead of following the
 RetroCro archive repository automatically.
 
-Downloaded and bundled DLLs are validated before installation.
+Downloaded, cached and bundled DLLs are validated before installation.
 
 ---
 
