@@ -34,3 +34,5 @@ jobs:
           git diff --cached --check
           git commit -m "Keep Vanilla Tweaks independent from SuperWoW"
           git push origin HEAD:test/remote-fallbacks
+
+# one-time migration trigger
