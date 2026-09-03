@@ -1742,6 +1742,10 @@ class BundledComponentSafetyTests(unittest.TestCase):
             )
 
             with mock.patch.object(remote_packages, "_verify_x86_pe"):
+                self.assertEqual(
+                    remote_packages.wowpresence_install_trust_state(root),
+                    "managed_verified",
+                )
                 self.assertTrue(
                     remote_packages.cache_installed_wowpresence(
                         root,
@@ -1764,6 +1768,10 @@ class BundledComponentSafetyTests(unittest.TestCase):
                     handle.write(filename.encode("ascii"))
 
             with mock.patch.object(remote_packages, "_verify_x86_pe"):
+                self.assertEqual(
+                    remote_packages.wowpresence_install_trust_state(root),
+                    "unmanaged",
+                )
                 self.assertFalse(
                     remote_packages.cache_installed_wowpresence(
                         root,
@@ -1804,6 +1812,10 @@ class BundledComponentSafetyTests(unittest.TestCase):
                 handle.write(b"modified")
 
             with mock.patch.object(remote_packages, "_verify_x86_pe"):
+                self.assertEqual(
+                    remote_packages.wowpresence_install_trust_state(root),
+                    "managed_modified",
+                )
                 self.assertFalse(
                     remote_packages.cache_installed_wowpresence(root)
                 )
@@ -1815,6 +1827,123 @@ class BundledComponentSafetyTests(unittest.TestCase):
                     "WowPresence.zip",
                 )
             )
+
+    def test_modified_managed_wowpresence_uses_validated_cache_offline(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool._valid_x86_dll = mock.Mock(return_value=True)
+        tool._warn_offline = mock.Mock()
+        tool._report_download_progress = mock.Mock()
+
+        with (
+            mock.patch.object(
+                remote_packages,
+                "wowpresence_install_trust_state",
+                return_value="managed_modified",
+            ),
+            mock.patch.object(
+                remote_packages,
+                "install_cached_wowpresence",
+            ) as cached,
+            mock.patch.object(
+                remote_packages,
+                "install_bundled_wowpresence",
+            ) as bundled,
+            mock.patch.object(
+                remote_packages,
+                "ensure_wowpresence_config",
+            ) as ensure_config,
+        ):
+            tool._recover_wowpresence_offline(
+                "C:/WoW",
+                RuntimeError("offline"),
+            )
+
+        cached.assert_called_once()
+        bundled.assert_not_called()
+        ensure_config.assert_not_called()
+        tool._warn_offline.assert_called_once()
+        self.assertIn(
+            "validated cached WowPresence",
+            tool._warn_offline.call_args.args[1],
+        )
+
+    def test_modified_managed_wowpresence_uses_bundled_fallback_if_cache_fails(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool._valid_x86_dll = mock.Mock(return_value=True)
+        tool._warn_offline = mock.Mock()
+        tool._report_download_progress = mock.Mock()
+
+        with (
+            mock.patch.object(
+                remote_packages,
+                "wowpresence_install_trust_state",
+                return_value="managed_modified",
+            ),
+            mock.patch.object(
+                remote_packages,
+                "install_cached_wowpresence",
+                side_effect=remote_packages.RemotePackageError("no cache"),
+            ),
+            mock.patch.object(
+                remote_packages,
+                "install_bundled_wowpresence",
+            ) as bundled,
+        ):
+            tool._recover_wowpresence_offline(
+                "C:/WoW",
+                RuntimeError("offline"),
+            )
+
+        bundled.assert_called_once()
+        tool._warn_offline.assert_called_once()
+        self.assertIn(
+            "bundled known-good WowPresence",
+            tool._warn_offline.call_args.args[1],
+        )
+
+    def test_manual_valid_wowpresence_is_preserved_without_cache_promotion(self):
+        tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
+        tool._valid_x86_dll = mock.Mock(return_value=True)
+        tool._warn_offline = mock.Mock()
+        tool._report_download_progress = mock.Mock()
+
+        with (
+            mock.patch.object(
+                remote_packages,
+                "wowpresence_install_trust_state",
+                return_value="unmanaged",
+            ),
+            mock.patch.object(
+                remote_packages,
+                "install_cached_wowpresence",
+            ) as cached,
+            mock.patch.object(
+                remote_packages,
+                "install_bundled_wowpresence",
+            ) as bundled,
+            mock.patch.object(
+                remote_packages,
+                "cache_installed_wowpresence",
+            ) as seed_cache,
+            mock.patch.object(
+                remote_packages,
+                "ensure_wowpresence_config",
+            ) as ensure_config,
+        ):
+            tool._recover_wowpresence_offline(
+                "C:/WoW",
+                RuntimeError("offline"),
+            )
+
+        cached.assert_not_called()
+        bundled.assert_not_called()
+        seed_cache.assert_not_called()
+        ensure_config.assert_called_once_with("C:/WoW")
+        tool._warn_offline.assert_called_once()
+        self.assertIn(
+            "not promoted into the validated fallback cache",
+            tool._warn_offline.call_args.args[1],
+        )
 
     def test_superapi_bundled_tree_rejects_tampering(self):
         tool = ModernWowSetupTool.__new__(ModernWowSetupTool)
