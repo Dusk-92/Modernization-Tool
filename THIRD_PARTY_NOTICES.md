@@ -76,29 +76,30 @@ preserved during this audit:
 - License: MIT
 - Preserved as `LICENSES/VanillaMultiMonitorFix-MIT.txt`
 
-## SuperWoW and SuperAPI: upstream-only distribution
+## SuperWoW and SuperAPI
 
-SuperWoW's current upstream license states that distribution is prohibited
-without the copyright holder's express written permission.
+SuperWoW's upstream license requires the copyright holder's express permission
+for redistribution. The Modernization Tool maintainer reported receiving that
+redistribution permission from the upstream author on 2026-09-03.
 
-Because no written redistribution authorization is documented in this
-repository, Modernization Tool no longer bundles `SuperWoWhook.dll` as an
-offline fallback. The tool already downloads SuperWoW directly from the
-official upstream release when the user enables it.
+Modernization Tool therefore keeps a known-good SuperWoW + SuperAPI fallback
+while continuing to prefer the official upstream sources whenever they are
+available.
 
 - SuperWoW source: https://github.com/balakethelock/SuperWoW
 - License copy: `LICENSES/SuperWoW-LICENSE.txt`
-- Distribution mode: downloaded from upstream at install time; not bundled
-
-SuperAPI is likewise downloaded directly from its upstream repository as part
-of the SuperWoW installation path and is no longer kept as a bundled fallback.
-
+- Online mode: latest stable upstream release
+- Bundled fallback: `Payload/SuperWoWhook.dll`
 - SuperAPI source: https://github.com/balakethelock/SuperAPI
-- Distribution mode: downloaded from upstream at install time; not bundled
+- Online mode: current upstream `master` revision resolved to an exact commit
+- Bundled fallback: `Payload/Interface/Addons/SuperAPI/`
 
-If the upstream download is unavailable, an already complete installed
-SuperWoW/SuperAPI setup may be kept by the tool, but a new offline installation
-cannot use a bundled SuperWoW fallback.
+The exact bundled revision and binary hash are recorded in
+`Payload/Fallback/versions.json` and `Docs/BINARY_PROVENANCE.md`.
+
+If the online update is unavailable, a complete valid existing installation is
+kept first. If repair or first-time installation is still required, the bundled
+known-good SuperWoW + SuperAPI pair can be installed atomically instead.
 
 ## Components whose redistribution license was not independently located
 
