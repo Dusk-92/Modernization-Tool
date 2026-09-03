@@ -1720,25 +1720,11 @@ class WowSetupTool:
         ]
 
         try:
-            # Large visual MPQs deliberately stay online-only, but they are not
-            # downloaded again on every Apply. A revision bump in remote_packages
-            # is enough to trigger one fresh download when a source/version changes.
+            # Visual installers own their current-version and cache checks.
+            # Already valid MPQs are reused without a download and can seed the
+            # local offline cache on upgrades from older Tool releases.
             for key, managed_id, display_name, installer in visual_defs:
                 if self.visual_mods[key].get():
-                    # Hosted static mirrors use explicit revisions and can be
-                    # skipped without any network request. Pink Herbs follows a
-                    # GitHub branch, so its installer performs a lightweight
-                    # branch-SHA check before deciding whether a download is
-                    # needed.
-                    if key != "pink_herbs":
-                        revision = remote_packages.VISUAL_MOD_REVISIONS[managed_id]
-                        if remote_packages.managed_mpq_is_current(
-                            target,
-                            managed_id,
-                            revision,
-                        ):
-                            continue
-
                     try:
                         installer(target, progress=progress)
                     except Exception as exc:
