@@ -817,8 +817,8 @@ class SmartUpdateTests(unittest.TestCase):
         size = 0x435D3C + 16
         data = bytearray(size)
 
-        data[0x0C1ECF] = 0x75
-        data[0x0C2B25] = 0x75
+        data[0x0C1ECF:0x0C1ED1] = b"\x75\x10"
+        data[0x0C2B25:0x0C2B27] = b"\x75\x0B"
         data[0x3A4869] = 0x27
         data[0x4089B4:0x4089B8] = struct.pack("<f", 1.919862)
         data[0x435D38:0x435D3C] = b"64\x00\x00"
@@ -834,8 +834,8 @@ class SmartUpdateTests(unittest.TestCase):
             with open(path, "rb") as handle:
                 result = handle.read()
 
-        self.assertEqual(result[0x0C1ECF], 0x74)
-        self.assertEqual(result[0x0C2B25], 0x74)
+        self.assertEqual(result[0x0C1ECF:0x0C1ED1], b"\x74\x10")
+        self.assertEqual(result[0x0C2B25:0x0C2B27], b"\x74\x0B")
         self.assertEqual(result[0x3A4869], 0x14)
         self.assertAlmostEqual(
             struct.unpack("<f", result[0x4089B4:0x4089B8])[0],
@@ -847,6 +847,29 @@ class SmartUpdateTests(unittest.TestCase):
             result[0x40FED8:0x40FEDC],
             struct.pack("<f", 3000.0),
         )
+
+    def test_superwow_reset_handles_known_always_autoloot_variant(self):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        size = 0x435D3C + 16
+        data = bytearray(size)
+        data[0x0C1ECF:0x0C1ED1] = b"\x90\x90"
+        data[0x0C2B25:0x0C2B27] = b"\x90\x90"
+        data[0x3A4869] = 0x14
+        data[0x4089B4:0x4089B8] = struct.pack("<f", 1.5708)
+        data[0x435D38:0x435D3C] = b"12\x00\x00"
+
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "WoW_Modernized.exe")
+            with open(path, "wb") as handle:
+                handle.write(data)
+
+            tool._reset_superwow_managed_exe_patches(path)
+
+            with open(path, "rb") as handle:
+                result = handle.read()
+
+        self.assertEqual(result[0x0C1ECF:0x0C1ED1], b"\x74\x10")
+        self.assertEqual(result[0x0C2B25:0x0C2B27], b"\x74\x0B")
 
     def test_superwow_signature_versions_patch_reset_policy(self):
         tool = WowSetupTool.__new__(WowSetupTool)
