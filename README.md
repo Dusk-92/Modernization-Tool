@@ -164,10 +164,12 @@ from its official stable release and SuperAPI follows the current upstream
 the bundled known-good SuperWoW + SuperAPI fallback instead.
 
 **WowPresence uses layered fallbacks.** A successful download refreshes a
-validated local cache, while an already valid installed copy can seed that cache
-when possible. Cache write failures never block a successful normal install.
-Release builds also include a verified known-good WowPresence fallback for
-first-time offline installation.
+validated local cache, while an already tool-managed copy can seed that cache
+only when its recorded SHA-256 hashes still match. Unknown/manual binaries may
+be preserved when valid but are never promoted into the validated cache. Cache
+write failures never block a successful normal install. Release builds also
+include a verified known-good WowPresence fallback for first-time offline
+installation.
 
 **Visual MPQ mods do not use offline fallbacks.** If their source is unavailable,
 the Tool keeps an already valid installed copy unchanged; a first-time install
