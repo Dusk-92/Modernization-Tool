@@ -163,11 +163,12 @@ from its official stable release and SuperAPI follows the current upstream
 `master` revision. If either online source is unavailable, the tool can install
 the bundled known-good SuperWoW + SuperAPI fallback instead.
 
-**WowPresence and remote visual mods keep a validated local cache.** A successful
-download refreshes the cache, while already valid installed files can seed it
-when possible. Cache write failures never block a successful normal install.
-A completely fresh offline installation of these cache-only components still
-requires a cache created by an earlier valid installation.
+**WowPresence and remote visual mods use layered fallbacks.** A successful
+download refreshes a validated local cache, while already valid installed files
+can seed that cache when possible. Cache write failures never block a successful
+normal install. Release builds also include a verified known-good fallback for
+WowPresence, Pink Herbs, Darker Nights, Pretty Night Sky, Epoch Water and Fog
+Pushback, so these components can still be installed on a fresh offline setup.
 
 **No1600x1200 uses the bundled known-good copy** instead of following the
 RetroCro archive repository automatically.
