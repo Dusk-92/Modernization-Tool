@@ -32,11 +32,6 @@ This provenance pass restores the previously recorded SuperWoW fallback and veri
 | NoErrorSounds | bundled fallback + online source | Macumbafeh/NoErrorSounds | project-wide license not independently located |
 | Warlock Muted Demons | bundled fallback + online source | spzilyk/Warlock-Muted-Demons | project-wide license not independently located |
 | WowPresence | release-build bundled fallback + online update | Dusk-92/WowPresence v1.3 | project-owned integration; see component notices |
-| Pink Herbs | release-build bundled fallback + online update | seacrabsam/patch-herb pinned build revision | project-wide license not independently located |
-| Darker Nights | release-build bundled fallback + online source | Project Reforged hosted MPQ | asset redistribution status tracked separately |
-| Pretty Night Sky | release-build bundled fallback + online source | RetroCro mirror | asset redistribution status tracked separately |
-| Epoch Water | release-build bundled fallback + online source | RetroCro mirror | asset redistribution status tracked separately |
-| Fog Pushback | release-build bundled fallback + online source | RetroCro mirror | asset redistribution status tracked separately |
 
 ## SuperWoW / SuperAPI fallback
 
@@ -72,11 +67,11 @@ The exact fallback metadata is also recorded in
 For components stored directly in the repository, the canonical
 machine-readable hashes are kept in `Payload/Fallback/versions.json`.
 
-Large remote fallbacks and WowPresence are prepared by
-`scripts/prepare_remote_fallbacks.py` during release/test builds. The script
-validates the downloaded package type, records its size and SHA-256, and writes
-`Payload/Fallback/remote_fallbacks.json` before PyInstaller packages the
-fallback into the executable.
+WowPresence is prepared as a release-build fallback by
+`scripts/prepare_remote_fallbacks.py`. The script validates the release ZIP,
+records its size and SHA-256, and writes
+`Payload/Fallback/remote_fallbacks.json` before PyInstaller packages it into
+the executable. Visual MPQ mods are intentionally not bundled as fallbacks.
 
 When updating a binary:
 
