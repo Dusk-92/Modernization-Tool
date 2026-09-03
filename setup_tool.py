@@ -2514,7 +2514,7 @@ WScript.Echo oWS.SpecialFolders("Desktop")
     def _vanilla_tweaks_signature(self):
         """Return only settings that change WoW_Modernized.exe patch output."""
         superwow_active = self._superwow_enabled()
-        return {
+        signature = {
             "superwow_active": bool(superwow_active),
             "fov": None if superwow_active else round(float(self.vt_fov.get()), 4),
             "farclip": int(self.vt_farclip.get()),
@@ -2536,6 +2536,9 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             "custom_glues": bool(self.vt_custom_glues.get()),
             "bluemoon": bool(self.vt_bluemoon.get()),
         }
+        if superwow_active:
+            signature["superwow_managed_patch_reset"] = 1
+        return signature
 
     def run_vanilla_tweaks(self, target, tweaks_exe=None, modern_cli=False):
         """Patch a copy of WoW.exe while preserving the original executable."""
