@@ -1831,6 +1831,124 @@ class BundledComponentSafetyTests(unittest.TestCase):
 
             self.assertTrue(tool._valid_superapi_addon(addon))
 
+    def test_bundled_remote_mpq_fallback_is_verified_and_used(self):
+        with tempfile.TemporaryDirectory() as runtime_root, tempfile.TemporaryDirectory() as game:
+            fallback_dir = os.path.join(
+                runtime_root,
+                "Payload",
+                "Fallback",
+                "Remote",
+                "visual_example",
+            )
+            os.makedirs(fallback_dir)
+            payload = os.path.join(fallback_dir, "payload.mpq")
+            with open(payload, "wb") as handle:
+                handle.write(b"MPQbundled")
+
+            manifest_path = os.path.join(
+                runtime_root,
+                "Payload",
+                "Fallback",
+                "remote_fallbacks.json",
+            )
+            with open(manifest_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "fallbacks": {
+                            "visual_example": {
+                                "filename": "payload.mpq",
+                                "revision": "1",
+                                "size": os.path.getsize(payload),
+                                "sha256": hashlib.sha256(b"MPQbundled").hexdigest(),
+                            }
+                        }
+                    },
+                    handle,
+                )
+
+            with (
+                mock.patch.object(
+                    remote_packages,
+                    "_runtime_base_path",
+                    return_value=runtime_root,
+                ),
+                mock.patch.object(
+                    remote_packages,
+                    "_download",
+                    side_effect=remote_packages.RemotePackageError("offline"),
+                ),
+                mock.patch.object(
+                    remote_packages,
+                    "_install_managed_files",
+                ) as install,
+            ):
+                remote_packages._install_remote_mpq(
+                    game,
+                    "visual_example",
+                    "https://example.invalid/visual.mpq",
+                    os.path.join("Data", "patch-X.mpq"),
+                    revision="1",
+                )
+
+            self.assertEqual(install.call_args.args[2][0][0], payload)
+
+    def test_bundled_wowpresence_can_install_without_cache(self):
+        with tempfile.TemporaryDirectory() as runtime_root, tempfile.TemporaryDirectory() as game:
+            fallback_dir = os.path.join(
+                runtime_root,
+                "Payload",
+                "Fallback",
+                "Remote",
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+            )
+            os.makedirs(fallback_dir)
+            package = os.path.join(fallback_dir, "WowPresence.zip")
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("WowPresence.dll", b"dummy-dll")
+                archive.writestr("WowPresence.exe", b"dummy-exe")
+
+            manifest_path = os.path.join(
+                runtime_root,
+                "Payload",
+                "Fallback",
+                "remote_fallbacks.json",
+            )
+            with open(manifest_path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "fallbacks": {
+                            remote_packages.WOWPRESENCE_MANAGED_ID: {
+                                "filename": "WowPresence.zip",
+                                "revision": "v1.3",
+                                "size": os.path.getsize(package),
+                                "sha256": remote_packages._file_sha256(package),
+                            }
+                        }
+                    },
+                    handle,
+                )
+
+            with (
+                mock.patch.object(
+                    remote_packages,
+                    "_runtime_base_path",
+                    return_value=runtime_root,
+                ),
+                mock.patch.object(remote_packages, "_verify_x86_pe"),
+                mock.patch.object(
+                    remote_packages,
+                    "_install_managed_files_transactional",
+                ) as install,
+                mock.patch.object(
+                    remote_packages,
+                    "_set_managed_manifest_values",
+                ),
+            ):
+                revision = remote_packages.install_bundled_wowpresence(game)
+
+            self.assertEqual(revision, "v1.3")
+            install.assert_called_once()
+
     def test_branch_archive_download_can_be_pinned_to_resolved_revision(self):
         with (
             mock.patch.object(remote_packages, "_download", return_value="archive.zip") as download,
