@@ -163,9 +163,11 @@ from its official stable release and SuperAPI follows the current upstream
 `master` revision. If either online source is unavailable, the tool can install
 the bundled known-good SuperWoW + SuperAPI fallback instead.
 
-**WowPresence and remote visual mods keep a validated local cache** after a
-successful download. That cache can be reused automatically for repair or
-reinstallation when the online source is temporarily unavailable.
+**WowPresence and remote visual mods keep a validated local cache.** A successful
+download refreshes the cache, while already valid installed files can seed it
+when possible. Cache write failures never block a successful normal install.
+A completely fresh offline installation of these cache-only components still
+requires a cache created by an earlier valid installation.
 
 **No1600x1200 uses the bundled known-good copy** instead of following the
 RetroCro archive repository automatically.
@@ -257,8 +259,9 @@ For detailed redistribution and provenance information, see:
 - [Docs/ASSET_PROVENANCE.md](Docs/ASSET_PROVENANCE.md)
 - [LICENSES/](LICENSES/)
 
-SuperWoW and the current SuperAPI master revision are downloaded directly from
-their upstream projects and are not bundled as offline fallbacks.
+SuperWoW and SuperAPI prefer their upstream projects, with a bundled known-good
+pair available as an offline fallback. Other remote components use the fallback
+behavior described in **Automatic Updates & Offline Fallbacks** above.
 
 ---
 
