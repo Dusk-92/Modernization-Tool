@@ -162,11 +162,15 @@ Depending on the component, the tool can:
 - use a bundled known-good fallback where redistribution terms allow it;
 - avoid re-downloading files that are already current.
 
-**SuperWoW and SuperAPI are upstream-only:** they are downloaded directly from
-their official upstream projects when enabled and are not bundled as offline
-fallbacks. A first-time SuperWoW installation therefore requires network access.
+**SuperWoW and SuperAPI are upstream-only:** SuperWoW is downloaded from its
+official stable release and SuperAPI is downloaded from the revision tested
+with the current Modernization Tool build. They are not bundled as offline
+fallbacks, so a first-time SuperWoW installation requires network access.
 
-Downloaded DLLs are also validated before installation.
+**No1600x1200 uses the bundled known-good copy** instead of following the
+RetroCro archive repository automatically.
+
+Downloaded and bundled DLLs are validated before installation.
 
 ---
 
@@ -311,8 +315,8 @@ For detailed redistribution and provenance information, see:
 - [Docs/ASSET_PROVENANCE.md](Docs/ASSET_PROVENANCE.md)
 - [LICENSES/](LICENSES/)
 
-SuperWoW and SuperAPI are downloaded directly from their upstream projects and
-are not bundled as offline fallbacks.
+SuperWoW and the tested SuperAPI revision are downloaded directly from their
+upstream projects and are not bundled as offline fallbacks.
 
 ---
 
