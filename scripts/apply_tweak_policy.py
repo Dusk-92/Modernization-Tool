@@ -32,7 +32,7 @@ controls_replacement = '''    def update_superwow_managed_controls(self):
             self.cb_bg.configure(state="normal")
 
 '''
-text, count = controls_pattern.subn(controls_replacement, text, count=1)
+text, count = controls_pattern.subn(lambda _match: controls_replacement, text, count=1)
 assert count == 1, f"controls replacement count={count}"
 
 signature_pattern = re.compile(
@@ -59,7 +59,7 @@ signature_replacement = '''    def _vanilla_tweaks_signature(self):
         }
 
 '''
-text, count = signature_pattern.subn(signature_replacement, text, count=1)
+text, count = signature_pattern.subn(lambda _match: signature_replacement, text, count=1)
 assert count == 1, f"signature replacement count={count}"
 
 replacements = {
@@ -112,7 +112,7 @@ legacy_replacement = '''        else:
             if not self.vt_bg_sound.get():
                 args.append("--no-sound-in-background")
 '''
-text, count = legacy_pattern.subn(legacy_replacement, text, count=1)
+text, count = legacy_pattern.subn(lambda _match: legacy_replacement, text, count=1)
 assert count == 1, f"legacy replacement count={count}"
 
 setup_path.write_text(text, encoding="utf-8", newline="\n")
@@ -217,6 +217,6 @@ tests_replacement = '''    def test_superwow_does_not_change_vanilla_tweaks_sign
         self.assertIn("--sound-in-background", args)
 
 '''
-tests_text, count = tests_pattern.subn(tests_replacement, tests_text, count=1)
+tests_text, count = tests_pattern.subn(lambda _match: tests_replacement, tests_text, count=1)
 assert count == 1, f"tests replacement count={count}"
 tests_path.write_text(tests_text, encoding="utf-8", newline="\n")
