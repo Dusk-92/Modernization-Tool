@@ -551,7 +551,7 @@ class ModernWowSetupTool(WowSetupTool):
             "SuperWoWhook.dll": ("SuperWoW", "by balakethelock"),
             "transmogfix.dll": ("TransmogFix", "by MarcelineVQ"),
             "perf_boost.dll": ("PerfBoost", "by avitasia"),
-            "weirdperformance.dll": ("WeirdPerformance", "Dusk92 build 0.7.3"),
+            "weirdperformance.dll": ("WeirdPerformance", "by Dusk-92"),
             "VanillaHelpers.dll": ("VanillaHelpers", "by isfir"),
         }
 
