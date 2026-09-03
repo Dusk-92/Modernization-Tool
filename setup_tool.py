@@ -1731,15 +1731,19 @@ class WowSetupTool:
                 if self.visual_mods[key].get():
                     try:
                         installer(target, progress=progress)
-                    except Exception as exc:
+                    except remote_packages.RemoteSourceUnavailable as exc:
                         if remote_packages.managed_mpq_is_usable(target, managed_id):
                             warnings.append(
                                 f"{display_name}: update source unavailable; existing installed copy kept."
                             )
                         else:
                             raise RuntimeError(
-                                f"{display_name} installation failed and no valid installed copy can be kept:\n{exc}"
+                                f"{display_name} source is unavailable and no valid installed copy can be kept:\n{exc}"
                             ) from exc
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"{display_name} installation failed locally:\n{exc}"
+                        ) from exc
                 else:
                     remote_packages.remove_managed_mod(target, managed_id)
 
