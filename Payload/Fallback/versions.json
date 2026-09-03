@@ -590,6 +590,21 @@
           "sha256": "7b0b0fcdb8bb9e82c5a18ab395af670f57da3e03035b27d5e244e4f8b457fdf2"
         }
       ]
+    },
+    "SuperWoW fallback": {
+      "version": "2.2",
+      "source": "https://github.com/balakethelock/SuperWoW/releases/download/Release/SuperWoW.release.2.2.zip",
+      "superapi_source": "https://github.com/balakethelock/SuperAPI",
+      "superapi_revision": "901322dc88890a2ea10610b8228fb43c9c2a3610",
+      "superapi_tree_sha": "95bb25752b1f31f7d4ca8d5e416986b5e3031b33",
+      "note": "Bundled fallback restored after redistribution permission was reported by the Modernization Tool maintainer on 2026-09-03.",
+      "files": [
+        {
+          "path": "Payload/SuperWoWhook.dll",
+          "sha256": "bd214b32c878649e94ce654835946bd05e0ce7710e8f01bae10d8ab50a89351d",
+          "size": 1000448
+        }
+      ]
     }
   }
 }
