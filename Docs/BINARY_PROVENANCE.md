@@ -1,12 +1,12 @@
 # Modernization Tool binary provenance
 
-Audit date: 2026-08-31
+Audit date: 2026-09-03
 
 This document is the human-readable companion to
 `Payload/Fallback/versions.json`, which contains machine-readable source,
 version, SHA-256, and size records for many bundled components.
 
-No remaining payload binary was modified during this provenance pass.
+This provenance pass restores the previously recorded SuperWoW fallback and verifies the paired SuperAPI source revision.
 
 ## Distribution status
 
