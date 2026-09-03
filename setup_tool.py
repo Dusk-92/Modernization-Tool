@@ -724,35 +724,25 @@ class WowSetupTool:
         return bool(var is not None and var.get())
 
     def update_superwow_managed_controls(self):
-        """Disable vanilla-tweaks controls that SuperWoW already handles."""
-        active = self._superwow_enabled()
-
+        """Keep Vanilla Tweaks controls independent from SuperWoW."""
         if hasattr(self, "superwow_notice"):
-            if active:
-                self.superwow_notice.configure(
-                    text="✓ SuperWoW enabled — FoV, Sound Channels, Auto-loot and Background sounds are handled by SuperWoW. Their vanilla-tweaks patches are skipped.",
-                    background="#EAF4FF",
-                    foreground="#005A9E",
-                )
-            else:
-                self.superwow_notice.configure(
-                    text="SuperWoW disabled — FoV, Sound Channels, Auto-loot and Background sounds are controlled by vanilla-tweaks.",
-                    background="#F4F4F4",
-                    foreground="#444444",
-                )
+            try:
+                self.superwow_notice.pack_forget()
+            except tk.TclError:
+                pass
 
         if hasattr(self, "fov_ratio_combo"):
-            self.fov_ratio_combo.configure(state="disabled" if active else "readonly")
+            self.fov_ratio_combo.configure(state="readonly")
         if hasattr(self, "fov_entry"):
-            self.fov_entry.configure(state="disabled" if active else "normal")
+            self.fov_entry.configure(state="normal")
         if hasattr(self, "sound_scale"):
-            self.sound_scale.configure(state="disabled" if active else "normal")
+            self.sound_scale.configure(state="normal")
         if hasattr(self, "sound_entry"):
-            self.sound_entry.configure(state="disabled" if active else "normal")
+            self.sound_entry.configure(state="normal")
         if hasattr(self, "cb_loot"):
-            self.cb_loot.configure(state="disabled" if active else "normal")
+            self.cb_loot.configure(state="normal")
         if hasattr(self, "cb_bg"):
-            self.cb_bg.configure(state="disabled" if active else "normal")
+            self.cb_bg.configure(state="normal")
 
     def build_tweaks_tab(self, parent):
         self.superwow_notice = tk.Label(
@@ -2512,79 +2502,22 @@ WScript.Echo oWS.SpecialFolders("Desktop")
         return digest.hexdigest()
 
     def _vanilla_tweaks_signature(self):
-        """Return only settings that change WoW_Modernized.exe patch output."""
-        superwow_active = self._superwow_enabled()
-        signature = {
-            "superwow_active": bool(superwow_active),
-            "fov": None if superwow_active else round(float(self.vt_fov.get()), 4),
+        """Return settings that change WoW_Modernized.exe patch output."""
+        return {
+            "fov": round(float(self.vt_fov.get()), 4),
             "farclip": int(self.vt_farclip.get()),
             "frill": int(self.vt_frill.get()),
             "nameplate": int(self.vt_nameplate.get()),
-            "sound_channels": (
-                None if superwow_active else int(self.vt_soundchan.get())
-            ),
+            "sound_channels": int(self.vt_soundchan.get()),
             "max_camera": int(self.vt_maxcam.get()),
-            "quickloot": (
-                None if superwow_active else bool(self.vt_quickloot.get())
-            ),
-            "background_sound": (
-                None if superwow_active else bool(self.vt_bg_sound.get())
-            ),
+            "quickloot": bool(self.vt_quickloot.get()),
+            "background_sound": bool(self.vt_bg_sound.get()),
             "large_address_aware": bool(self.vt_laa.get()),
             "camera_fix": bool(self.vt_cam_fix.get()),
             "crossfaction_res": bool(self.vt_crossfaction_res.get()),
             "custom_glues": bool(self.vt_custom_glues.get()),
             "bluemoon": bool(self.vt_bluemoon.get()),
         }
-        if superwow_active:
-            signature["superwow_managed_patch_reset"] = 1
-        return signature
-
-    def _reset_superwow_managed_exe_patches(self, path):
-        """Undo inherited vanilla-tweaks patches that SuperWoW/SuperAPI own."""
-        with open(path, "rb") as handle:
-            data = bytearray(handle.read())
-
-        required_size = 0x435D3C
-        if len(data) < required_size:
-            raise RuntimeError("WoW executable is too small to normalize SuperWoW-managed patches.")
-
-        quickloot_sites = (
-            (0x0C1ECF, b"\x74\x10"),
-            (0x0C2B25, b"\x74\x0B"),
-        )
-        for offset, vanilla_bytes in quickloot_sites:
-            current = bytes(data[offset:offset + 2])
-            known_variants = (
-                vanilla_bytes,
-                bytes((0x75, vanilla_bytes[1])),
-                b"\x90\x90",
-            )
-            if current not in known_variants:
-                raise RuntimeError(
-                    f"Unexpected QuickLoot bytes at 0x{offset:X}; refusing to alter an unknown client."
-                )
-            data[offset:offset + 2] = vanilla_bytes
-
-        if data[0x3A4869] not in (0x14, 0x27):
-            raise RuntimeError(
-                "Unexpected Background Sound byte; refusing to alter an unknown client."
-            )
-        data[0x3A4869] = 0x14
-        data[0x4089B4:0x4089B8] = struct.pack("<f", 1.5708)
-        data[0x435D38:0x435D3C] = b"12\x00\x00"
-
-        staged = path + ".superwow-reset"
-        try:
-            with open(staged, "wb") as handle:
-                handle.write(data)
-            os.replace(staged, path)
-        finally:
-            if os.path.exists(staged):
-                try:
-                    os.remove(staged)
-                except OSError:
-                    pass
 
     def run_vanilla_tweaks(self, target, tweaks_exe=None, modern_cli=False):
         """Patch a copy of WoW.exe while preserving the original executable."""
@@ -2596,12 +2529,10 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             raise FileNotFoundError("vanilla-tweaks.exe was not found.")
 
         args = [tweaks_exe]
-        superwow_active = self._superwow_enabled()
 
         if modern_cli:
-            # tubtubs/vanilla-tweaks keeps these four patches opt-in. When
-            # SuperWoW is active, deliberately leave them unpatched.
-            if not superwow_active and abs(self.vt_fov.get() - 1.5708) >= 0.0001:
+            # tubtubs/vanilla-tweaks keeps these patches opt-in.
+            if abs(self.vt_fov.get() - 1.5708) >= 0.0001:
                 args.extend(["--fov", str(self.vt_fov.get()), "--fov-patch"])
 
             if self.vt_farclip.get() == 777:
@@ -2619,7 +2550,7 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             else:
                 args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
 
-            if not superwow_active and self.vt_soundchan.get() != 12:
+            if self.vt_soundchan.get() != 12:
                 args.extend([
                     "--soundchannels",
                     str(self.vt_soundchan.get()),
@@ -2629,9 +2560,9 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             if self.vt_maxcam.get() != 50:
                 args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
 
-            if not superwow_active and self.vt_quickloot.get():
+            if self.vt_quickloot.get():
                 args.append("--quickloot")
-            if not superwow_active and self.vt_bg_sound.get():
+            if self.vt_bg_sound.get():
                 args.append("--sound-in-background")
             if not self.vt_laa.get():
                 args.append("--no-largeaddressaware")
@@ -2644,30 +2575,21 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             if not self.vt_bluemoon.get():
                 args.append("--no-bluemoonpatch")
         else:
-            # Legacy bundled brndd patcher enables these older patches by
-            # default, so explicitly disable all four when SuperWoW handles them.
-            if superwow_active:
-                args.extend([
-                    "--no-fov",
-                    "--no-soundchannels",
-                    "--no-quickloot",
-                    "--no-sound-in-background",
-                ])
+            # Legacy bundled brndd patcher kept only as an offline fallback.
+            if abs(self.vt_fov.get() - 1.5708) < 0.0001:
+                args.append("--no-fov")
             else:
-                if abs(self.vt_fov.get() - 1.5708) < 0.0001:
-                    args.append("--no-fov")
-                else:
-                    args.extend(["--fov", str(self.vt_fov.get())])
+                args.extend(["--fov", str(self.vt_fov.get())])
 
-                if self.vt_soundchan.get() == 12:
-                    args.append("--no-soundchannels")
-                else:
-                    args.extend(["--soundchannels", str(self.vt_soundchan.get())])
+            if self.vt_soundchan.get() == 12:
+                args.append("--no-soundchannels")
+            else:
+                args.extend(["--soundchannels", str(self.vt_soundchan.get())])
 
-                if not self.vt_quickloot.get():
-                    args.append("--no-quickloot")
-                if not self.vt_bg_sound.get():
-                    args.append("--no-sound-in-background")
+            if not self.vt_quickloot.get():
+                args.append("--no-quickloot")
+            if not self.vt_bg_sound.get():
+                args.append("--no-sound-in-background")
 
             if self.vt_farclip.get() == 777:
                 args.append("--no-farclip")
@@ -2710,9 +2632,6 @@ WScript.Echo oWS.SpecialFolders("Desktop")
 
         try:
             subprocess.run(args, check=True)
-
-            if superwow_active:
-                self._reset_superwow_managed_exe_patches(staged_output)
 
             valid_pe, reason = self._inspect_wow_executable(staged_output)
             if not valid_pe:

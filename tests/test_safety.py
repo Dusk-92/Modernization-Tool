@@ -812,66 +812,7 @@ class SmartUpdateTests(unittest.TestCase):
             self.assertEqual(revision, "abcdef1234567890")
             download.assert_not_called()
 
-    def test_superwow_reset_removes_inherited_vanilla_tweaks_patches(self):
-        tool = WowSetupTool.__new__(WowSetupTool)
-        size = 0x435D3C + 16
-        data = bytearray(size)
-
-        data[0x0C1ECF:0x0C1ED1] = b"\x75\x10"
-        data[0x0C2B25:0x0C2B27] = b"\x75\x0B"
-        data[0x3A4869] = 0x27
-        data[0x4089B4:0x4089B8] = struct.pack("<f", 1.919862)
-        data[0x435D38:0x435D3C] = b"64\x00\x00"
-        data[0x40FED8:0x40FEDC] = struct.pack("<f", 3000.0)
-
-        with tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, "WoW_Modernized.exe")
-            with open(path, "wb") as handle:
-                handle.write(data)
-
-            tool._reset_superwow_managed_exe_patches(path)
-
-            with open(path, "rb") as handle:
-                result = handle.read()
-
-        self.assertEqual(result[0x0C1ECF:0x0C1ED1], b"\x74\x10")
-        self.assertEqual(result[0x0C2B25:0x0C2B27], b"\x74\x0B")
-        self.assertEqual(result[0x3A4869], 0x14)
-        self.assertAlmostEqual(
-            struct.unpack("<f", result[0x4089B4:0x4089B8])[0],
-            1.5708,
-            places=4,
-        )
-        self.assertEqual(result[0x435D38:0x435D3C], b"12\x00\x00")
-        self.assertEqual(
-            result[0x40FED8:0x40FEDC],
-            struct.pack("<f", 3000.0),
-        )
-
-    def test_superwow_reset_handles_known_always_autoloot_variant(self):
-        tool = WowSetupTool.__new__(WowSetupTool)
-        size = 0x435D3C + 16
-        data = bytearray(size)
-        data[0x0C1ECF:0x0C1ED1] = b"\x90\x90"
-        data[0x0C2B25:0x0C2B27] = b"\x90\x90"
-        data[0x3A4869] = 0x14
-        data[0x4089B4:0x4089B8] = struct.pack("<f", 1.5708)
-        data[0x435D38:0x435D3C] = b"12\x00\x00"
-
-        with tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, "WoW_Modernized.exe")
-            with open(path, "wb") as handle:
-                handle.write(data)
-
-            tool._reset_superwow_managed_exe_patches(path)
-
-            with open(path, "rb") as handle:
-                result = handle.read()
-
-        self.assertEqual(result[0x0C1ECF:0x0C1ED1], b"\x74\x10")
-        self.assertEqual(result[0x0C2B25:0x0C2B27], b"\x74\x0B")
-
-    def test_superwow_signature_versions_patch_reset_policy(self):
+    def test_superwow_does_not_change_vanilla_tweaks_signature(self):
         tool = WowSetupTool.__new__(WowSetupTool)
         tool.core_plugins = {"SuperWoWhook.dll": FakeVar(True)}
         tool.vt_fov = FakeVar(1.919862)
@@ -888,18 +829,37 @@ class SmartUpdateTests(unittest.TestCase):
         tool.vt_custom_glues = FakeVar(True)
         tool.vt_bluemoon = FakeVar(False)
 
-        signature = tool._vanilla_tweaks_signature()
-        self.assertEqual(signature["superwow_managed_patch_reset"], 1)
-        self.assertIsNone(signature["fov"])
-        self.assertIsNone(signature["sound_channels"])
-        self.assertIsNone(signature["quickloot"])
-        self.assertIsNone(signature["background_sound"])
-
+        signature_with_superwow = tool._vanilla_tweaks_signature()
         tool.core_plugins["SuperWoWhook.dll"].set(False)
-        signature = tool._vanilla_tweaks_signature()
-        self.assertNotIn("superwow_managed_patch_reset", signature)
+        signature_without_superwow = tool._vanilla_tweaks_signature()
 
-    def test_superwow_run_normalizes_staged_output_before_commit(self):
+        self.assertEqual(signature_with_superwow, signature_without_superwow)
+        self.assertEqual(signature_with_superwow["fov"], 1.9199)
+        self.assertEqual(signature_with_superwow["sound_channels"], 64)
+        self.assertTrue(signature_with_superwow["quickloot"])
+        self.assertTrue(signature_with_superwow["background_sound"])
+
+    def test_superwow_keeps_vanilla_tweaks_controls_enabled(self):
+        tool = WowSetupTool.__new__(WowSetupTool)
+        tool.superwow_notice = mock.Mock()
+        tool.fov_ratio_combo = mock.Mock()
+        tool.fov_entry = mock.Mock()
+        tool.sound_scale = mock.Mock()
+        tool.sound_entry = mock.Mock()
+        tool.cb_loot = mock.Mock()
+        tool.cb_bg = mock.Mock()
+
+        tool.update_superwow_managed_controls()
+
+        tool.superwow_notice.pack_forget.assert_called_once()
+        tool.fov_ratio_combo.configure.assert_called_once_with(state="readonly")
+        tool.fov_entry.configure.assert_called_once_with(state="normal")
+        tool.sound_scale.configure.assert_called_once_with(state="normal")
+        tool.sound_entry.configure.assert_called_once_with(state="normal")
+        tool.cb_loot.configure.assert_called_once_with(state="normal")
+        tool.cb_bg.configure.assert_called_once_with(state="normal")
+
+    def test_superwow_modern_cli_keeps_selected_fov_sound_loot_and_background(self):
         tool = WowSetupTool.__new__(WowSetupTool)
         tool.core_plugins = {"SuperWoWhook.dll": FakeVar(True)}
         tool.vt_fov = FakeVar(1.919862)
@@ -915,9 +875,9 @@ class SmartUpdateTests(unittest.TestCase):
         tool.vt_crossfaction_res = FakeVar(False)
         tool.vt_custom_glues = FakeVar(True)
         tool.vt_bluemoon = FakeVar(False)
-        tool._reset_superwow_managed_exe_patches = mock.Mock()
-        tool._inspect_wow_executable = mock.Mock(return_value=(True, "ok"))
+        tool._inspect_wow_executable = mock.Mock(return_value=(True, ""))
 
+        captured = {}
         with tempfile.TemporaryDirectory() as root:
             wow = os.path.join(root, "WoW.exe")
             patcher = os.path.join(root, "vanilla-tweaks.exe")
@@ -927,26 +887,21 @@ class SmartUpdateTests(unittest.TestCase):
                 handle.write(b"patcher")
 
             def fake_run(args, check):
+                captured["args"] = list(args)
                 staged = args[args.index("-o") + 1]
                 with open(staged, "wb") as handle:
                     handle.write(b"MZ" + b"\x00" * (2 * 1024 * 1024))
 
             with mock.patch("setup_tool.subprocess.run", side_effect=fake_run):
-                result = tool.run_vanilla_tweaks(
-                    root,
-                    tweaks_exe=patcher,
-                    modern_cli=True,
-                )
+                tool.run_vanilla_tweaks(root, tweaks_exe=patcher, modern_cli=True)
 
-            staged = os.path.join(
-                root,
-                "WoW_Modernized.exe.modernization-new",
-            )
-            tool._reset_superwow_managed_exe_patches.assert_called_once_with(staged)
-            self.assertEqual(
-                result,
-                os.path.join(root, "WoW_Modernized.exe"),
-            )
+        args = captured["args"]
+        self.assertIn("--fov", args)
+        self.assertIn("--fov-patch", args)
+        self.assertIn("--soundchannels", args)
+        self.assertIn("--soundchannels-patch", args)
+        self.assertIn("--quickloot", args)
+        self.assertIn("--sound-in-background", args)
 
     def test_vanilla_tweaks_skips_package_when_output_and_revision_match(self):
         tool = setup_tool_dynamic.ModernWowSetupTool.__new__(
