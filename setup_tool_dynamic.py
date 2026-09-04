@@ -330,16 +330,7 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     @staticmethod
     def _validate_client_identity(data):
-        """Require immutable 1.12.1/5875 anchors for a real PE client.
-
-        Unit fixtures intentionally use synthetic non-PE buffers. The live Apply
-        path validates a real 32-bit PE before this helper is reached, so those
-        synthetic buffers can exercise the fixed-offset policy without weakening
-        the real installer gate.
-        """
-        if bytes(data[:2]) != b"MZ":
-            return
-
+        """Require immutable Vanilla 1.12.1/5875 anchors before fixed-offset tweaks."""
         build = bytes(
             data[_CLIENT_BUILD_OFFSET:_CLIENT_BUILD_OFFSET + len(_CLIENT_BUILD)]
         )
@@ -385,12 +376,6 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     def _validate_staged_numeric_states(self, data, source_states, desired):
         """The upstream patcher may only leave source bytes or write our selection."""
-        # Legacy unit fixtures are synthetic byte buffers, not executable files.
-        # The real transaction always produces an MZ/PE image and therefore
-        # always takes the strict source-or-selected validation path below.
-        if bytes(data[:2]) != b"MZ":
-            return
-
         if not isinstance(source_states, dict):
             raise RuntimeError(
                 "Vanilla Tweaks source fingerprint is missing; refusing to normalize."

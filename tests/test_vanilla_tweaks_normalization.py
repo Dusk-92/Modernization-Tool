@@ -76,6 +76,30 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
         filename="WoW_Modernized.exe",
     ):
         data = bytearray(0x46795C + 16)
+
+        # Use a minimal but structurally valid PE32 header. The selected PE
+        # offset deliberately places COFF Characteristics at 0x126, matching
+        # the real client's Large Address Aware patch location.
+        pe_offset = 0x110
+        data[:2] = b"MZ"
+        struct.pack_into("<I", data, 0x3C, pe_offset)
+        data[pe_offset:pe_offset + 4] = b"PE\x00\x00"
+        struct.pack_into("<H", data, pe_offset + 4, 0x014C)
+        struct.pack_into("<H", data, pe_offset + 6, 3)
+        struct.pack_into("<H", data, pe_offset + 20, 0x00E0)
+        struct.pack_into("<H", data, pe_offset + 24, 0x010B)
+
+        data[
+            setup_tool_dynamic._CLIENT_BUILD_OFFSET:
+            setup_tool_dynamic._CLIENT_BUILD_OFFSET
+            + len(setup_tool_dynamic._CLIENT_BUILD)
+        ] = setup_tool_dynamic._CLIENT_BUILD
+        data[
+            setup_tool_dynamic._CLIENT_VERSION_OFFSET:
+            setup_tool_dynamic._CLIENT_VERSION_OFFSET
+            + len(setup_tool_dynamic._CLIENT_VERSION)
+        ] = setup_tool_dynamic._CLIENT_VERSION
+
         data[0x0C1ECF:0x0C1ED1] = quick1
         data[0x0C2B25:0x0C2B27] = quick2
         data[0x3A4869] = background
@@ -437,7 +461,6 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
             camera=False,
             custom_glues=True,
         )
-        tool._inspect_wow_executable = lambda _path: (True, "ok")
         foreign = (0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xF1)
 
         with tempfile.TemporaryDirectory() as root:
@@ -509,7 +532,6 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
             camera=False,
             custom_glues=False,
         )
-        tool._inspect_wow_executable = lambda _path: (True, "ok")
 
         with tempfile.TemporaryDirectory() as root:
             self._write_exe(
@@ -532,12 +554,12 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
                     b"\x75\x10",
                     b"\x75\x0B",
                     0x27,
-                    1.919862,
-                    b"64\x00\x00",
-                    farclip=3000.0,
-                    frill=300.0,
-                    nameplate=41.0,
-                    maxcam=100.0,
+                    1.5708,
+                    b"12\x00\x00",
+                    farclip=777.0,
+                    frill=70.0,
+                    nameplate=20.0,
+                    maxcam=50.0,
                     laa_patched=True,
                     camera_patched=True,
                     custom_patched=True,
