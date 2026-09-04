@@ -35,6 +35,7 @@ def _make_tool():
 
 def _base_client_data():
     data = bytearray(0x46795C)
+    data[:2] = b"MZ"
     data[
         dynamic._CLIENT_BUILD_OFFSET:
         dynamic._CLIENT_BUILD_OFFSET + len(dynamic._CLIENT_BUILD)
@@ -97,10 +98,33 @@ class MpqValidationTests(unittest.TestCase):
             with self.assertRaises(remote_packages.RemotePackageError):
                 dynamic._strict_verify_mpq(path)
 
-    def test_runtime_remote_package_validator_is_hardened(self):
-        self.assertIs(remote_packages._verify_mpq, dynamic._strict_verify_mpq)
+    def test_visual_install_scopes_strict_hooks_and_restores_helpers(self):
+        tool = object.__new__(dynamic.ModernWowSetupTool)
+        original_verify = remote_packages._verify_mpq
+        original_current = remote_packages.managed_mpq_is_current
+        calls = []
 
-    def test_current_mpq_check_uses_full_header_validation(self):
+        def fake_visual_install(_instance, target):
+            calls.append(target)
+            self.assertIs(remote_packages._verify_mpq, dynamic._strict_verify_mpq)
+            self.assertIs(
+                remote_packages.managed_mpq_is_current,
+                dynamic._strict_managed_mpq_is_current,
+            )
+            return "done"
+
+        with mock.patch.object(
+            dynamic._ModernWowSetupToolCore,
+            "configure_visual_audio",
+            fake_visual_install,
+        ):
+            self.assertEqual(tool.configure_visual_audio("GAME"), "done")
+
+        self.assertEqual(calls, ["GAME"])
+        self.assertIs(remote_packages._verify_mpq, original_verify)
+        self.assertIs(remote_packages.managed_mpq_is_current, original_current)
+
+    def test_strict_current_mpq_check_uses_full_header_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             data_dir = os.path.join(temp, "Data")
             os.makedirs(data_dir)
@@ -118,7 +142,11 @@ class MpqValidationTests(unittest.TestCase):
                 return_value=[os.path.join("Data", "patch-X.mpq")],
             ):
                 self.assertFalse(
-                    remote_packages.managed_mpq_is_current(temp, "visual_test", "1")
+                    dynamic._strict_managed_mpq_is_current(
+                        temp,
+                        "visual_test",
+                        "1",
+                    )
                 )
 
 
