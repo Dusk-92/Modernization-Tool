@@ -1,6 +1,7 @@
 import os
 import json
 import shutil
+import struct
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -1114,6 +1115,74 @@ class ModernWowSetupTool(WowSetupTool):
             error,
         )
 
+    def _vanilla_tweaks_signature(self):
+        """Version output normalization independently from the SuperWoW checkbox."""
+        signature = super()._vanilla_tweaks_signature()
+        signature["selected_patch_normalization"] = 1
+        return signature
+
+    def _normalize_selected_vanilla_tweaks_output(self, output_exe):
+        """Make selected FoV/sound/loot settings authoritative on pre-patched inputs."""
+        try:
+            with open(output_exe, "rb") as handle:
+                data = bytearray(handle.read())
+        except OSError as exc:
+            raise RuntimeError(
+                "Could not inspect WoW_Modernized.exe for Vanilla Tweaks normalization."
+            ) from exc
+
+        required_size = 0x435D3C
+        if len(data) < required_size:
+            raise RuntimeError(
+                "WoW_Modernized.exe is too small for Vanilla Tweaks normalization."
+            )
+
+        quickloot_sites = (
+            (0x0C1ECF, 0x10),
+            (0x0C2B25, 0x0B),
+        )
+        desired_quickloot_opcode = 0x75 if self.vt_quickloot.get() else 0x74
+        for offset, displacement in quickloot_sites:
+            current = bytes(data[offset:offset + 2])
+            vanilla = bytes((0x74, displacement))
+            reversed_loot = bytes((0x75, displacement))
+            if current not in (vanilla, reversed_loot, b"\x90\x90"):
+                raise RuntimeError(
+                    f"Unexpected QuickLoot bytes at 0x{offset:X}; refusing to alter an unknown client."
+                )
+            data[offset:offset + 2] = bytes(
+                (desired_quickloot_opcode, displacement)
+            )
+
+        if data[0x3A4869] not in (0x14, 0x27):
+            raise RuntimeError(
+                "Unexpected Background Sound byte; refusing to alter an unknown client."
+            )
+        data[0x3A4869] = 0x27 if self.vt_bg_sound.get() else 0x14
+
+        data[0x4089B4:0x4089B8] = struct.pack("<f", float(self.vt_fov.get()))
+
+        sound_channels = str(int(self.vt_soundchan.get())).encode("ascii") + b"\x00"
+        if len(sound_channels) > 4:
+            raise RuntimeError("Sound Channels value is too large for the WoW 1.12.1 field.")
+        data[0x435D38:0x435D3C] = sound_channels.ljust(4, b"\x00")
+
+        staged = output_exe + ".modernization-normalized"
+        try:
+            with open(staged, "wb") as handle:
+                handle.write(data)
+            os.replace(staged, output_exe)
+        except OSError as exc:
+            raise RuntimeError(
+                "Could not write the normalized WoW_Modernized.exe."
+            ) from exc
+        finally:
+            if os.path.exists(staged):
+                try:
+                    os.remove(staged)
+                except OSError:
+                    pass
+
     def _vanilla_tweaks_marker_path(self, target):
         return os.path.join(
             target,
@@ -1159,6 +1228,11 @@ class ModernWowSetupTool(WowSetupTool):
             raise RuntimeError(
                 "Cannot record vanilla-tweaks state because a required WoW executable is missing."
             )
+
+        # tubtubs/vanilla-tweaks deliberately leaves opt-in patches unchanged
+        # when they are disabled. Normalize the four user-facing selections so
+        # an already-patched WoW.exe cannot silently override the Tool settings.
+        self._normalize_selected_vanilla_tweaks_output(output_exe)
 
         marker_path = self._vanilla_tweaks_marker_path(target)
         os.makedirs(os.path.dirname(marker_path), exist_ok=True)
