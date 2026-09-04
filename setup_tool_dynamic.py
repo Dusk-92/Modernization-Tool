@@ -1,8 +1,11 @@
 import math
 import os
 import struct
+import sys
 import tkinter as tk
+import types
 
+import setup_tool_dynamic_core as _dynamic_core
 # Keep the feature-branch implementation intact and layer only the executable
 # normalization policy here. This makes the B-total policy easy to audit and
 # keeps every unrelated remote/fallback behavior byte-for-byte unchanged.
@@ -245,6 +248,21 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                     os.remove(staged)
                 except OSError:
                     pass
+
+
+class _DynamicModuleProxy(types.ModuleType):
+    """Keep legacy module-level monkey patches visible to the preserved core."""
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+        if name == "get_base_path":
+            setattr(_dynamic_core, name, value)
+
+
+# Existing tests and external callers historically patched
+# setup_tool_dynamic.get_base_path. Preserve that behavior after splitting the
+# untouched implementation into setup_tool_dynamic_core.py.
+sys.modules[__name__].__class__ = _DynamicModuleProxy
 
 
 if __name__ == "__main__":
