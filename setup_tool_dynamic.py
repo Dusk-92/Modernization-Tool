@@ -4,6 +4,7 @@ import struct
 import sys
 import tkinter as tk
 import types
+from tkinter import messagebox
 
 import setup_tool_dynamic_core as _dynamic_core
 # Keep the feature-branch implementation intact and layer only the executable
@@ -80,10 +81,9 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     def _vanilla_tweaks_signature(self):
         signature = super()._vanilla_tweaks_signature()
-        # v2 expands normalization from the original selected subset to every
-        # executable tweak exposed by the Tool except the two intentionally
-        # legacy upstream-only patches (Blue Moon and Cross-faction Res).
-        signature["selected_patch_normalization"] = 2
+        # v3 adds source preflight and preserves client-owned Custom GlueXML
+        # regions instead of letting vanilla-tweaks overwrite unknown loader code.
+        signature["selected_patch_normalization"] = 3
         return signature
 
     @staticmethod
@@ -95,30 +95,55 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                 "refusing to alter an unknown client."
             )
 
-    def _normalize_selected_vanilla_tweaks_output(self, output_exe):
-        """Make Tool-owned executable tweaks authoritative on pre-patched clients.
+    def _desired_normalized_values(self):
+        desired = {
+            "fov": float(self.vt_fov.get()),
+            "farclip": float(self.vt_farclip.get()),
+            "frill": float(self.vt_frill.get()),
+            "nameplate": float(self.vt_nameplate.get()),
+            "maxcam": float(self.vt_maxcam.get()),
+            "sound": int(self.vt_soundchan.get()),
+        }
 
-        Blue Moon and Cross-faction Resurrection deliberately keep the previous
-        vanilla-tweaks behavior because their complete pristine restoration
-        signatures are not part of this policy.
-        """
-        try:
-            with open(output_exe, "rb") as handle:
-                data = bytearray(handle.read())
-        except OSError as exc:
+        ranges = (
+            ("FoV", desired["fov"], 0.5, 3.5),
+            ("Farclip", desired["farclip"], 100.0, 50000.0),
+            ("Frill Distance", desired["frill"], 0.0, 10000.0),
+            ("Nameplate Distance", desired["nameplate"], 1.0, 500.0),
+            ("Max Camera Distance", desired["maxcam"], 1.0, 1000.0),
+        )
+        for label, value, minimum, maximum in ranges:
+            if not math.isfinite(value) or not minimum <= value <= maximum:
+                raise RuntimeError(
+                    f"{label} value is outside the supported WoW 1.12.1 range."
+                )
+
+        sound_channels = str(desired["sound"]).encode("ascii") + b"\x00"
+        if not 1 <= desired["sound"] <= 256 or len(sound_channels) > 4:
             raise RuntimeError(
-                "Could not inspect WoW_Modernized.exe for Vanilla Tweaks normalization."
-            ) from exc
+                "Sound Channels value is outside the supported WoW 1.12.1 range."
+            )
+        desired["sound_bytes"] = sound_channels.ljust(4, b"\x00")
+        return desired
 
+    def _validate_vanilla_tweaks_state(
+        self,
+        data,
+        *,
+        allow_foreign_custom_glues=False,
+        accepted_custom_glues=None,
+    ):
+        """Validate every region the B-total policy may rewrite.
+
+        Returns a foreign Custom GlueXML byte tuple only during source preflight.
+        Such a tuple is treated as client-owned code and later restored exactly.
+        """
         required_size = 0x46795C
         if len(data) < required_size:
             raise RuntimeError(
-                "WoW_Modernized.exe is too small for Vanilla Tweaks normalization."
+                "WoW.exe is too small for Vanilla Tweaks safety preflight."
             )
 
-        # Validate all code-patch signatures before changing anything. Scalar
-        # fields below are data constants, so they are validated by type/range
-        # rather than by one exact preset value.
         quickloot_sites = (
             (0x0C1ECF, 0x10),
             (0x0C2B25, 0x0B),
@@ -155,13 +180,33 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                     "refusing to alter an unknown client."
                 )
 
-        custom_state = tuple(data[offset] for offset, _original, _patched in _CUSTOM_GLUES_SITES)
-        custom_original = tuple(original for _offset, original, _patched in _CUSTOM_GLUES_SITES)
-        custom_patched = tuple(patched for _offset, _original, patched in _CUSTOM_GLUES_SITES)
+        custom_state = tuple(
+            data[offset] for offset, _original, _patched in _CUSTOM_GLUES_SITES
+        )
+        custom_original = tuple(
+            original for _offset, original, _patched in _CUSTOM_GLUES_SITES
+        )
+        custom_patched = tuple(
+            patched for _offset, _original, patched in _CUSTOM_GLUES_SITES
+        )
+        foreign_custom_glues = None
+        accepted_custom = (
+            tuple(accepted_custom_glues)
+            if accepted_custom_glues is not None
+            else None
+        )
         if custom_state not in (custom_original, custom_patched):
-            raise RuntimeError(
-                "Unexpected Custom GlueXML bytes; refusing to alter an unknown client."
-            )
+            if accepted_custom is not None and custom_state == accepted_custom:
+                pass
+            elif allow_foreign_custom_glues:
+                # Turtle/Octo and other compatible clients may legitimately own
+                # this loader region. Never classify those bytes as vanilla and
+                # never overwrite them just to satisfy the checkbox state.
+                foreign_custom_glues = custom_state
+            else:
+                raise RuntimeError(
+                    "Unexpected Custom GlueXML bytes; refusing to alter an unknown client."
+                )
 
         self._validate_float_field(data, 0x4089B4, "FoV", 0.5, 3.5)
         self._validate_float_field(data, 0x40FED8, "Farclip", 100.0, 50000.0)
@@ -181,29 +226,92 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                 "Unexpected Sound Channels field; refusing to alter an unknown client."
             )
 
-        desired_fov = float(self.vt_fov.get())
-        desired_farclip = float(self.vt_farclip.get())
-        desired_frill = float(self.vt_frill.get())
-        desired_nameplate = float(self.vt_nameplate.get())
-        desired_maxcam = float(self.vt_maxcam.get())
-        desired_sound = int(self.vt_soundchan.get())
+        return foreign_custom_glues
 
-        desired_values = (
-            ("FoV", desired_fov, 0.5, 3.5),
-            ("Farclip", desired_farclip, 100.0, 50000.0),
-            ("Frill Distance", desired_frill, 0.0, 10000.0),
-            ("Nameplate Distance", desired_nameplate, 1.0, 500.0),
-            ("Max Camera Distance", desired_maxcam, 1.0, 1000.0),
+    def _preflight_vanilla_tweaks_source(self, target):
+        """Read and validate WoW.exe before vanilla-tweaks or any install write runs."""
+        self._vt_preserved_custom_glues = None
+        wow_exe = os.path.join(target, "WoW.exe")
+        try:
+            with open(wow_exe, "rb") as handle:
+                data = bytearray(handle.read())
+        except OSError as exc:
+            raise RuntimeError(
+                "Could not inspect WoW.exe for Vanilla Tweaks safety preflight."
+            ) from exc
+
+        # Validate the selected values now too, so malformed settings cannot
+        # fail only after unrelated plugins/mods have already been updated.
+        self._desired_normalized_values()
+        preserved = self._validate_vanilla_tweaks_state(
+            data,
+            allow_foreign_custom_glues=True,
         )
-        for label, value, minimum, maximum in desired_values:
-            if not math.isfinite(value) or not minimum <= value <= maximum:
-                raise RuntimeError(f"{label} value is outside the supported WoW 1.12.1 range.")
+        self._vt_preserved_custom_glues = preserved
+        return preserved
 
-        sound_channels = str(desired_sound).encode("ascii") + b"\x00"
-        if not 1 <= desired_sound <= 256 or len(sound_channels) > 4:
-            raise RuntimeError("Sound Channels value is outside the supported WoW 1.12.1 range.")
+    def validate_plugin_conflicts(self):
+        """Use the installer's final read-only validation gate for EXE preflight."""
+        if not super().validate_plugin_conflicts():
+            return False
+
+        target = self.wow_dir.get().strip()
+        try:
+            self._preflight_vanilla_tweaks_source(target)
+        except Exception as exc:
+            messagebox.showerror(
+                "Vanilla Tweaks safety check",
+                f"{exc}\n\nNo installation files were changed.",
+            )
+            return False
+        return True
+
+    def _run_vanilla_tweaks_transactional(
+        self,
+        target,
+        tweaks_exe,
+        modern_cli=True,
+    ):
+        """Recheck the source immediately before the staged patch transaction."""
+        self._preflight_vanilla_tweaks_source(target)
+        return super()._run_vanilla_tweaks_transactional(
+            target,
+            tweaks_exe=tweaks_exe,
+            modern_cli=modern_cli,
+        )
+
+    def _normalize_selected_vanilla_tweaks_output(self, output_exe):
+        """Make Tool-owned executable tweaks authoritative on pre-patched clients.
+
+        Blue Moon and Cross-faction Resurrection deliberately keep the previous
+        vanilla-tweaks behavior. A foreign Custom GlueXML region discovered on
+        the original WoW.exe is also preserved byte-for-byte because community
+        clients may use those offsets for their own loader/anti-tamper code.
+        """
+        try:
+            with open(output_exe, "rb") as handle:
+                data = bytearray(handle.read())
+        except OSError as exc:
+            raise RuntimeError(
+                "Could not inspect WoW_Modernized.exe for Vanilla Tweaks normalization."
+            ) from exc
+
+        preserved_custom_glues = getattr(
+            self,
+            "_vt_preserved_custom_glues",
+            None,
+        )
+        self._validate_vanilla_tweaks_state(
+            data,
+            accepted_custom_glues=preserved_custom_glues,
+        )
+        desired = self._desired_normalized_values()
 
         # All validation passed. Apply the exact Tool selections in memory.
+        quickloot_sites = (
+            (0x0C1ECF, 0x10),
+            (0x0C2B25, 0x0B),
+        )
         desired_quickloot_opcode = 0x75 if self.vt_quickloot.get() else 0x74
         for offset, displacement in quickloot_sites:
             data[offset:offset + 2] = bytes(
@@ -215,19 +323,25 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
         desired_camera_patched = bool(self.vt_cam_fix.get())
         for offset, original, patched in _CAMERA_REGIONS:
-            desired = patched if desired_camera_patched else original
-            data[offset:offset + len(desired)] = desired
+            selected = patched if desired_camera_patched else original
+            data[offset:offset + len(selected)] = selected
 
-        desired_custom_patched = bool(self.vt_custom_glues.get())
-        for offset, original, patched in _CUSTOM_GLUES_SITES:
-            data[offset] = patched if desired_custom_patched else original
+        if preserved_custom_glues is not None:
+            # The original client owned this region. vanilla-tweaks may have
+            # rewritten it in staging, so put the exact source bytes back.
+            for index, (offset, _original, _patched) in enumerate(_CUSTOM_GLUES_SITES):
+                data[offset] = preserved_custom_glues[index]
+        else:
+            desired_custom_patched = bool(self.vt_custom_glues.get())
+            for offset, original, patched in _CUSTOM_GLUES_SITES:
+                data[offset] = patched if desired_custom_patched else original
 
-        struct.pack_into("<f", data, 0x4089B4, desired_fov)
-        struct.pack_into("<f", data, 0x40FED8, desired_farclip)
-        struct.pack_into("<f", data, 0x467958, desired_frill)
-        struct.pack_into("<f", data, 0x40C448, desired_nameplate)
-        struct.pack_into("<f", data, 0x4089A4, desired_maxcam)
-        data[0x435D38:0x435D3C] = sound_channels.ljust(4, b"\x00")
+        struct.pack_into("<f", data, 0x4089B4, desired["fov"])
+        struct.pack_into("<f", data, 0x40FED8, desired["farclip"])
+        struct.pack_into("<f", data, 0x467958, desired["frill"])
+        struct.pack_into("<f", data, 0x40C448, desired["nameplate"])
+        struct.pack_into("<f", data, 0x4089A4, desired["maxcam"])
+        data[0x435D38:0x435D3C] = desired["sound_bytes"]
 
         # Blue Moon (0x3E5B83) and Cross-faction Res (0x2067DE) are intentionally
         # not normalized here. vanilla-tweaks keeps exactly the previous behavior
