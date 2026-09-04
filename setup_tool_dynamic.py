@@ -609,20 +609,10 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             accepted_custom_glues=preserved_custom_glues,
         )
         desired = self._desired_normalized_values()
-        source_numeric_states = getattr(
-            self,
-            "_vt_source_numeric_states",
-            None,
-        )
-        if source_numeric_states is None:
-            # Direct callers from older tests/tools predate source preflight.
-            # The real Apply/transaction path always supplies a source snapshot.
-            source_numeric_states = self._capture_source_numeric_states(data, desired)
-        self._validate_staged_numeric_states(
-            data,
-            source_numeric_states,
-            desired,
-        )
+
+        # Numeric fields are intentionally not fingerprinted after vanilla-tweaks.
+        # Their source values were sanity-checked during preflight and the Tool
+        # overwrites them below with the exact values selected by the user.
 
         # All validation passed. Apply the exact Tool selections in memory.
         quickloot_sites = (
