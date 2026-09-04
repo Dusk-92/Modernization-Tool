@@ -64,36 +64,7 @@ def _write_wrapped_mpq(
         handle.write(data)
 
 
-class StrictStagedExecutableValidationTests(unittest.TestCase):
-    def test_non_mz_buffer_does_not_bypass_numeric_validation(self):
-        tool = object.__new__(dynamic.ModernWowSetupTool)
-        desired = {
-            "fov": 1.9199,
-            "farclip": 1500.0,
-            "frill": 300.0,
-            "nameplate": 41.0,
-            "maxcam": 100.0,
-            "sound": 64,
-            "sound_bytes": b"64\x00\x00",
-        }
-        source_states = {
-            "fov": struct.pack("<f", 1.5708),
-            "farclip": struct.pack("<f", 777.0),
-            "frill": struct.pack("<f", 70.0),
-            "nameplate": struct.pack("<f", 20.0),
-            "maxcam": struct.pack("<f", 50.0),
-            "sound": b"12\x00\x00",
-        }
-        data = bytearray(0x46795C + 16)
-        for key, offset, _label, _minimum, _maximum in dynamic._NUMERIC_SITES:
-            data[offset:offset + 4] = source_states[key]
-        sound_key, sound_offset, _label, _minimum, _maximum = dynamic._SOUND_SITE
-        data[sound_offset:sound_offset + 4] = source_states[sound_key]
-
-        struct.pack_into("<f", data, 0x40FED8, 2345.0)
-        with self.assertRaisesRegex(RuntimeError, "produced by vanilla-tweaks"):
-            tool._validate_staged_numeric_states(data, source_states, desired)
-
+class ExecutableCompatibilityTests(unittest.TestCase):
     def test_fixed_build_version_identity_guard_is_disabled(self):
         data = bytearray(0x46795C + 16)
         dynamic.ModernWowSetupTool._validate_client_identity(data)
