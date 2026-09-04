@@ -150,8 +150,8 @@ class MpqValidationTests(unittest.TestCase):
                 )
 
 
-class VanillaTweaksFingerprintTests(unittest.TestCase):
-    def test_configured_5875_numeric_values_remain_compatible(self):
+class VanillaTweaksSourceValidationTests(unittest.TestCase):
+    def test_community_numeric_values_remain_compatible(self):
         tool = _make_tool()
         data = _base_client_data()
 
@@ -162,18 +162,15 @@ class VanillaTweaksFingerprintTests(unittest.TestCase):
         struct.pack_into("<f", data, 0x40C448, 35.0)
         struct.pack_into("<f", data, 0x4089A4, 80.0)
         data[0x435D38:0x435D3C] = b"32\x00\x00"
+        before = bytes(data)
 
         tool._validate_client_identity(data)
         tool._validate_vanilla_tweaks_state(
             data,
             allow_foreign_custom_glues=True,
         )
-        snapshot = tool._capture_source_numeric_states(
-            data,
-            tool._desired_normalized_values(),
-        )
-        self.assertEqual(snapshot["frill"], struct.pack("<f", 120.0))
-        self.assertEqual(snapshot["sound"], b"32\x00\x00")
+        tool._validate_source_numeric_values(data)
+        self.assertEqual(bytes(data), before)
 
     def test_fixed_build_string_does_not_block_compatible_patch_sites(self):
         tool = _make_tool()
@@ -194,24 +191,40 @@ class VanillaTweaksFingerprintTests(unittest.TestCase):
         data = _base_client_data()
         struct.pack_into("<f", data, 0x40FED8, 50000.0)
         with self.assertRaisesRegex(RuntimeError, "Farclip"):
-            tool._capture_source_numeric_states(
-                data,
-                tool._desired_normalized_values(),
-            )
+            tool._validate_source_numeric_values(data)
 
-    def test_staged_numeric_output_must_be_source_or_selected_value(self):
+    def test_normalization_overwrites_intermediate_numeric_values(self):
         tool = _make_tool()
-        source = _base_client_data()
-        desired = tool._desired_normalized_values()
-        snapshot = tool._capture_source_numeric_states(source, desired)
+        data = _base_client_data()
 
-        staged = bytearray(source)
-        struct.pack_into("<f", staged, 0x40FED8, 2345.0)
-        with self.assertRaisesRegex(RuntimeError, "produced by vanilla-tweaks"):
-            tool._validate_staged_numeric_states(staged, snapshot, desired)
+        # The upstream patcher may temporarily emit different numeric values.
+        # They are not trusted as final output: the Tool overwrites them below.
+        struct.pack_into("<f", data, 0x4089B4, 2.5)
+        struct.pack_into("<f", data, 0x40FED8, 2345.0)
+        struct.pack_into("<f", data, 0x467958, 444.0)
+        struct.pack_into("<f", data, 0x40C448, 88.0)
+        struct.pack_into("<f", data, 0x4089A4, 123.0)
+        data[0x435D38:0x435D3C] = b"96\x00\x00"
 
-        struct.pack_into("<f", staged, 0x40FED8, desired["farclip"])
-        tool._validate_staged_numeric_states(staged, snapshot, desired)
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, "WoW_Modernized.exe")
+            with open(path, "wb") as handle:
+                handle.write(data)
+
+            tool._normalize_selected_vanilla_tweaks_output(path)
+            with open(path, "rb") as handle:
+                result = handle.read()
+
+        self.assertAlmostEqual(
+            struct.unpack_from("<f", result, 0x4089B4)[0],
+            1.9199,
+            places=4,
+        )
+        self.assertEqual(struct.unpack_from("<f", result, 0x40FED8)[0], 1500.0)
+        self.assertEqual(struct.unpack_from("<f", result, 0x467958)[0], 300.0)
+        self.assertEqual(struct.unpack_from("<f", result, 0x40C448)[0], 41.0)
+        self.assertEqual(struct.unpack_from("<f", result, 0x4089A4)[0], 100.0)
+        self.assertEqual(result[0x435D38:0x435D3C], b"64\x00\x00")
 
 
 class InstallationOrderingTests(unittest.TestCase):
