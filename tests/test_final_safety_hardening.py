@@ -175,15 +175,19 @@ class VanillaTweaksFingerprintTests(unittest.TestCase):
         self.assertEqual(snapshot["frill"], struct.pack("<f", 120.0))
         self.assertEqual(snapshot["sound"], b"32\x00\x00")
 
-    def test_wrong_client_build_is_rejected(self):
+    def test_fixed_build_string_does_not_block_compatible_patch_sites(self):
         tool = _make_tool()
         data = _base_client_data()
         data[
             dynamic._CLIENT_BUILD_OFFSET:
             dynamic._CLIENT_BUILD_OFFSET + len(dynamic._CLIENT_BUILD)
         ] = b"9999"
-        with self.assertRaisesRegex(RuntimeError, "build 5875"):
-            tool._validate_client_identity(data)
+
+        tool._validate_client_identity(data)
+        tool._validate_vanilla_tweaks_state(
+            data,
+            allow_foreign_custom_glues=True,
+        )
 
     def test_out_of_range_source_numeric_state_is_rejected(self):
         tool = _make_tool()
