@@ -544,7 +544,6 @@ class WowSetupTool:
                 self._load_legacy_install_state(target_dir)
                 self._normalize_plugin_conflicts()
                 self.toggle_safety_limits()
-                self.update_superwow_managed_controls()
                 return False
 
             try:
@@ -562,7 +561,6 @@ class WowSetupTool:
 
             self._normalize_plugin_conflicts()
             self.toggle_safety_limits()
-            self.update_superwow_managed_controls()
 
             if recovered_from_damage:
                 messagebox.showwarning(
@@ -719,58 +717,7 @@ class WowSetupTool:
             cb.pack(anchor='w', padx=10, pady=4)
             ToolTip(cb, self.descriptions.get(dll, "")) 
 
-    def _superwow_enabled(self):
-        var = self.core_plugins.get("SuperWoWhook.dll")
-        return bool(var is not None and var.get())
-
-    def update_superwow_managed_controls(self):
-        """Disable vanilla-tweaks controls that SuperWoW already handles."""
-        active = self._superwow_enabled()
-
-        if hasattr(self, "superwow_notice"):
-            if active:
-                self.superwow_notice.configure(
-                    text="✓ SuperWoW enabled — FoV, Sound Channels, Auto-loot and Background sounds are handled by SuperWoW. Their vanilla-tweaks patches are skipped.",
-                    background="#EAF4FF",
-                    foreground="#005A9E",
-                )
-            else:
-                self.superwow_notice.configure(
-                    text="SuperWoW disabled — FoV, Sound Channels, Auto-loot and Background sounds are controlled by vanilla-tweaks.",
-                    background="#F4F4F4",
-                    foreground="#444444",
-                )
-
-        if hasattr(self, "fov_ratio_combo"):
-            self.fov_ratio_combo.configure(state="disabled" if active else "readonly")
-        if hasattr(self, "fov_entry"):
-            self.fov_entry.configure(state="disabled" if active else "normal")
-        if hasattr(self, "sound_scale"):
-            self.sound_scale.configure(state="disabled" if active else "normal")
-        if hasattr(self, "sound_entry"):
-            self.sound_entry.configure(state="disabled" if active else "normal")
-        if hasattr(self, "cb_loot"):
-            self.cb_loot.configure(state="disabled" if active else "normal")
-        if hasattr(self, "cb_bg"):
-            self.cb_bg.configure(state="disabled" if active else "normal")
-
     def build_tweaks_tab(self, parent):
-        self.superwow_notice = tk.Label(
-            parent,
-            text="",
-            background="#EAF4FF",
-            foreground="#005A9E",
-            font=("Segoe UI", 9, "bold"),
-            relief="solid",
-            borderwidth=1,
-            padx=8,
-            pady=4,
-            anchor="w",
-            justify="left",
-            wraplength=620,
-        )
-        self.superwow_notice.pack(fill="x", padx=10, pady=(5, 2))
-
         fov_frame = ttk.LabelFrame(parent, text="Field of View (FoV) Calculator")
         fov_frame.pack(fill='x', padx=10, pady=5)
 
@@ -867,8 +814,6 @@ class WowSetupTool:
         )
         cb_clear_wdb.grid(row=4, column=0, sticky='w', padx=10, pady=2)
         ToolTip(cb_clear_wdb, self.descriptions["clear_wdb"])
-
-        self.update_superwow_managed_controls()
 
 
     def build_visual_audio_tab(self, parent):
@@ -1719,37 +1664,31 @@ class WowSetupTool:
             ),
         ]
 
+        # MPQ fallbacks were intentionally removed. Clean caches created by
+        # earlier test builds so they cannot be reused later.
+        for _, managed_id, _, _ in visual_defs:
+            remote_packages.remove_package_cache(target, managed_id)
+
         try:
-            # Large visual MPQs deliberately stay online-only, but they are not
-            # downloaded again on every Apply. A revision bump in remote_packages
-            # is enough to trigger one fresh download when a source/version changes.
+            # Visual installers own their current-version checks.
+            # Already valid MPQs are reused without a download.
             for key, managed_id, display_name, installer in visual_defs:
                 if self.visual_mods[key].get():
-                    # Hosted static mirrors use explicit revisions and can be
-                    # skipped without any network request. Pink Herbs follows a
-                    # GitHub branch, so its installer performs a lightweight
-                    # branch-SHA check before deciding whether a download is
-                    # needed.
-                    if key != "pink_herbs":
-                        revision = remote_packages.VISUAL_MOD_REVISIONS[managed_id]
-                        if remote_packages.managed_mpq_is_current(
-                            target,
-                            managed_id,
-                            revision,
-                        ):
-                            continue
-
                     try:
                         installer(target, progress=progress)
-                    except Exception as exc:
-                        if remote_packages.managed_mod_is_installed(target, managed_id):
+                    except remote_packages.RemoteSourceUnavailable as exc:
+                        if remote_packages.managed_mpq_is_usable(target, managed_id):
                             warnings.append(
                                 f"{display_name}: update source unavailable; existing installed copy kept."
                             )
                         else:
                             raise RuntimeError(
-                                f"{display_name} installation failed and no bundled MPQ backup is provided:\n{exc}"
+                                f"{display_name} source is unavailable and no valid installed copy can be kept:\n{exc}"
                             ) from exc
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"{display_name} installation failed locally:\n{exc}"
+                        ) from exc
                 else:
                     remote_packages.remove_managed_mod(target, managed_id)
 
@@ -2518,24 +2457,16 @@ WScript.Echo oWS.SpecialFolders("Desktop")
         return digest.hexdigest()
 
     def _vanilla_tweaks_signature(self):
-        """Return only settings that change WoW_Modernized.exe patch output."""
-        superwow_active = self._superwow_enabled()
+        """Return settings that change WoW_Modernized.exe patch output."""
         return {
-            "superwow_active": bool(superwow_active),
-            "fov": None if superwow_active else round(float(self.vt_fov.get()), 4),
+            "fov": round(float(self.vt_fov.get()), 4),
             "farclip": int(self.vt_farclip.get()),
             "frill": int(self.vt_frill.get()),
             "nameplate": int(self.vt_nameplate.get()),
-            "sound_channels": (
-                None if superwow_active else int(self.vt_soundchan.get())
-            ),
+            "sound_channels": int(self.vt_soundchan.get()),
             "max_camera": int(self.vt_maxcam.get()),
-            "quickloot": (
-                None if superwow_active else bool(self.vt_quickloot.get())
-            ),
-            "background_sound": (
-                None if superwow_active else bool(self.vt_bg_sound.get())
-            ),
+            "quickloot": bool(self.vt_quickloot.get()),
+            "background_sound": bool(self.vt_bg_sound.get()),
             "large_address_aware": bool(self.vt_laa.get()),
             "camera_fix": bool(self.vt_cam_fix.get()),
             "crossfaction_res": bool(self.vt_crossfaction_res.get()),
@@ -2553,12 +2484,10 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             raise FileNotFoundError("vanilla-tweaks.exe was not found.")
 
         args = [tweaks_exe]
-        superwow_active = self._superwow_enabled()
 
         if modern_cli:
-            # tubtubs/vanilla-tweaks keeps these four patches opt-in. When
-            # SuperWoW is active, deliberately leave them unpatched.
-            if not superwow_active and abs(self.vt_fov.get() - 1.5708) >= 0.0001:
+            # tubtubs/vanilla-tweaks keeps these patches opt-in.
+            if abs(self.vt_fov.get() - 1.5708) >= 0.0001:
                 args.extend(["--fov", str(self.vt_fov.get()), "--fov-patch"])
 
             if self.vt_farclip.get() == 777:
@@ -2576,7 +2505,7 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             else:
                 args.extend(["--nameplatedistance", str(self.vt_nameplate.get())])
 
-            if not superwow_active and self.vt_soundchan.get() != 12:
+            if self.vt_soundchan.get() != 12:
                 args.extend([
                     "--soundchannels",
                     str(self.vt_soundchan.get()),
@@ -2586,9 +2515,9 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             if self.vt_maxcam.get() != 50:
                 args.extend(["--maxcameradistance", str(self.vt_maxcam.get())])
 
-            if not superwow_active and self.vt_quickloot.get():
+            if self.vt_quickloot.get():
                 args.append("--quickloot")
-            if not superwow_active and self.vt_bg_sound.get():
+            if self.vt_bg_sound.get():
                 args.append("--sound-in-background")
             if not self.vt_laa.get():
                 args.append("--no-largeaddressaware")
@@ -2601,30 +2530,21 @@ WScript.Echo oWS.SpecialFolders("Desktop")
             if not self.vt_bluemoon.get():
                 args.append("--no-bluemoonpatch")
         else:
-            # Legacy bundled brndd patcher enables these older patches by
-            # default, so explicitly disable all four when SuperWoW handles them.
-            if superwow_active:
-                args.extend([
-                    "--no-fov",
-                    "--no-soundchannels",
-                    "--no-quickloot",
-                    "--no-sound-in-background",
-                ])
+            # Legacy bundled brndd patcher kept only as an offline fallback.
+            if abs(self.vt_fov.get() - 1.5708) < 0.0001:
+                args.append("--no-fov")
             else:
-                if abs(self.vt_fov.get() - 1.5708) < 0.0001:
-                    args.append("--no-fov")
-                else:
-                    args.extend(["--fov", str(self.vt_fov.get())])
+                args.extend(["--fov", str(self.vt_fov.get())])
 
-                if self.vt_soundchan.get() == 12:
-                    args.append("--no-soundchannels")
-                else:
-                    args.extend(["--soundchannels", str(self.vt_soundchan.get())])
+            if self.vt_soundchan.get() == 12:
+                args.append("--no-soundchannels")
+            else:
+                args.extend(["--soundchannels", str(self.vt_soundchan.get())])
 
-                if not self.vt_quickloot.get():
-                    args.append("--no-quickloot")
-                if not self.vt_bg_sound.get():
-                    args.append("--no-sound-in-background")
+            if not self.vt_quickloot.get():
+                args.append("--no-quickloot")
+            if not self.vt_bg_sound.get():
+                args.append("--no-sound-in-background")
 
             if self.vt_farclip.get() == 777:
                 args.append("--no-farclip")

@@ -14,7 +14,10 @@ if errorlevel 1 exit /b 1
 py -3.11 -m pip install --disable-pip-version-check -r requirements-build.txt
 if errorlevel 1 exit /b 1
 
-py -3.11 -m py_compile setup_tool.py setup_tool_dynamic.py remote_packages.py tests/test_safety.py
+py -3.11 scripts\prepare_remote_fallbacks.py
+if errorlevel 1 exit /b 1
+
+py -3.11 -m py_compile setup_tool.py setup_tool_dynamic.py remote_packages.py tests/test_safety.py scripts\prepare_remote_fallbacks.py
 if errorlevel 1 exit /b 1
 
 py -3.11 -m unittest discover -s tests -v

@@ -158,15 +158,27 @@ Depending on the component, the tool can:
 - use a bundled known-good fallback where redistribution terms allow it;
 - avoid re-downloading files that are already current.
 
-**SuperWoW and SuperAPI are upstream-only:** SuperWoW is downloaded from its
-official stable release and SuperAPI follows the current upstream `master`
-revision. They are not bundled as offline fallbacks, so a first-time SuperWoW
-installation requires network access.
+**SuperWoW and SuperAPI prefer their upstream sources:** SuperWoW is downloaded
+from its official stable release and SuperAPI follows the current upstream
+`master` revision. If either online source is unavailable, the tool can install
+the bundled known-good SuperWoW + SuperAPI fallback instead.
+
+**WowPresence uses layered fallbacks.** A successful download refreshes a
+validated local cache, while an already tool-managed copy can seed that cache
+only when its recorded SHA-256 hashes still match. Unknown/manual binaries may
+be preserved when valid but are never promoted into the validated cache. Cache
+write failures never block a successful normal install. Release builds also
+include a verified known-good WowPresence fallback for first-time offline
+installation.
+
+**Visual MPQ mods do not use offline fallbacks.** If their source is unavailable,
+the Tool keeps an already valid installed copy unchanged; a first-time install
+still requires access to the original source.
 
 **No1600x1200 uses the bundled known-good copy** instead of following the
 RetroCro archive repository automatically.
 
-Downloaded and bundled DLLs are validated before installation.
+Downloaded, cached and bundled DLLs are validated before installation.
 
 ---
 
@@ -253,8 +265,9 @@ For detailed redistribution and provenance information, see:
 - [Docs/ASSET_PROVENANCE.md](Docs/ASSET_PROVENANCE.md)
 - [LICENSES/](LICENSES/)
 
-SuperWoW and the current SuperAPI master revision are downloaded directly from
-their upstream projects and are not bundled as offline fallbacks.
+SuperWoW and SuperAPI prefer their upstream projects, with a bundled known-good
+pair available as an offline fallback. Other remote components use the fallback
+behavior described in **Automatic Updates & Offline Fallbacks** above.
 
 ---
 
