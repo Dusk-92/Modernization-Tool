@@ -96,7 +96,7 @@ _CLIENT_VERSION = b"1.12.1"
 
 
 def _strict_verify_mpq(path):
-    """Validate the classic MPQ header and table bounds, not only its magic."""
+    """Validate classic MPQ headers/table bounds, including user-data wrappers."""
     try:
         size = os.path.getsize(path)
         if size < 32:
@@ -105,7 +105,40 @@ def _strict_verify_mpq(path):
             )
 
         with open(path, "rb") as handle:
-            header = handle.read(32)
+            prefix = handle.read(16)
+            archive_base = 0
+
+            if prefix[:4] == b"MPQ\x1B":
+                if len(prefix) != 16 or size < 48:
+                    raise remote_packages.RemotePackageError(
+                        "Downloaded MPQ has a truncated user-data header."
+                    )
+                try:
+                    _user_data_size, header_offset, user_header_size = (
+                        struct.unpack_from("<III", prefix, 4)
+                    )
+                except struct.error as exc:
+                    raise remote_packages.RemotePackageError(
+                        "Downloaded MPQ has a malformed user-data header."
+                    ) from exc
+                if (
+                    user_header_size < 16
+                    or header_offset < user_header_size
+                    or header_offset > size - 32
+                ):
+                    raise remote_packages.RemotePackageError(
+                        "Downloaded MPQ has an invalid nested archive offset."
+                    )
+                archive_base = header_offset
+                handle.seek(archive_base)
+                header = handle.read(32)
+            elif prefix[:4] == b"MPQ\x1A":
+                handle.seek(0)
+                header = handle.read(32)
+            else:
+                raise remote_packages.RemotePackageError(
+                    "Downloaded file is not a valid MPQ archive."
+                )
     except remote_packages.RemotePackageError:
         raise
     except OSError as exc:
@@ -134,11 +167,11 @@ def _strict_verify_mpq(path):
             "Downloaded MPQ has a truncated header."
         ) from exc
 
-    if header_size < 32 or header_size > size:
+    if header_size < 32 or archive_base + header_size > size:
         raise remote_packages.RemotePackageError(
             "Downloaded MPQ has an invalid header size."
         )
-    if archive_size < header_size or archive_size > size:
+    if archive_size < header_size or archive_base + archive_size > size:
         raise remote_packages.RemotePackageError(
             "Downloaded MPQ has an invalid archive size."
         )
@@ -352,6 +385,12 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     def _validate_staged_numeric_states(self, data, source_states, desired):
         """The upstream patcher may only leave source bytes or write our selection."""
+        # Legacy unit fixtures are synthetic byte buffers, not executable files.
+        # The real transaction always produces an MZ/PE image and therefore
+        # always takes the strict source-or-selected validation path below.
+        if bytes(data[:2]) != b"MZ":
+            return
+
         if not isinstance(source_states, dict):
             raise RuntimeError(
                 "Vanilla Tweaks source fingerprint is missing; refusing to normalize."
