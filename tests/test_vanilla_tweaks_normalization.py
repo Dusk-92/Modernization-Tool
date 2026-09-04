@@ -2,6 +2,7 @@ import os
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
 from setup_tool import WowSetupTool
 from setup_tool_dynamic import ModernWowSetupTool
@@ -132,6 +133,102 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "Unexpected QuickLoot bytes"):
                 tool._normalize_selected_vanilla_tweaks_output(path)
+
+    def test_transaction_keeps_existing_output_when_normalization_fails(self):
+        tool = self._tool(
+            fov=1.9199,
+            sound=64,
+            quickloot=True,
+            background=True,
+        )
+
+        with tempfile.TemporaryDirectory() as root:
+            wow_exe = os.path.join(root, "WoW.exe")
+            with open(wow_exe, "wb") as handle:
+                handle.write(b"original WoW input")
+
+            output_exe = os.path.join(root, "WoW_Modernized.exe")
+            previous_output = b"known-good existing modernized executable"
+            with open(output_exe, "wb") as handle:
+                handle.write(previous_output)
+
+            def fake_run(_tool, staging_target, tweaks_exe=None, modern_cli=False):
+                return self._write_exe(
+                    staging_target,
+                    b"\xEB\x10",
+                    b"\x74\x0B",
+                    0x14,
+                    1.5708,
+                    b"12\x00\x00",
+                )
+
+            with mock.patch.object(WowSetupTool, "run_vanilla_tweaks", new=fake_run):
+                with self.assertRaisesRegex(RuntimeError, "Unexpected QuickLoot bytes"):
+                    tool._run_vanilla_tweaks_transactional(
+                        root,
+                        tweaks_exe="fake-vanilla-tweaks.exe",
+                        modern_cli=True,
+                    )
+
+            with open(output_exe, "rb") as handle:
+                self.assertEqual(handle.read(), previous_output)
+            self.assertFalse(os.path.exists(output_exe + ".modernization-new"))
+            self.assertFalse(
+                any(name.startswith(".modernization-vt-") for name in os.listdir(root))
+            )
+
+    def test_transaction_commits_normalized_output_after_validation(self):
+        tool = self._tool(
+            fov=1.5708,
+            sound=12,
+            quickloot=False,
+            background=False,
+        )
+        tool._inspect_wow_executable = lambda _path: (True, "ok")
+
+        with tempfile.TemporaryDirectory() as root:
+            wow_exe = os.path.join(root, "WoW.exe")
+            with open(wow_exe, "wb") as handle:
+                handle.write(b"original WoW input")
+
+            output_exe = os.path.join(root, "WoW_Modernized.exe")
+            with open(output_exe, "wb") as handle:
+                handle.write(b"previous output")
+
+            def fake_run(_tool, staging_target, tweaks_exe=None, modern_cli=False):
+                return self._write_exe(
+                    staging_target,
+                    b"\x75\x10",
+                    b"\x75\x0B",
+                    0x27,
+                    1.919862,
+                    b"64\x00\x00",
+                )
+
+            with mock.patch.object(WowSetupTool, "run_vanilla_tweaks", new=fake_run):
+                result_path = tool._run_vanilla_tweaks_transactional(
+                    root,
+                    tweaks_exe="fake-vanilla-tweaks.exe",
+                    modern_cli=True,
+                )
+
+            self.assertEqual(result_path, output_exe)
+            with open(output_exe, "rb") as handle:
+                result = handle.read()
+
+            self.assertEqual(result[0x0C1ECF:0x0C1ED1], b"\x74\x10")
+            self.assertEqual(result[0x0C2B25:0x0C2B27], b"\x74\x0B")
+            self.assertEqual(result[0x3A4869], 0x14)
+            self.assertAlmostEqual(
+                struct.unpack("<f", result[0x4089B4:0x4089B8])[0],
+                1.5708,
+                places=4,
+            )
+            self.assertEqual(result[0x435D38:0x435D3C], b"12\x00\x00")
+            self.assertFalse(os.path.exists(output_exe + ".modernization-new"))
+            self.assertFalse(
+                any(name.startswith(".modernization-vt-") for name in os.listdir(root))
+            )
 
     def test_normalization_policy_forces_one_marker_refresh(self):
         tool = self._tool(
