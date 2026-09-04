@@ -13,13 +13,14 @@ def _classic_mpq_bytes(
     hash_table_offset=32,
     block_table_offset=48,
     inner_magic=b"MPQ\x1A",
+    sector_size_shift=3,
 ):
     header = inner_magic + struct.pack(
         "<IIHHIIII",
         32,
         archive_size,
         0,
-        3,
+        sector_size_shift,
         hash_table_offset,
         block_table_offset,
         1,
@@ -35,18 +36,22 @@ def _write_wrapped_mpq(
     *,
     header_offset=32,
     user_header_size=16,
+    user_data_size=None,
     inner_magic=b"MPQ\x1A",
     hash_table_offset=32,
     block_table_offset=48,
+    sector_size_shift=3,
 ):
     inner = _classic_mpq_bytes(
         inner_magic=inner_magic,
         hash_table_offset=hash_table_offset,
         block_table_offset=block_table_offset,
+        sector_size_shift=sector_size_shift,
     )
     total_size = max(16, header_offset + len(inner))
     data = bytearray(total_size)
-    user_data_size = max(0, header_offset - user_header_size)
+    if user_data_size is None:
+        user_data_size = max(0, header_offset - user_header_size)
     data[:16] = b"MPQ\x1B" + struct.pack(
         "<III",
         user_data_size,
@@ -141,6 +146,26 @@ class WrappedMpqValidationTests(unittest.TestCase):
             ):
                 dynamic._strict_verify_mpq(path)
 
+    def test_rejects_user_data_size_smaller_than_user_header(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, "wrapped.mpq")
+            _write_wrapped_mpq(path, user_data_size=8)
+            with self.assertRaisesRegex(
+                remote_packages.RemotePackageError,
+                "invalid user-data size",
+            ):
+                dynamic._strict_verify_mpq(path)
+
+    def test_rejects_user_data_size_beyond_nested_archive_offset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, "wrapped.mpq")
+            _write_wrapped_mpq(path, user_data_size=40)
+            with self.assertRaisesRegex(
+                remote_packages.RemotePackageError,
+                "invalid user-data size",
+            ):
+                dynamic._strict_verify_mpq(path)
+
     def test_rejects_wrapper_with_corrupt_nested_mpq(self):
         with tempfile.TemporaryDirectory() as temp:
             path = os.path.join(temp, "wrapped.mpq")
@@ -158,6 +183,16 @@ class WrappedMpqValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 remote_packages.RemotePackageError,
                 "out-of-bounds block table",
+            ):
+                dynamic._strict_verify_mpq(path)
+
+    def test_rejects_zero_sector_size_shift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, "wrapped.mpq")
+            _write_wrapped_mpq(path, sector_size_shift=0)
+            with self.assertRaisesRegex(
+                remote_packages.RemotePackageError,
+                "invalid sector-size shift",
             ):
                 dynamic._strict_verify_mpq(path)
 

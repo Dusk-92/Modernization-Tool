@@ -129,6 +129,13 @@ def _strict_verify_mpq(path):
                     raise remote_packages.RemotePackageError(
                         "Downloaded MPQ has an invalid nested archive offset."
                     )
+                if (
+                    _user_data_size < user_header_size
+                    or _user_data_size > header_offset
+                ):
+                    raise remote_packages.RemotePackageError(
+                        "Downloaded MPQ has an invalid user-data size."
+                    )
                 archive_base = header_offset
                 handle.seek(archive_base)
                 header = handle.read(32)
@@ -179,7 +186,7 @@ def _strict_verify_mpq(path):
         raise remote_packages.RemotePackageError(
             f"Downloaded MPQ uses unsupported format version {format_version}."
         )
-    if sector_size_shift > 16:
+    if sector_size_shift == 0 or sector_size_shift > 16:
         raise remote_packages.RemotePackageError(
             "Downloaded MPQ has an invalid sector-size shift."
         )
