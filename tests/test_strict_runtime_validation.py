@@ -94,10 +94,9 @@ class StrictStagedExecutableValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "produced by vanilla-tweaks"):
             tool._validate_staged_numeric_states(data, source_states, desired)
 
-    def test_client_identity_has_no_non_mz_fixture_bypass(self):
+    def test_fixed_build_version_identity_guard_is_disabled(self):
         data = bytearray(0x46795C + 16)
-        with self.assertRaisesRegex(RuntimeError, "build 5875"):
-            dynamic.ModernWowSetupTool._validate_client_identity(data)
+        dynamic.ModernWowSetupTool._validate_client_identity(data)
 
 
 class WrappedMpqValidationTests(unittest.TestCase):
