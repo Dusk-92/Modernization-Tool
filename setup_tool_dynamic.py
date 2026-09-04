@@ -77,8 +77,8 @@ _CUSTOM_GLUES_SITES = (
 )
 
 # Numeric fields are intentionally allowed to keep legitimate values already
-# selected by Turtle/Octo/community launchers. Safety comes from a multi-anchor
-# 1.12.1/5875 identity check plus tight per-field supported ranges; the exact
+# selected by Turtle/Octo/community launchers. Safety comes from validating the
+# actual managed patch regions plus tight per-field supported ranges; the exact
 # source bytes are then snapshotted so the upstream patcher may only preserve
 # them or replace them with the Tool's requested value.
 _NUMERIC_SITES = (
@@ -286,9 +286,8 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     def _vanilla_tweaks_signature(self):
         signature = super()._vanilla_tweaks_signature()
-        # Keep the B-total policy generation stable for old markers/tests, but
-        # add a second key so every v3 output is repatched once for the stricter
-        # source fingerprint policy.
+        # Keep the B-total policy generation stable for existing test builds.
+        # Fixed build/version string anchors are no longer part of preflight.
         signature["selected_patch_normalization"] = 3
         signature["source_fingerprint_policy"] = 1
         return signature
@@ -337,18 +336,9 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     @staticmethod
     def _validate_client_identity(data):
-        """Require immutable Vanilla 1.12.1/5875 anchors before fixed-offset tweaks."""
-        build = bytes(
-            data[_CLIENT_BUILD_OFFSET:_CLIENT_BUILD_OFFSET + len(_CLIENT_BUILD)]
-        )
-        version = bytes(
-            data[_CLIENT_VERSION_OFFSET:_CLIENT_VERSION_OFFSET + len(_CLIENT_VERSION)]
-        )
-        if build != _CLIENT_BUILD or version != _CLIENT_VERSION:
-            raise RuntimeError(
-                "WoW.exe is not the expected Vanilla 1.12.1 build 5875; "
-                "refusing to apply fixed-offset executable tweaks."
-            )
+        """Compatibility no-op: Turtle/Octo may move build/version strings."""
+        del data
+        return None
 
     def _capture_source_numeric_states(self, data, desired):
         """Validate tight supported ranges and snapshot the exact source bytes."""
@@ -505,8 +495,6 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             ) from exc
 
         desired = self._desired_normalized_values()
-        # Validate patch-region signatures first so a changed code site reports
-        # the most useful failure even before the build fingerprint is checked.
         preserved = self._validate_vanilla_tweaks_state(
             data,
             allow_foreign_custom_glues=True,
