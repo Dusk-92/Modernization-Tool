@@ -6,6 +6,7 @@ import tkinter as tk
 import types
 from tkinter import messagebox
 
+import remote_packages
 import setup_tool_dynamic_core as _dynamic_core
 # Keep the feature-branch implementation intact and layer only the executable
 # normalization policy here. This makes the B-total policy easy to audit and
@@ -75,25 +76,153 @@ _CUSTOM_GLUES_SITES = (
     (0x2F11F1, 0x5E, 0xB2),
 )
 
+# Numeric fields are intentionally allowed to keep legitimate values already
+# selected by Turtle/Octo/community launchers.  Safety comes from a multi-anchor
+# 1.12.1/5875 identity check plus tight per-field supported ranges; the exact
+# source bytes are then snapshotted so the upstream patcher may only preserve
+# them or replace them with the Tool's requested value.
+_NUMERIC_SITES = (
+    ("fov", 0x4089B4, "FoV", 0.5, 3.5),
+    ("farclip", 0x40FED8, "Farclip", 777.0, 10000.0),
+    ("frill", 0x467958, "Frill Distance", 0.0, 1000.0),
+    ("nameplate", 0x40C448, "Nameplate Distance", 0.0, 150.0),
+    ("maxcam", 0x4089A4, "Max Camera Distance", 1.0, 250.0),
+)
+_SOUND_SITE = ("sound", 0x435D38, "Sound Channels", 1, 128)
+_CLIENT_BUILD_OFFSET = 0x437BFC
+_CLIENT_VERSION_OFFSET = 0x437C04
+_CLIENT_BUILD = b"5875"
+_CLIENT_VERSION = b"1.12.1"
+
+
+def _strict_verify_mpq(path):
+    """Validate the classic MPQ header and table bounds, not only its magic."""
+    try:
+        size = os.path.getsize(path)
+        if size < 32:
+            raise remote_packages.RemotePackageError(
+                "Downloaded MPQ is too small to contain a valid header."
+            )
+
+        with open(path, "rb") as handle:
+            header = handle.read(32)
+    except remote_packages.RemotePackageError:
+        raise
+    except OSError as exc:
+        raise remote_packages.RemotePackageError(
+            f"Could not inspect downloaded MPQ: {exc}"
+        ) from exc
+
+    if len(header) != 32 or header[:4] != b"MPQ\x1A":
+        raise remote_packages.RemotePackageError(
+            "Downloaded file is not a valid MPQ archive."
+        )
+
+    try:
+        (
+            header_size,
+            archive_size,
+            format_version,
+            sector_size_shift,
+            hash_table_offset,
+            block_table_offset,
+            hash_table_entries,
+            block_table_entries,
+        ) = struct.unpack_from("<IIHHIIII", header, 4)
+    except struct.error as exc:
+        raise remote_packages.RemotePackageError(
+            "Downloaded MPQ has a truncated header."
+        ) from exc
+
+    if header_size < 32 or header_size > size:
+        raise remote_packages.RemotePackageError(
+            "Downloaded MPQ has an invalid header size."
+        )
+    if archive_size < header_size or archive_size > size:
+        raise remote_packages.RemotePackageError(
+            "Downloaded MPQ has an invalid archive size."
+        )
+    if format_version not in (0, 1):
+        raise remote_packages.RemotePackageError(
+            f"Downloaded MPQ uses unsupported format version {format_version}."
+        )
+    if sector_size_shift > 16:
+        raise remote_packages.RemotePackageError(
+            "Downloaded MPQ has an invalid sector-size shift."
+        )
+
+    tables = (
+        ("hash", hash_table_offset, hash_table_entries),
+        ("block", block_table_offset, block_table_entries),
+    )
+    for table_name, table_offset, entry_count in tables:
+        if entry_count <= 0:
+            raise remote_packages.RemotePackageError(
+                f"Downloaded MPQ has an empty {table_name} table."
+            )
+        table_size = entry_count * 16
+        if (
+            table_offset < header_size
+            or table_offset > archive_size
+            or table_size > archive_size - table_offset
+        ):
+            raise remote_packages.RemotePackageError(
+                f"Downloaded MPQ has an out-of-bounds {table_name} table."
+            )
+
+
+def _install_strict_mpq_policy():
+    """Harden every visual-MPQ path used by the dynamic installer exactly once."""
+    if getattr(remote_packages, "_modernization_strict_mpq_policy", False):
+        return
+
+    original_download_remote_mpq = remote_packages._download_remote_mpq
+
+    def strict_download_remote_mpq(*args, **kwargs):
+        temp_path = original_download_remote_mpq(*args, **kwargs)
+        try:
+            _strict_verify_mpq(temp_path)
+        except remote_packages.RemotePackageError as exc:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+            label = kwargs.get("label") or "Downloading visual mod"
+            raise remote_packages.RemoteSourceUnavailable(
+                f"{label}: remote source returned an invalid MPQ package ({exc})."
+            ) from exc
+        return temp_path
+
+    def strict_managed_mpq_is_current(target_dir, mod_id, revision):
+        if not remote_packages.managed_mod_is_current(target_dir, mod_id, revision):
+            return False
+        files = remote_packages._load_managed_manifest(target_dir, mod_id)
+        if len(files) != 1:
+            return False
+        path = os.path.join(target_dir, files[0])
+        try:
+            _strict_verify_mpq(path)
+            return True
+        except remote_packages.RemotePackageError:
+            return False
+
+    remote_packages._verify_mpq = _strict_verify_mpq
+    remote_packages._download_remote_mpq = strict_download_remote_mpq
+    remote_packages.managed_mpq_is_current = strict_managed_mpq_is_current
+    remote_packages._modernization_strict_mpq_policy = True
+
+
+_install_strict_mpq_policy()
+
 
 class ModernWowSetupTool(_ModernWowSetupToolCore):
     """Remote-fallback tool with authoritative, fail-safe Vanilla Tweaks output."""
 
     def _vanilla_tweaks_signature(self):
         signature = super()._vanilla_tweaks_signature()
-        # v3 adds source preflight and preserves client-owned Custom GlueXML
-        # regions instead of letting vanilla-tweaks overwrite unknown loader code.
-        signature["selected_patch_normalization"] = 3
+        # v4 adds source build fingerprints and exact staged numeric-state checks.
+        signature["selected_patch_normalization"] = 4
         return signature
-
-    @staticmethod
-    def _validate_float_field(data, offset, label, minimum, maximum):
-        current = struct.unpack_from("<f", data, offset)[0]
-        if not math.isfinite(current) or not minimum <= current <= maximum:
-            raise RuntimeError(
-                f"Unexpected {label} value at 0x{offset:X}; "
-                "refusing to alter an unknown client."
-            )
 
     def _desired_normalized_values(self):
         desired = {
@@ -126,6 +255,93 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
         desired["sound_bytes"] = sound_channels.ljust(4, b"\x00")
         return desired
 
+    @staticmethod
+    def _numeric_bytes_from_desired(desired):
+        return {
+            "fov": struct.pack("<f", desired["fov"]),
+            "farclip": struct.pack("<f", desired["farclip"]),
+            "frill": struct.pack("<f", desired["frill"]),
+            "nameplate": struct.pack("<f", desired["nameplate"]),
+            "maxcam": struct.pack("<f", desired["maxcam"]),
+            "sound": desired["sound_bytes"],
+        }
+
+    @staticmethod
+    def _validate_client_identity(data):
+        """Require the immutable Vanilla 1.12.1 build/version anchors."""
+        build = bytes(
+            data[_CLIENT_BUILD_OFFSET:_CLIENT_BUILD_OFFSET + len(_CLIENT_BUILD)]
+        )
+        version = bytes(
+            data[_CLIENT_VERSION_OFFSET:_CLIENT_VERSION_OFFSET + len(_CLIENT_VERSION)]
+        )
+        if build != _CLIENT_BUILD or version != _CLIENT_VERSION:
+            raise RuntimeError(
+                "WoW.exe is not the expected Vanilla 1.12.1 build 5875; "
+                "refusing to apply fixed-offset executable tweaks."
+            )
+
+    def _capture_source_numeric_states(self, data, desired):
+        """Validate tight supported ranges and snapshot the exact source bytes."""
+        del desired  # selected-value validation already ran before this method
+        snapshot = {}
+        for key, offset, label, minimum, maximum in _NUMERIC_SITES:
+            raw = bytes(data[offset:offset + 4])
+            value = struct.unpack("<f", raw)[0]
+            if not math.isfinite(value) or not minimum <= value <= maximum:
+                raise RuntimeError(
+                    f"Unexpected {label} source value at 0x{offset:X}; "
+                    "refusing to alter an unknown client."
+                )
+            snapshot[key] = raw
+
+        key, offset, label, minimum, maximum = _SOUND_SITE
+        raw = bytes(data[offset:offset + 4])
+        text, separator, tail = raw.partition(b"\x00")
+        if (
+            not separator
+            or not text.isdigit()
+            or any(tail)
+        ):
+            raise RuntimeError(
+                f"Unexpected {label} source bytes at 0x{offset:X}; "
+                "refusing to alter an unknown client."
+            )
+        value = int(text)
+        if not minimum <= value <= maximum:
+            raise RuntimeError(
+                f"Unexpected {label} source value at 0x{offset:X}; "
+                "refusing to alter an unknown client."
+            )
+        snapshot[key] = raw
+        return snapshot
+
+    def _validate_staged_numeric_states(self, data, source_states, desired):
+        """The upstream patcher may only leave source bytes or write our selection."""
+        if not isinstance(source_states, dict):
+            raise RuntimeError(
+                "Vanilla Tweaks source fingerprint is missing; refusing to normalize."
+            )
+
+        desired_bytes = self._numeric_bytes_from_desired(desired)
+        staged_sites = [
+            (key, offset, label)
+            for key, offset, label, _minimum, _maximum in _NUMERIC_SITES
+        ]
+        staged_sites.append(_SOUND_SITE[:3])
+        for key, offset, label in staged_sites:
+            source_value = source_states.get(key)
+            if not isinstance(source_value, (bytes, bytearray)) or len(source_value) != 4:
+                raise RuntimeError(
+                    f"Vanilla Tweaks source fingerprint for {label} is invalid."
+                )
+            current = bytes(data[offset:offset + 4])
+            if current not in (bytes(source_value), desired_bytes[key]):
+                raise RuntimeError(
+                    f"Unexpected {label} bytes produced by vanilla-tweaks at "
+                    f"0x{offset:X}; refusing to commit a partially trusted EXE."
+                )
+
     def _validate_vanilla_tweaks_state(
         self,
         data,
@@ -133,7 +349,7 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
         allow_foreign_custom_glues=False,
         accepted_custom_glues=None,
     ):
-        """Validate every region the B-total policy may rewrite.
+        """Validate every non-numeric region the B-total policy may rewrite.
 
         Returns a foreign Custom GlueXML byte tuple only during source preflight.
         Such a tuple is treated as client-owned code and later restored exactly.
@@ -208,29 +424,12 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                     "Unexpected Custom GlueXML bytes; refusing to alter an unknown client."
                 )
 
-        self._validate_float_field(data, 0x4089B4, "FoV", 0.5, 3.5)
-        self._validate_float_field(data, 0x40FED8, "Farclip", 100.0, 50000.0)
-        self._validate_float_field(data, 0x467958, "Frill Distance", 0.0, 10000.0)
-        self._validate_float_field(data, 0x40C448, "Nameplate Distance", 1.0, 500.0)
-        self._validate_float_field(data, 0x4089A4, "Max Camera Distance", 1.0, 1000.0)
-
-        sound_field = bytes(data[0x435D38:0x435D3C])
-        sound_text, separator, sound_tail = sound_field.partition(b"\x00")
-        if (
-            not separator
-            or not sound_text.isdigit()
-            or any(sound_tail)
-            or not 1 <= int(sound_text) <= 256
-        ):
-            raise RuntimeError(
-                "Unexpected Sound Channels field; refusing to alter an unknown client."
-            )
-
         return foreign_custom_glues
 
     def _preflight_vanilla_tweaks_source(self, target):
         """Read and validate WoW.exe before vanilla-tweaks or any install write runs."""
         self._vt_preserved_custom_glues = None
+        self._vt_source_numeric_states = None
         wow_exe = os.path.join(target, "WoW.exe")
         try:
             with open(wow_exe, "rb") as handle:
@@ -240,14 +439,15 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                 "Could not inspect WoW.exe for Vanilla Tweaks safety preflight."
             ) from exc
 
-        # Validate the selected values now too, so malformed settings cannot
-        # fail only after unrelated plugins/mods have already been updated.
-        self._desired_normalized_values()
+        desired = self._desired_normalized_values()
+        self._validate_client_identity(data)
         preserved = self._validate_vanilla_tweaks_state(
             data,
             allow_foreign_custom_glues=True,
         )
+        numeric_states = self._capture_source_numeric_states(data, desired)
         self._vt_preserved_custom_glues = preserved
+        self._vt_source_numeric_states = numeric_states
         return preserved
 
     def validate_plugin_conflicts(self):
@@ -265,6 +465,46 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             )
             return False
         return True
+
+    def run_installation(self):
+        """Run the EXE patch transaction before the installer's first file write.
+
+        The base installer intentionally remains untouched. We intercept its
+        first mutating step (clean_unselected_files), run Vanilla Tweaks once,
+        then make the later vanilla-tweaks slot a no-op for this Apply.
+        """
+        previous_clean = self.__dict__.get("clean_unselected_files")
+        previous_vt = self.__dict__.get("run_vanilla_tweaks")
+        had_clean_override = "clean_unselected_files" in self.__dict__
+        had_vt_override = "run_vanilla_tweaks" in self.__dict__
+
+        real_clean = self.clean_unselected_files
+        real_vt = self.run_vanilla_tweaks
+        state = {"ran": False, "result": None}
+
+        def run_vt_once(target):
+            if not state["ran"]:
+                state["result"] = real_vt(target)
+                state["ran"] = True
+            return state["result"]
+
+        def clean_after_vt(target):
+            run_vt_once(target)
+            return real_clean(target)
+
+        self.__dict__["clean_unselected_files"] = clean_after_vt
+        self.__dict__["run_vanilla_tweaks"] = run_vt_once
+        try:
+            return super().run_installation()
+        finally:
+            if had_clean_override:
+                self.__dict__["clean_unselected_files"] = previous_clean
+            else:
+                self.__dict__.pop("clean_unselected_files", None)
+            if had_vt_override:
+                self.__dict__["run_vanilla_tweaks"] = previous_vt
+            else:
+                self.__dict__.pop("run_vanilla_tweaks", None)
 
     def _run_vanilla_tweaks_transactional(
         self,
@@ -301,11 +541,21 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             "_vt_preserved_custom_glues",
             None,
         )
+        source_numeric_states = getattr(
+            self,
+            "_vt_source_numeric_states",
+            None,
+        )
         self._validate_vanilla_tweaks_state(
             data,
             accepted_custom_glues=preserved_custom_glues,
         )
         desired = self._desired_normalized_values()
+        self._validate_staged_numeric_states(
+            data,
+            source_numeric_states,
+            desired,
+        )
 
         # All validation passed. Apply the exact Tool selections in memory.
         quickloot_sites = (
