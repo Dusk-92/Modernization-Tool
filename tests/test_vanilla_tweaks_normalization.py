@@ -73,6 +73,7 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
         custom_patched=False,
         crossfaction_byte=0x01,
         bluemoon_bytes=None,
+        filename="WoW_Modernized.exe",
     ):
         data = bytearray(0x46795C + 16)
         data[0x0C1ECF:0x0C1ED1] = quick1
@@ -102,7 +103,7 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
         # Unrelated data must survive normalization byte-for-byte.
         data[0x123456:0x12345E] = b"KEEPTHIS"
 
-        path = os.path.join(root, "WoW_Modernized.exe")
+        path = os.path.join(root, filename)
         with open(path, "wb") as handle:
             handle.write(data)
         return path
@@ -110,6 +111,23 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
     @staticmethod
     def _read_float(data, offset):
         return struct.unpack("<f", data[offset:offset + 4])[0]
+
+    @staticmethod
+    def _write_custom_state(path, values):
+        with open(path, "r+b") as handle:
+            for value, (offset, _original, _patched) in zip(
+                values,
+                setup_tool_dynamic._CUSTOM_GLUES_SITES,
+            ):
+                handle.seek(offset)
+                handle.write(bytes((value,)))
+
+    @staticmethod
+    def _read_custom_state(data):
+        return tuple(
+            data[offset]
+            for offset, _original, _patched in setup_tool_dynamic._CUSTOM_GLUES_SITES
+        )
 
     def test_disabled_selections_restore_inherited_patches(self):
         tool = self._tool(
@@ -226,7 +244,7 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Unexpected QuickLoot bytes"):
                 tool._normalize_selected_vanilla_tweaks_output(path)
 
-    def test_unknown_custom_glues_bytes_fail_safe(self):
+    def test_unknown_custom_glues_bytes_fail_safe_without_source_proof(self):
         tool = self._tool(
             fov=1.9199,
             sound=64,
@@ -250,6 +268,39 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "Unexpected Custom GlueXML bytes"):
                 tool._normalize_selected_vanilla_tweaks_output(path)
+
+    def test_source_preflight_accepts_and_records_foreign_custom_glues(self):
+        tool = self._tool(
+            fov=1.9199,
+            sound=64,
+            quickloot=True,
+            background=True,
+            custom_glues=True,
+        )
+        foreign = (0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xF1)
+
+        with tempfile.TemporaryDirectory() as root:
+            source = self._write_exe(
+                root,
+                b"\x75\x10",
+                b"\x75\x0B",
+                0x27,
+                1.919862,
+                b"12\x00\x00",
+                farclip=3000.0,
+                frill=300.0,
+                nameplate=41.0,
+                maxcam=50.0,
+                laa_patched=True,
+                camera_patched=True,
+                filename="WoW.exe",
+            )
+            self._write_custom_state(source, foreign)
+
+            preserved = tool._preflight_vanilla_tweaks_source(root)
+
+        self.assertEqual(preserved, foreign)
+        self.assertEqual(tool._vt_preserved_custom_glues, foreign)
 
     def test_blue_moon_and_crossfaction_keep_legacy_output(self):
         tool = self._tool(
@@ -283,6 +334,46 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
             blue_bytes,
         )
 
+    def test_source_preflight_rejects_unknown_quickloot_before_patcher(self):
+        tool = self._tool(
+            fov=1.9199,
+            sound=64,
+            quickloot=True,
+            background=True,
+        )
+
+        with tempfile.TemporaryDirectory() as root:
+            self._write_exe(
+                root,
+                b"\xEB\x10",
+                b"\x74\x0B",
+                0x14,
+                1.5708,
+                b"12\x00\x00",
+                filename="WoW.exe",
+            )
+            output_exe = os.path.join(root, "WoW_Modernized.exe")
+            previous_output = b"known-good existing modernized executable"
+            with open(output_exe, "wb") as handle:
+                handle.write(previous_output)
+
+            patcher = mock.Mock()
+            with mock.patch.object(WowSetupTool, "run_vanilla_tweaks", new=patcher):
+                with self.assertRaisesRegex(RuntimeError, "Unexpected QuickLoot bytes"):
+                    tool._run_vanilla_tweaks_transactional(
+                        root,
+                        tweaks_exe="fake-vanilla-tweaks.exe",
+                        modern_cli=True,
+                    )
+
+            patcher.assert_not_called()
+            with open(output_exe, "rb") as handle:
+                self.assertEqual(handle.read(), previous_output)
+            self.assertFalse(os.path.exists(output_exe + ".modernization-new"))
+            self.assertFalse(
+                any(name.startswith(".modernization-vt-") for name in os.listdir(root))
+            )
+
     def test_transaction_keeps_existing_output_when_normalization_fails(self):
         tool = self._tool(
             fov=1.9199,
@@ -292,9 +383,15 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as root:
-            wow_exe = os.path.join(root, "WoW.exe")
-            with open(wow_exe, "wb") as handle:
-                handle.write(b"original WoW input")
+            self._write_exe(
+                root,
+                b"\x74\x10",
+                b"\x74\x0B",
+                0x14,
+                1.5708,
+                b"12\x00\x00",
+                filename="WoW.exe",
+            )
 
             output_exe = os.path.join(root, "WoW_Modernized.exe")
             previous_output = b"known-good existing modernized executable"
@@ -326,6 +423,78 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
                 any(name.startswith(".modernization-vt-") for name in os.listdir(root))
             )
 
+    def test_transaction_restores_foreign_custom_glues_after_patcher(self):
+        tool = self._tool(
+            fov=1.5708,
+            sound=12,
+            quickloot=False,
+            background=False,
+            farclip=777,
+            frill=70,
+            nameplate=20,
+            maxcam=50,
+            laa=False,
+            camera=False,
+            custom_glues=True,
+        )
+        tool._inspect_wow_executable = lambda _path: (True, "ok")
+        foreign = (0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xF1)
+
+        with tempfile.TemporaryDirectory() as root:
+            source = self._write_exe(
+                root,
+                b"\x75\x10",
+                b"\x75\x0B",
+                0x27,
+                1.919862,
+                b"64\x00\x00",
+                farclip=3000.0,
+                frill=300.0,
+                nameplate=41.0,
+                maxcam=100.0,
+                laa_patched=True,
+                camera_patched=True,
+                filename="WoW.exe",
+            )
+            self._write_custom_state(source, foreign)
+
+            output_exe = os.path.join(root, "WoW_Modernized.exe")
+            with open(output_exe, "wb") as handle:
+                handle.write(b"previous output")
+
+            def fake_run(_tool, staging_target, tweaks_exe=None, modern_cli=False):
+                return self._write_exe(
+                    staging_target,
+                    b"\x75\x10",
+                    b"\x75\x0B",
+                    0x27,
+                    1.919862,
+                    b"64\x00\x00",
+                    farclip=3000.0,
+                    frill=300.0,
+                    nameplate=41.0,
+                    maxcam=100.0,
+                    laa_patched=True,
+                    camera_patched=True,
+                    custom_patched=True,
+                )
+
+            with mock.patch.object(WowSetupTool, "run_vanilla_tweaks", new=fake_run):
+                tool._run_vanilla_tweaks_transactional(
+                    root,
+                    tweaks_exe="fake-vanilla-tweaks.exe",
+                    modern_cli=True,
+                )
+
+            with open(output_exe, "rb") as handle:
+                result = handle.read()
+
+        self.assertEqual(self._read_custom_state(result), foreign)
+        self.assertEqual(result[0x0C1ECF:0x0C1ED1], b"\x74\x10")
+        self.assertEqual(result[0x0C2B25:0x0C2B27], b"\x74\x0B")
+        self.assertEqual(result[0x3A4869], 0x14)
+        self.assertEqual(result[0x126:0x128], b"\x0F\x01")
+
     def test_transaction_commits_total_normalized_output_after_validation(self):
         tool = self._tool(
             fov=1.5708,
@@ -343,9 +512,15 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
         tool._inspect_wow_executable = lambda _path: (True, "ok")
 
         with tempfile.TemporaryDirectory() as root:
-            wow_exe = os.path.join(root, "WoW.exe")
-            with open(wow_exe, "wb") as handle:
-                handle.write(b"original WoW input")
+            self._write_exe(
+                root,
+                b"\x74\x10",
+                b"\x74\x0B",
+                0x14,
+                1.5708,
+                b"12\x00\x00",
+                filename="WoW.exe",
+            )
 
             output_exe = os.path.join(root, "WoW_Modernized.exe")
             with open(output_exe, "wb") as handle:
@@ -398,6 +573,26 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
                 any(name.startswith(".modernization-vt-") for name in os.listdir(root))
             )
 
+    def test_validation_gate_runs_source_preflight(self):
+        tool = self._tool(
+            fov=1.9199,
+            sound=64,
+            quickloot=True,
+            background=True,
+        )
+        tool.wow_dir = FakeVar("C:/game")
+        tool.optional_plugins = {"no1600x1200.dll": FakeVar(False)}
+        tool.vmmfix_enabled = FakeVar(False)
+
+        with mock.patch.object(
+            tool,
+            "_preflight_vanilla_tweaks_source",
+            return_value=None,
+        ) as preflight:
+            self.assertTrue(tool.validate_plugin_conflicts())
+
+        preflight.assert_called_once_with("C:/game")
+
     def test_normalization_policy_forces_one_marker_refresh(self):
         tool = self._tool(
             fov=1.9199,
@@ -410,7 +605,7 @@ class VanillaTweaksNormalizationTests(unittest.TestCase):
         new_signature = tool._vanilla_tweaks_signature()
 
         self.assertNotIn("selected_patch_normalization", old_signature)
-        self.assertEqual(new_signature["selected_patch_normalization"], 2)
+        self.assertEqual(new_signature["selected_patch_normalization"], 3)
 
         tool.core_plugins["SuperWoWhook.dll"].set(False)
         self.assertEqual(new_signature, tool._vanilla_tweaks_signature())
