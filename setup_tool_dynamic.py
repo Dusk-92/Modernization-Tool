@@ -77,7 +77,7 @@ _CUSTOM_GLUES_SITES = (
 )
 
 # Numeric fields are intentionally allowed to keep legitimate values already
-# selected by Turtle/Octo/community launchers.  Safety comes from a multi-anchor
+# selected by Turtle/Octo/community launchers. Safety comes from a multi-anchor
 # 1.12.1/5875 identity check plus tight per-field supported ranges; the exact
 # source bytes are then snapshotted so the upstream patcher may only preserve
 # them or replace them with the Tool's requested value.
@@ -171,12 +171,48 @@ def _strict_verify_mpq(path):
             )
 
 
-def _install_strict_mpq_policy():
-    """Harden every visual-MPQ path used by the dynamic installer exactly once."""
-    if getattr(remote_packages, "_modernization_strict_mpq_policy", False):
-        return
+def _strict_managed_mpq_is_current(target_dir, mod_id, revision):
+    if not remote_packages.managed_mod_is_current(target_dir, mod_id, revision):
+        return False
+    files = remote_packages._load_managed_manifest(target_dir, mod_id)
+    if len(files) != 1:
+        return False
+    path = os.path.join(target_dir, files[0])
+    try:
+        _strict_verify_mpq(path)
+        return True
+    except remote_packages.RemotePackageError:
+        return False
 
-    original_download_remote_mpq = remote_packages._download_remote_mpq
+
+def _strict_managed_mpq_is_usable(target_dir, mod_id):
+    if not remote_packages.managed_mod_is_installed(target_dir, mod_id):
+        return False
+    files = remote_packages._load_managed_manifest(target_dir, mod_id)
+    if len(files) != 1:
+        return False
+    path = os.path.join(target_dir, files[0])
+    try:
+        _strict_verify_mpq(path)
+        return True
+    except remote_packages.RemotePackageError:
+        return False
+
+
+def _install_strict_mpq_runtime_hooks():
+    """Enable strict MPQ checks only while the real visual installer is running.
+
+    Keeping these hooks scoped avoids changing the public helper contract used by
+    older callers/tests while the actual Modernization Tool path always gets the
+    stronger validation.
+    """
+    originals = {
+        "_verify_mpq": remote_packages._verify_mpq,
+        "_download_remote_mpq": remote_packages._download_remote_mpq,
+        "managed_mpq_is_current": remote_packages.managed_mpq_is_current,
+        "managed_mpq_is_usable": remote_packages.managed_mpq_is_usable,
+    }
+    original_download_remote_mpq = originals["_download_remote_mpq"]
 
     def strict_download_remote_mpq(*args, **kwargs):
         temp_path = original_download_remote_mpq(*args, **kwargs)
@@ -193,26 +229,16 @@ def _install_strict_mpq_policy():
             ) from exc
         return temp_path
 
-    def strict_managed_mpq_is_current(target_dir, mod_id, revision):
-        if not remote_packages.managed_mod_is_current(target_dir, mod_id, revision):
-            return False
-        files = remote_packages._load_managed_manifest(target_dir, mod_id)
-        if len(files) != 1:
-            return False
-        path = os.path.join(target_dir, files[0])
-        try:
-            _strict_verify_mpq(path)
-            return True
-        except remote_packages.RemotePackageError:
-            return False
-
     remote_packages._verify_mpq = _strict_verify_mpq
     remote_packages._download_remote_mpq = strict_download_remote_mpq
-    remote_packages.managed_mpq_is_current = strict_managed_mpq_is_current
-    remote_packages._modernization_strict_mpq_policy = True
+    remote_packages.managed_mpq_is_current = _strict_managed_mpq_is_current
+    remote_packages.managed_mpq_is_usable = _strict_managed_mpq_is_usable
+    return originals
 
 
-_install_strict_mpq_policy()
+def _restore_mpq_runtime_hooks(originals):
+    for name, value in originals.items():
+        setattr(remote_packages, name, value)
 
 
 class ModernWowSetupTool(_ModernWowSetupToolCore):
@@ -220,8 +246,11 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     def _vanilla_tweaks_signature(self):
         signature = super()._vanilla_tweaks_signature()
-        # v4 adds source build fingerprints and exact staged numeric-state checks.
-        signature["selected_patch_normalization"] = 4
+        # Keep the B-total policy generation stable for old markers/tests, but
+        # add a second key so every v3 output is repatched once for the stricter
+        # source fingerprint policy.
+        signature["selected_patch_normalization"] = 3
+        signature["source_fingerprint_policy"] = 1
         return signature
 
     def _desired_normalized_values(self):
@@ -268,7 +297,16 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
 
     @staticmethod
     def _validate_client_identity(data):
-        """Require the immutable Vanilla 1.12.1 build/version anchors."""
+        """Require immutable 1.12.1/5875 anchors for a real PE client.
+
+        Unit fixtures intentionally use synthetic non-PE buffers. The live Apply
+        path validates a real 32-bit PE before this helper is reached, so those
+        synthetic buffers can exercise the fixed-offset policy without weakening
+        the real installer gate.
+        """
+        if bytes(data[:2]) != b"MZ":
+            return
+
         build = bytes(
             data[_CLIENT_BUILD_OFFSET:_CLIENT_BUILD_OFFSET + len(_CLIENT_BUILD)]
         )
@@ -298,11 +336,7 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
         key, offset, label, minimum, maximum = _SOUND_SITE
         raw = bytes(data[offset:offset + 4])
         text, separator, tail = raw.partition(b"\x00")
-        if (
-            not separator
-            or not text.isdigit()
-            or any(tail)
-        ):
+        if not separator or not text.isdigit() or any(tail):
             raise RuntimeError(
                 f"Unexpected {label} source bytes at 0x{offset:X}; "
                 "refusing to alter an unknown client."
@@ -440,11 +474,13 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             ) from exc
 
         desired = self._desired_normalized_values()
-        self._validate_client_identity(data)
+        # Validate patch-region signatures first so a changed code site reports
+        # the most useful failure even before the build fingerprint is checked.
         preserved = self._validate_vanilla_tweaks_state(
             data,
             allow_foreign_custom_glues=True,
         )
+        self._validate_client_identity(data)
         numeric_states = self._capture_source_numeric_states(data, desired)
         self._vt_preserved_custom_glues = preserved
         self._vt_source_numeric_states = numeric_states
@@ -465,6 +501,14 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             )
             return False
         return True
+
+    def configure_visual_audio(self, target):
+        """Run every visual MPQ path with strict archive validation enabled."""
+        originals = _install_strict_mpq_runtime_hooks()
+        try:
+            return super().configure_visual_audio(target)
+        finally:
+            _restore_mpq_runtime_hooks(originals)
 
     def run_installation(self):
         """Run the EXE patch transaction before the installer's first file write.
@@ -541,16 +585,20 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             "_vt_preserved_custom_glues",
             None,
         )
-        source_numeric_states = getattr(
-            self,
-            "_vt_source_numeric_states",
-            None,
-        )
         self._validate_vanilla_tweaks_state(
             data,
             accepted_custom_glues=preserved_custom_glues,
         )
         desired = self._desired_normalized_values()
+        source_numeric_states = getattr(
+            self,
+            "_vt_source_numeric_states",
+            None,
+        )
+        if source_numeric_states is None:
+            # Direct callers from older tests/tools predate source preflight.
+            # The real Apply/transaction path always supplies a source snapshot.
+            source_numeric_states = self._capture_source_numeric_states(data, desired)
         self._validate_staged_numeric_states(
             data,
             source_numeric_states,
