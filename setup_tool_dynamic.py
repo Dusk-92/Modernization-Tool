@@ -76,11 +76,9 @@ _CUSTOM_GLUES_SITES = (
     (0x2F11F1, 0x5E, 0xB2),
 )
 
-# Numeric fields are intentionally allowed to keep legitimate values already
-# selected by Turtle/Octo/community launchers. Safety comes from validating the
-# actual managed patch regions plus tight per-field supported ranges; the exact
-# source bytes are then snapshotted so the upstream patcher may only preserve
-# them or replace them with the Tool's requested value.
+# Numeric fields may already contain legitimate Turtle/Octo/community values.
+# Preflight only sanity-checks those fixed-offset fields; normalization later
+# overwrites them with the exact values selected in the Tool.
 _NUMERIC_SITES = (
     ("fov", 0x4089B4, "FoV", 0.5, 3.5),
     ("farclip", 0x40FED8, "Farclip", 777.0, 10000.0),
@@ -324,27 +322,14 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
         return desired
 
     @staticmethod
-    def _numeric_bytes_from_desired(desired):
-        return {
-            "fov": struct.pack("<f", desired["fov"]),
-            "farclip": struct.pack("<f", desired["farclip"]),
-            "frill": struct.pack("<f", desired["frill"]),
-            "nameplate": struct.pack("<f", desired["nameplate"]),
-            "maxcam": struct.pack("<f", desired["maxcam"]),
-            "sound": desired["sound_bytes"],
-        }
-
-    @staticmethod
     def _validate_client_identity(data):
         """Compatibility no-op: Turtle/Octo may move build/version strings."""
         del data
         return None
 
-    def _capture_source_numeric_states(self, data, desired):
-        """Validate tight supported ranges and snapshot the exact source bytes."""
-        del desired  # selected-value validation already ran before this method
-        snapshot = {}
-        for key, offset, label, minimum, maximum in _NUMERIC_SITES:
+    def _validate_source_numeric_values(self, data):
+        """Sanity-check fixed-offset numeric source values without fingerprinting them."""
+        for _key, offset, label, minimum, maximum in _NUMERIC_SITES:
             raw = bytes(data[offset:offset + 4])
             value = struct.unpack("<f", raw)[0]
             if not math.isfinite(value) or not minimum <= value <= maximum:
@@ -352,9 +337,8 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                     f"Unexpected {label} source value at 0x{offset:X}; "
                     "refusing to alter an unknown client."
                 )
-            snapshot[key] = raw
 
-        key, offset, label, minimum, maximum = _SOUND_SITE
+        _key, offset, label, minimum, maximum = _SOUND_SITE
         raw = bytes(data[offset:offset + 4])
         text, separator, tail = raw.partition(b"\x00")
         if not separator or not text.isdigit() or any(tail):
@@ -368,34 +352,6 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                 f"Unexpected {label} source value at 0x{offset:X}; "
                 "refusing to alter an unknown client."
             )
-        snapshot[key] = raw
-        return snapshot
-
-    def _validate_staged_numeric_states(self, data, source_states, desired):
-        """The upstream patcher may only leave source bytes or write our selection."""
-        if not isinstance(source_states, dict):
-            raise RuntimeError(
-                "Vanilla Tweaks source fingerprint is missing; refusing to normalize."
-            )
-
-        desired_bytes = self._numeric_bytes_from_desired(desired)
-        staged_sites = [
-            (key, offset, label)
-            for key, offset, label, _minimum, _maximum in _NUMERIC_SITES
-        ]
-        staged_sites.append(_SOUND_SITE[:3])
-        for key, offset, label in staged_sites:
-            source_value = source_states.get(key)
-            if not isinstance(source_value, (bytes, bytearray)) or len(source_value) != 4:
-                raise RuntimeError(
-                    f"Vanilla Tweaks source fingerprint for {label} is invalid."
-                )
-            current = bytes(data[offset:offset + 4])
-            if current not in (bytes(source_value), desired_bytes[key]):
-                raise RuntimeError(
-                    f"Unexpected {label} bytes produced by vanilla-tweaks at "
-                    f"0x{offset:X}; refusing to commit a partially trusted EXE."
-                )
 
     def _validate_vanilla_tweaks_state(
         self,
@@ -484,7 +440,6 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
     def _preflight_vanilla_tweaks_source(self, target):
         """Read and validate WoW.exe before vanilla-tweaks or any install write runs."""
         self._vt_preserved_custom_glues = None
-        self._vt_source_numeric_states = None
         wow_exe = os.path.join(target, "WoW.exe")
         try:
             with open(wow_exe, "rb") as handle:
@@ -494,15 +449,14 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
                 "Could not inspect WoW.exe for Vanilla Tweaks safety preflight."
             ) from exc
 
-        desired = self._desired_normalized_values()
+        self._desired_normalized_values()
         preserved = self._validate_vanilla_tweaks_state(
             data,
             allow_foreign_custom_glues=True,
         )
         self._validate_client_identity(data)
-        numeric_states = self._capture_source_numeric_states(data, desired)
+        self._validate_source_numeric_values(data)
         self._vt_preserved_custom_glues = preserved
-        self._vt_source_numeric_states = numeric_states
         return preserved
 
     def validate_plugin_conflicts(self):
