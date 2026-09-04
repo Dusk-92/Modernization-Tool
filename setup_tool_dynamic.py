@@ -780,6 +780,67 @@ class ModernWowSetupTool(WowSetupTool):
         except Exception:
             return False
 
+    def _prepare_wowpresence_managed_state(self, target):
+        """Force legacy tool-managed installs without hashes through a safe refresh."""
+        trust_state = remote_packages.wowpresence_install_trust_state(target)
+        if trust_state == "managed_unverified":
+            remote_packages._set_managed_manifest_values(
+                target,
+                remote_packages.WOWPRESENCE_MANAGED_ID,
+                revision="__legacy_unverified__",
+            )
+        return trust_state
+
+    def _wowpresence_source_failure(self, error):
+        """Distinguish unusable remote packages from local install/write failures."""
+        messages = []
+        current = error
+        seen = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            messages.append(str(current))
+            current = (
+                current.__cause__
+                if current.__cause__ is not None
+                else current.__context__
+            )
+
+        text = "\n".join(messages)
+        source_markers = (
+            "GitHub request failed:",
+            "latest release is not a stable release",
+            "Could not find WowPresence.zip in release",
+            "Release asset WowPresence.zip has no download URL",
+            "Download failed for WowPresence.zip:",
+            "SHA-256 mismatch for downloaded file",
+            "Unsafe ZIP path:",
+            "WowPresence.dll was not found in downloaded archive.",
+            "WowPresence.exe was not found in downloaded archive.",
+            "WowPresence.dll is ",
+            "WowPresence.dll has ",
+            "WowPresence.exe is ",
+            "WowPresence.exe has ",
+            "File is not a zip file",
+            "Bad magic number for file header",
+        )
+        return any(marker in text for marker in source_markers)
+
+    def _install_wowpresence_with_fallback(self, target):
+        """Use offline recovery only for remote-source failures, never local ones."""
+        self._prepare_wowpresence_managed_state(target)
+        try:
+            return remote_packages.install_wowpresence(
+                target,
+                progress=self._report_download_progress,
+            )
+        except Exception as exc:
+            if not self._wowpresence_source_failure(exc):
+                raise RuntimeError(
+                    f"WowPresence installation failed locally:\n{exc}"
+                ) from exc
+            self._recover_wowpresence_offline(target, exc)
+            return None
+
     def _recover_wowpresence_offline(self, target, error):
         """Preserve only trusted/manual-valid WowPresence; repair modified managed files."""
         trust_state = remote_packages.wowpresence_install_trust_state(target)
@@ -800,7 +861,7 @@ class ModernWowSetupTool(WowSetupTool):
             )
             return
 
-        if trust_state in ("unmanaged", "managed_unverified") and existing_pair_valid:
+        if trust_state == "unmanaged" and existing_pair_valid:
             remote_packages.ensure_wowpresence_config(target)
             self._warn_offline(
                 "WowPresence",
@@ -1481,13 +1542,7 @@ class ModernWowSetupTool(WowSetupTool):
                     continue
 
                 if dll_name == "WowPresence.dll":
-                    try:
-                        remote_packages.install_wowpresence(
-                            target,
-                            progress=self._report_download_progress,
-                        )
-                    except Exception as exc:
-                        self._recover_wowpresence_offline(target, exc)
+                    self._install_wowpresence_with_fallback(target)
 
                     # Remove the old test-branch filenames after a successful
                     # migration. The legacy config directory is intentionally
