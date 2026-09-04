@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import struct
+import tempfile
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -1183,6 +1184,105 @@ class ModernWowSetupTool(WowSetupTool):
                 except OSError:
                     pass
 
+    def _run_vanilla_tweaks_transactional(
+        self,
+        target,
+        tweaks_exe,
+        modern_cli=True,
+    ):
+        """Patch, normalize and validate away from the live executable, then commit once."""
+        wow_exe = os.path.join(target, "WoW.exe")
+        output_exe = os.path.join(target, "WoW_Modernized.exe")
+        final_staged = output_exe + ".modernization-new"
+
+        if not os.path.isfile(wow_exe):
+            raise RuntimeError("WoW.exe is missing, so Vanilla Tweaks cannot be applied.")
+
+        try:
+            staging_root = tempfile.mkdtemp(
+                prefix=".modernization-vt-",
+                dir=target,
+            )
+        except OSError as exc:
+            raise RuntimeError(
+                "Could not create the temporary Vanilla Tweaks staging directory."
+            ) from exc
+
+        try:
+            staged_wow = os.path.join(staging_root, "WoW.exe")
+            try:
+                shutil.copy2(wow_exe, staged_wow)
+            except OSError as exc:
+                raise RuntimeError(
+                    "Could not stage WoW.exe for Vanilla Tweaks."
+                ) from exc
+
+            staged_output = super().run_vanilla_tweaks(
+                staging_root,
+                tweaks_exe=tweaks_exe,
+                modern_cli=modern_cli,
+            )
+
+            # The Tool-owned selections are normalized before the live executable
+            # is touched. Unknown patch signatures therefore fail with the old
+            # WoW_Modernized.exe still completely intact.
+            self._normalize_selected_vanilla_tweaks_output(staged_output)
+
+            valid_pe, reason = self._inspect_wow_executable(staged_output)
+            if not valid_pe:
+                raise RuntimeError(
+                    "Normalized Vanilla Tweaks output is not a valid WoW executable. "
+                    f"{reason}"
+                )
+            if os.path.getsize(staged_output) < 1024 * 1024:
+                raise RuntimeError(
+                    "Normalized Vanilla Tweaks output is unexpectedly small."
+                )
+
+            if os.path.exists(final_staged):
+                try:
+                    os.remove(final_staged)
+                except OSError as exc:
+                    raise RuntimeError(
+                        "Could not prepare the final Vanilla Tweaks staging path."
+                    ) from exc
+
+            try:
+                os.replace(staged_output, final_staged)
+            except OSError as exc:
+                raise RuntimeError(
+                    "Could not move the validated Vanilla Tweaks output into final staging."
+                ) from exc
+
+            # Revalidate at the exact same-directory staging path used for the
+            # final atomic replacement. This is the last gate before commit.
+            valid_pe, reason = self._inspect_wow_executable(final_staged)
+            if not valid_pe:
+                raise RuntimeError(
+                    "Final staged Vanilla Tweaks output is not a valid WoW executable. "
+                    f"{reason}"
+                )
+            if os.path.getsize(final_staged) < 1024 * 1024:
+                raise RuntimeError(
+                    "Final staged Vanilla Tweaks output is unexpectedly small."
+                )
+
+            try:
+                os.replace(final_staged, output_exe)
+            except OSError as exc:
+                raise RuntimeError(
+                    "Could not replace WoW_Modernized.exe with the validated staged output."
+                ) from exc
+
+            return output_exe
+        finally:
+            if os.path.exists(final_staged):
+                try:
+                    os.remove(final_staged)
+                except OSError:
+                    pass
+            shutil.rmtree(staging_root, ignore_errors=True)
+
     def _vanilla_tweaks_marker_path(self, target):
         return os.path.join(
             target,
@@ -1228,11 +1328,6 @@ class ModernWowSetupTool(WowSetupTool):
             raise RuntimeError(
                 "Cannot record vanilla-tweaks state because a required WoW executable is missing."
             )
-
-        # tubtubs/vanilla-tweaks deliberately leaves opt-in patches unchanged
-        # when they are disabled. Normalize the four user-facing selections so
-        # an already-patched WoW.exe cannot silently override the Tool settings.
-        self._normalize_selected_vanilla_tweaks_output(output_exe)
 
         marker_path = self._vanilla_tweaks_marker_path(target)
         os.makedirs(os.path.dirname(marker_path), exist_ok=True)
@@ -1338,7 +1433,7 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Details: {exc}",
             )
 
-            result = super().run_vanilla_tweaks(
+            result = self._run_vanilla_tweaks_transactional(
                 target,
                 tweaks_exe=bundled_exe,
                 modern_cli=True,
@@ -1412,7 +1507,7 @@ class ModernWowSetupTool(WowSetupTool):
                 f"Details: {exc}",
             )
 
-            result = super().run_vanilla_tweaks(
+            result = self._run_vanilla_tweaks_transactional(
                 target,
                 tweaks_exe=bundled_exe,
                 modern_cli=True,
@@ -1431,7 +1526,7 @@ class ModernWowSetupTool(WowSetupTool):
                 None,
                 None,
             )
-            result = super().run_vanilla_tweaks(
+            result = self._run_vanilla_tweaks_transactional(
                 target,
                 tweaks_exe=tweaks_exe,
                 modern_cli=True,
