@@ -20,6 +20,7 @@ This update focuses on **better compatibility, safer WoW.exe patching and improv
 
 ## 🛡️ Reliability
 
+- DXVK exclusive fullscreen is now disabled by default to avoid black screens during Alt+Tab on Windows.
 - Expanded automated tests for installation ordering, recovery and executable patching.
 - Improved rollback behavior to reduce the risk of partial installations.
 
