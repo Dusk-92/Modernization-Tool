@@ -1,5 +1,7 @@
 import math
 import os
+import re
+import stat
 import struct
 import sys
 import tkinter as tk
@@ -482,6 +484,80 @@ class ModernWowSetupTool(_ModernWowSetupToolCore):
             return super().configure_visual_audio(target)
         finally:
             _restore_mpq_runtime_hooks(originals)
+
+    def _configure_superwow_fov_cvar(self, target):
+        """Keep SuperWoW's FoV CVar aligned with the Tool-selected FoV."""
+        superwow = self.core_plugins.get("SuperWoWhook.dll")
+        if superwow is None or not superwow.get():
+            return
+
+        try:
+            fov = float(self.vt_fov.get())
+        except (TypeError, ValueError, tk.TclError) as exc:
+            raise RuntimeError("Field of View is not a valid numeric value.") from exc
+        if not math.isfinite(fov) or not 0.5 <= fov <= 3.5:
+            raise RuntimeError(
+                "Field of View value is outside the supported WoW 1.12.1 range."
+            )
+
+        wtf_dir = os.path.join(target, "WTF")
+        config_path = os.path.join(wtf_dir, "Config.wtf")
+        original_mode = None
+        restore_readonly = False
+        staged = config_path + ".modernization-fov"
+
+        try:
+            os.makedirs(wtf_dir, exist_ok=True)
+
+            if os.path.exists(config_path):
+                original_mode = os.stat(config_path).st_mode
+                if not (original_mode & stat.S_IWRITE):
+                    os.chmod(config_path, original_mode | stat.S_IWRITE)
+                    restore_readonly = True
+
+            existing = ""
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8", errors="ignore") as handle:
+                    existing = handle.read()
+
+            setting = f'SET FoV "{format(fov, ".9g")}"'
+            pattern = re.compile(
+                r'^\s*SET\s+FoV\s+"[^"]*"\s*$',
+                re.IGNORECASE | re.MULTILINE,
+            )
+            if pattern.search(existing):
+                updated = pattern.sub(setting, existing)
+            else:
+                if existing and not existing.endswith(("\n", "\r")):
+                    existing += "\n"
+                updated = existing + setting + "\n"
+
+            with open(staged, "w", encoding="utf-8", newline="") as handle:
+                handle.write(updated)
+            os.replace(staged, config_path)
+
+        except PermissionError as exc:
+            raise RuntimeError(
+                "Windows denied access to WTF\\Config.wtf while synchronizing "
+                "the SuperWoW FoV. Close WoW and any program using the file, "
+                "then try again."
+            ) from exc
+        finally:
+            if os.path.exists(staged):
+                try:
+                    os.remove(staged)
+                except OSError:
+                    pass
+            if restore_readonly and original_mode is not None and os.path.exists(config_path):
+                try:
+                    os.chmod(config_path, original_mode)
+                except OSError:
+                    pass
+
+    def configure_script_memory(self, target):
+        """Apply base Config.wtf settings, then synchronize SuperWoW FoV."""
+        super().configure_script_memory(target)
+        self._configure_superwow_fov_cvar(target)
 
     def run_installation(self):
         """Run the EXE patch transaction before the installer's first file write.
