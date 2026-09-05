@@ -9,6 +9,7 @@ This update focuses on **better compatibility, safer WoW.exe patching and improv
 - Vanilla Tweaks now runs before other installation changes.
 - Improved support for already-patched clients while preserving client-specific loader code.
 - Removed overly strict build/version checks that could reject compatible clients.
+- SuperWoW now uses the same FoV selected by the Modernization Tool by synchronizing the `FoV` CVar in `WTF/Config.wtf`.
 
 ## 🎨 MPQ & Recovery
 
